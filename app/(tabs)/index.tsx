@@ -15,8 +15,10 @@ import {
   RefreshCw,
   Repeat2,
   Timer,
+  TrendingDown,
+  TrendingUp,
 } from "lucide-react-native";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -37,40 +39,54 @@ const { width: W } = Dimensions.get("window");
 
 // ─────────────────────────────────────────────
 // Helper: Mapping Icon Lokal
-// Karena React Native require() harus statis, kita map manual di sini
 // ─────────────────────────────────────────────
 const LOCAL_ICON_MAP: Record<string, any> = {
-  "ethereum-mainnet": require("../../assets/chains/eth.png"), // Pastikan path ini benar sesuai struktur folder Anda
-  // Jika Anda punya bdag.png, tambahkan di sini:
+  "ethereum-mainnet": require("../../assets/chains/eth.png"),
   "blockdag-mainnet": require("../../assets/chains/bdag.png"),
 };
 
-// Komponen Icon Chain yang Robust
+// ─────────────────────────────────────────────
+// CoinGecko ID Mapping
+// ─────────────────────────────────────────────
+const COINGECKO_IDS: Record<string, string> = {
+  "ethereum-mainnet": "ethereum",
+  "blockdag-mainnet": "blockdag",
+};
+
+// ─────────────────────────────────────────────
+// Price Data Interface
+// ─────────────────────────────────────────────
+interface PriceData {
+  price: number;
+  change24h: number;
+  lastUpdated: number;
+}
+
+// ─────────────────────────────────────────────
+// Komponen Icon Chain
+// ─────────────────────────────────────────────
 function ChainIcon({ chainId, symbol }: { chainId: string; symbol: string }) {
   const source = LOCAL_ICON_MAP[chainId];
 
-  // 1. Jika ada mapping file lokal (PNG/JPG), gunakan Image
   if (source) {
     return (
       <View style={[styles.assetIcon, { backgroundColor: "#fff" }]}>
         <Image
           source={source}
-          style={{ width: 46, height: 46, resizeMode: "contain" }}
+          style={{ width: 40, height: 40, resizeMode: "contain" }}
         />
       </View>
     );
   }
 
-  // 2. Jika tidak ada (misal SVG atau belum di-map), gunakan Fallback UI
-  // Kita buat lingkaran berwarna dengan inisial token
-  let bgColor = "#627EEA18"; // Default ETH Blue
+  let bgColor = "#627EEA18";
   let textColor = "#627EEA";
   let initial = symbol.charAt(0);
 
   if (symbol.includes("BDAG")) {
-    bgColor = "#F59E0B18"; // Orange/Gold
+    bgColor = "#F59E0B18";
     textColor = "#F59E0B";
-    initial = "BD"; // BlockDAG
+    initial = "BD";
   } else if (symbol.includes("BTC")) {
     bgColor = "#F7931A18";
     textColor = "#F7931A";
@@ -86,22 +102,21 @@ function ChainIcon({ chainId, symbol }: { chainId: string; symbol: string }) {
 }
 
 // ─────────────────────────────────────────────
-// Quick Action Button
+// Quick Action Button (Lingkaran saja, tanpa container)
 // ─────────────────────────────────────────────
 function QuickAction({
   label,
   Icon,
-  accent,
   onPress,
   theme,
 }: {
   label: string;
   Icon: any;
-  accent: string;
   onPress: () => void;
   theme: any;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
+
   const handlePress = () => {
     Animated.sequence([
       Animated.timing(scale, {
@@ -117,27 +132,108 @@ function QuickAction({
     ]).start();
     onPress();
   };
+
   return (
     <TouchableOpacity
       onPress={handlePress}
-      activeOpacity={1}
+      activeOpacity={0.8}
       style={styles.qaWrap}
     >
       <Animated.View
         style={[
           styles.qaBtn,
           {
-            backgroundColor: accent + "18",
+            backgroundColor: theme.primary,
             transform: [{ scale }],
           },
         ]}
       >
-        <Icon size={22} color={accent} strokeWidth={2} />
+        <Icon size={22} color="#fff" strokeWidth={2} />
       </Animated.View>
       <Text style={[styles.qaLabel, { color: theme.textSecondary }]}>
         {label}
       </Text>
     </TouchableOpacity>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Price Indicator Component
+// ─────────────────────────────────────────────
+function PriceIndicator({ data }: { data: PriceData }) {
+  const isUp = data.change24h >= 0;
+  const color = isUp ? "#22C55E" : "#EF4444";
+
+  const formatPrice = (price: number) => {
+    if (price < 0.01) return `$${price.toFixed(6)}`;
+    if (price < 1) return `$${price.toFixed(4)}`;
+    return `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  return (
+    <View style={styles.priceIndicator}>
+      <Text style={[styles.priceText, { color }]}>
+        {formatPrice(data.price)}
+      </Text>
+      <View style={[styles.changeBadge, { backgroundColor: color + "15" }]}>
+        {isUp ? (
+          <TrendingUp size={10} color={color} strokeWidth={2.5} />
+        ) : (
+          <TrendingDown size={10} color={color} strokeWidth={2.5} />
+        )}
+        <Text style={[styles.changeText, { color }]}>
+          {isUp ? "+" : ""}
+          {data.change24h.toFixed(2)}%
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Balance Shimmer Animation
+// ─────────────────────────────────────────────
+function BalanceShimmer({ theme }: { theme: any }) {
+  const shimmer = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmer, {
+          toValue: 0,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  const translateX = shimmer.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-W, W],
+  });
+
+  return (
+    <View
+      style={[styles.shimmerContainer, { backgroundColor: theme.card + "40" }]}
+    >
+      <Animated.View
+        style={[
+          styles.shimmer,
+          {
+            transform: [{ translateX }],
+            backgroundColor: theme.primary + "20",
+          },
+        ]}
+      />
+    </View>
   );
 }
 
@@ -148,23 +244,45 @@ export default function HomeScreen() {
   const { walletAddress, isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  // State untuk mengelola saldo multiple chain
   const [balances, setBalances] = useState<Record<string, string>>({});
-
-  // Default active chain
+  const [prices, setPrices] = useState<Record<string, PriceData>>({});
   const [activeChainId, setActiveChainId] =
     useState<ChainId>("ethereum-mainnet");
-
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Ambil config chain yang aktif saat ini
   const activeChainConfig =
     SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
   const currentBalance = balances[activeChainId] || "0.0000";
 
-  // Fungsi fetch balance untuk SEMUA chain yang didukung
+  // ── Fetch Real-time Prices from CoinGecko ──
+  const fetchPrices = useCallback(async () => {
+    try {
+      const ids = Object.values(COINGECKO_IDS).join(",");
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
+      );
+      const data = await response.json();
+
+      const newPrices: Record<string, PriceData> = {};
+      Object.entries(COINGECKO_IDS).forEach(([chainId, cgId]) => {
+        if (data[cgId]) {
+          newPrices[chainId] = {
+            price: data[cgId].usd,
+            change24h: data[cgId].usd_24h_change || 0,
+            lastUpdated: Date.now(),
+          };
+        }
+      });
+
+      setPrices(newPrices);
+    } catch (error) {
+      console.warn("Failed to fetch prices:", error);
+    }
+  }, []);
+
+  // ── Fetch Balances from RPC ──
   const fetchAllBalances = useCallback(async () => {
     if (!walletAddress) return;
 
@@ -197,16 +315,27 @@ export default function HomeScreen() {
     }
   }, [walletAddress]);
 
+  // ── Combined Fetch ──
+  const fetchAllData = useCallback(async () => {
+    await Promise.all([fetchPrices(), fetchAllBalances()]);
+  }, [fetchPrices, fetchAllBalances]);
+
   // Load data saat screen fokus
   useFocusEffect(
     useCallback(() => {
-      fetchAllBalances();
-    }, [fetchAllBalances]),
+      fetchAllData();
+    }, [fetchAllData]),
   );
+
+  // Auto-refresh prices every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(fetchPrices, 30000);
+    return () => clearInterval(interval);
+  }, [fetchPrices]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchAllBalances();
+    fetchAllData();
   };
 
   const copyToClipboard = async () => {
@@ -234,10 +363,10 @@ export default function HomeScreen() {
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       {/* ── Fixed Header ── */}
       <HomeHeader
-        onNotifPress={() => router.push("/notifications")}
+        onSettingsPress={() => router.push("/settings")}
         onScanPress={() => router.push("/scan")}
-        hasNotif={true}
       />
+
       <ScrollView
         style={{ flex: 1, backgroundColor: theme.background }}
         contentContainerStyle={styles.scroll}
@@ -250,100 +379,96 @@ export default function HomeScreen() {
           />
         }
       >
-        {/* ── Balance Card ── */}
-        <View style={[styles.balanceCard, { backgroundColor: theme.primary }]}>
-          {/* Decorative circles */}
-          <View style={styles.decCircle1} />
-          <View style={styles.decCircle2} />
+        {/* ── Balance Section (Tanpa Container Card) ── */}
+        <View style={styles.balanceSection}>
+          <View style={styles.balanceTopRow}>
+            <View>
+              <Text style={[styles.balLabel, { color: theme.textSecondary }]}>
+                Total Balance
+              </Text>
+              {isLoading && !refreshing ? (
+                <BalanceShimmer theme={theme} />
+              ) : (
+                <Text style={[styles.balAmount, { color: theme.text }]}>
+                  {currentBalance}
+                </Text>
+              )}
+              <Text style={[styles.balUnit, { color: theme.textSecondary }]}>
+                {activeChainConfig.symbol}
+              </Text>
+            </View>
 
-          {/* Network badge inside card - DINAMIS */}
-          <View style={styles.netBadgeInCard}>
-            <View style={styles.netDot} />
-            <Text style={styles.netText}>{activeChainConfig.name}</Text>
+            {/* Network Badge */}
+            <View
+              style={[
+                styles.netBadge,
+                { backgroundColor: theme.primary + "15" },
+              ]}
+            >
+              <View
+                style={[styles.netDot, { backgroundColor: theme.primary }]}
+              />
+              <Text style={[styles.netText, { color: theme.primary }]}>
+                {activeChainConfig.name}
+              </Text>
+            </View>
           </View>
 
-          <Text style={styles.balCardLabel}>Total Balance</Text>
-
-          {isLoading && !refreshing ? (
-            <ActivityIndicator
-              size="large"
-              color="#fff"
-              style={{ marginVertical: 16 }}
-            />
-          ) : (
-            <>
-              <Text style={styles.balAmount}>{currentBalance}</Text>
-              <Text style={styles.balUnit}>{activeChainConfig.symbol}</Text>
-              <Text style={styles.balFiat}>≈ $0.00 USD</Text>
-            </>
-          )}
-
-          {/* Bottom row: address + refresh */}
-          <View style={styles.cardBottomRow}>
+          {/* Address & Refresh Row */}
+          <View style={styles.addrRow}>
             <TouchableOpacity
-              style={styles.addrPill}
+              style={[styles.addrPill, { backgroundColor: theme.card }]}
               onPress={copyToClipboard}
               activeOpacity={0.8}
             >
               {copied ? (
-                <Check size={13} color="#fff" strokeWidth={2.5} />
+                <Check size={13} color={theme.primary} strokeWidth={2.5} />
               ) : (
-                <Copy size={13} color="rgba(255,255,255,0.7)" strokeWidth={2} />
+                <Copy size={13} color={theme.textSecondary} strokeWidth={2} />
               )}
-              <Text style={styles.addrPillText}>
+              <Text style={[styles.addrPillText, { color: theme.text }]}>
                 {copied ? "Tersalin!" : shortAddr}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.refreshBtn}
-              onPress={fetchAllBalances}
+              style={[styles.refreshBtn, { backgroundColor: theme.card }]}
+              onPress={fetchAllData}
               activeOpacity={0.8}
             >
-              <RefreshCw
-                size={14}
-                color="rgba(255,255,255,0.8)"
-                strokeWidth={2.2}
-              />
+              <RefreshCw size={14} color={theme.primary} strokeWidth={2.2} />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* ── Quick Actions ── */}
-        <View
-          style={[
-            styles.qaCard,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-        >
+        {/* ── Quick Actions (Tanpa Container) ── */}
+        <View style={styles.qaRow}>
           <QuickAction
             label="Kirim"
             Icon={ArrowUpRight}
-            accent="#EF4444"
-            onPress={() => router.push("/send")}
+            onPress={() =>
+              router.push({
+                pathname: "/send",
+                params: { chainId: activeChainId },
+              })
+            }
             theme={theme}
           />
-          <View style={[styles.qaDivider, { backgroundColor: theme.border }]} />
           <QuickAction
             label="Terima"
             Icon={ArrowDownLeft}
-            accent="#22C55E"
             onPress={() => router.push("/receive")}
             theme={theme}
           />
-          <View style={[styles.qaDivider, { backgroundColor: theme.border }]} />
           <QuickAction
             label="Swap"
             Icon={Repeat2}
-            accent="#3B82F6"
             onPress={() => {}}
             theme={theme}
           />
-          <View style={[styles.qaDivider, { backgroundColor: theme.border }]} />
           <QuickAction
             label="Riwayat"
             Icon={Timer}
-            accent="#A855F7"
             onPress={() => {}}
             theme={theme}
           />
@@ -359,10 +484,11 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Render Asset List Dinamis berdasarkan SUPPORTED_CHAINS */}
+        {/* ── Token List (Tanpa Container Card) ── */}
         {SUPPORTED_CHAINS.map((chain) => {
           const bal = balances[chain.id] || "0.0000";
           const isActive = chain.id === activeChainId;
+          const priceData = prices[chain.id];
 
           return (
             <TouchableOpacity
@@ -370,15 +496,10 @@ export default function HomeScreen() {
               activeOpacity={0.7}
               onPress={() => setActiveChainId(chain.id as ChainId)}
               style={[
-                styles.assetCard,
-                {
-                  backgroundColor: theme.card,
-                  borderColor: isActive ? theme.primary : theme.border,
-                  borderWidth: isActive ? 2 : 1,
-                },
+                styles.assetRow,
+                isActive && { backgroundColor: theme.primary + "08" },
               ]}
             >
-              {/* Gunakan Komponen ChainIcon Custom */}
               <ChainIcon chainId={chain.id} symbol={chain.symbol} />
 
               <View style={styles.assetInfo}>
@@ -386,26 +507,21 @@ export default function HomeScreen() {
                   {chain.name.split(" ")[0]}
                 </Text>
                 <Text style={[styles.assetSub, { color: theme.textSecondary }]}>
-                  {chain.symbol} •{" "}
-                  {chain.name.includes("Mainnet") ? "Mainnet" : "Testnet"}
+                  {bal} {chain.symbol}
                 </Text>
               </View>
 
               <View style={styles.assetRight}>
-                <Text style={[styles.assetBal, { color: theme.text }]}>
-                  {bal} {chain.symbol}
-                </Text>
-                <Text
-                  style={[styles.assetFiat, { color: theme.textSecondary }]}
-                >
-                  $0.00
-                </Text>
+                {priceData ? (
+                  <PriceIndicator data={priceData} />
+                ) : (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                )}
               </View>
             </TouchableOpacity>
           );
         })}
 
-        {/* ✅ Tambah padding bottom biar tidak ketutup tab bar */}
         <View style={{ height: 120 }} />
       </ScrollView>
     </View>
@@ -423,98 +539,67 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // Balance card
-  balanceCard: {
-    borderRadius: 28,
-    padding: 24,
-    marginBottom: 16,
-    overflow: "hidden",
-    position: "relative",
+
+  // ── Balance Section (Tanpa Container) ──
+  balanceSection: {
+    marginBottom: 24,
+    paddingTop: 8,
   },
-  decCircle1: {
-    position: "absolute",
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    top: -70,
-    right: -50,
-  },
-  decCircle2: {
-    position: "absolute",
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    bottom: -40,
-    left: -20,
-  },
-  // Network badge inside card
-  netBadgeInCard: {
+  balanceTopRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderRadius: 99,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    marginBottom: 20,
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 16,
   },
-  netDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "#4ADE80",
-  },
-  netText: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-  balCardLabel: {
-    color: "rgba(255,255,255,0.6)",
+  balLabel: {
     fontSize: 13,
     fontWeight: "500",
     letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  balAmount: {
-    color: "#fff",
-    fontSize: 46,
-    fontWeight: "800",
-    letterSpacing: -1.5,
-    lineHeight: 54,
-  },
-  balUnit: {
-    color: "rgba(255,255,255,0.65)",
-    fontSize: 17,
-    fontWeight: "600",
     marginBottom: 4,
   },
-  balFiat: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 14,
-    marginBottom: 24,
+  balAmount: {
+    fontSize: 42,
+    fontWeight: "600",
+    letterSpacing: -1.2,
+    lineHeight: 50,
   },
-  // Card bottom row
-  cardBottomRow: {
+  balUnit: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  netBadge: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 6,
+    borderRadius: 99,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  netDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  netText: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  addrRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   addrPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    backgroundColor: "rgba(255,255,255,0.15)",
     borderRadius: 99,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   addrPillText: {
-    color: "#fff",
     fontSize: 13,
     fontWeight: "600",
     letterSpacing: 0.3,
@@ -523,42 +608,52 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
-  // Quick actions
-  qaCard: {
+
+  // ── Shimmer ──
+  shimmerContainer: {
+    height: 50,
+    width: 180,
+    borderRadius: 8,
+    overflow: "hidden",
+    marginVertical: 4,
+  },
+  shimmer: {
+    width: "100%",
+    height: "100%",
+  },
+
+  // ── Quick Actions (Tanpa Container) ──
+  qaRow: {
     flexDirection: "row",
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingVertical: 20,
-    paddingHorizontal: 8,
+    justifyContent: "space-around",
     marginBottom: 28,
-    alignItems: "center",
+    paddingHorizontal: 8,
   },
   qaWrap: {
-    flex: 1,
     alignItems: "center",
     gap: 8,
   },
   qaBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 99,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
   },
   qaLabel: {
     fontSize: 12,
     fontWeight: "600",
   },
-  qaDivider: {
-    width: 1,
-    height: 40,
-    borderRadius: 1,
-  },
-  // Section header
+
+  // ── Section Header ──
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -574,55 +669,60 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  // Asset card
-  assetCard: {
+
+  // ── Asset Row (Tanpa Container Card) ──
+  assetRow: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    marginBottom: 10,
-    gap: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0,0,0,0.04)",
   },
   assetIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+    marginRight: 14,
   },
-  assetInfo: { flex: 1 },
+  assetInfo: {
+    flex: 1,
+  },
   assetName: {
     fontSize: 15,
     fontWeight: "700",
     marginBottom: 2,
   },
   assetSub: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "500",
   },
-  assetRight: { alignItems: "flex-end" },
-  assetBal: {
-    fontSize: 15,
+  assetRight: {
+    alignItems: "flex-end",
+  },
+
+  // ── Price Indicator ──
+  priceIndicator: {
+    alignItems: "flex-end",
+  },
+  priceText: {
+    fontSize: 14,
     fontWeight: "700",
     marginBottom: 2,
   },
-  assetFiat: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  // Empty hint
-  emptyHint: {
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderRadius: 16,
-    padding: 16,
+  changeBadge: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 3,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  emptyHintText: {
-    fontSize: 13,
-    fontWeight: "500",
-    textAlign: "center",
+  changeText: {
+    fontSize: 11,
+    fontWeight: "700",
   },
 });

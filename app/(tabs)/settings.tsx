@@ -267,8 +267,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: "800",
+    fontSize: 20,
+    fontWeight: "600",
   },
   section: {
     marginTop: 24,

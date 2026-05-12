@@ -1,5 +1,5 @@
 // components/HomeHeader.tsx
-import { Bell, ScanLine } from "lucide-react-native";
+import { ScanLine, Settings } from "lucide-react-native"; // ← Ganti Bell → Settings
 import React, { useRef } from "react";
 import {
   Animated,
@@ -13,35 +13,38 @@ import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
 interface HomeHeaderProps {
-  onNotifPress?: () => void;
+  onSettingsPress?: () => void; // ← Ganti onNotifPress → onSettingsPress
   onScanPress?: () => void;
-  hasNotif?: boolean;
 }
 
 export function HomeHeader({
-  onNotifPress,
+  onSettingsPress, // ← Ganti
   onScanPress,
-  hasNotif = false,
 }: HomeHeaderProps) {
+  // ← Hapus hasNotif
+
   const { isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
-  const notifScale = useRef(new Animated.Value(1)).current;
+  const settingsScale = useRef(new Animated.Value(1)).current; // ← Ganti notifScale → settingsScale
   const scanScale = useRef(new Animated.Value(1)).current;
 
-  const handleNotifPress = () => {
+  const handleSettingsPress = () => {
+    // ← Ganti handleNotifPress
     Animated.sequence([
-      Animated.timing(notifScale, {
+      Animated.timing(settingsScale, {
+        // ← Ganti
         toValue: 0.88,
         duration: 80,
         useNativeDriver: true,
       }),
-      Animated.timing(notifScale, {
+      Animated.timing(settingsScale, {
+        // ← Ganti
         toValue: 1,
         duration: 120,
         useNativeDriver: true,
       }),
     ]).start();
-    onNotifPress?.();
+    onSettingsPress?.(); // ← Ganti
   };
 
   const handleScanPress = () => {
@@ -88,19 +91,20 @@ export function HomeHeader({
           </Animated.View>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={handleNotifPress} activeOpacity={1}>
+        {/* Settings Button - Ganti dari Notif */}
+        <TouchableOpacity onPress={handleSettingsPress} activeOpacity={1}>
           <Animated.View
             style={[
               styles.iconBtn,
               {
                 backgroundColor: theme.card,
                 borderColor: theme.border,
-                transform: [{ scale: notifScale }],
+                transform: [{ scale: settingsScale }], // ← Ganti
               },
             ]}
           >
-            <Bell size={18} color={theme.text} strokeWidth={2} />
-            {hasNotif && <View style={styles.badge} />}
+            <Settings size={18} color={theme.text} strokeWidth={2} />
+            {/* Hapus badge notif */}
           </Animated.View>
         </TouchableOpacity>
       </View>
@@ -133,16 +137,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-  },
-  badge: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#EF4444",
-    borderWidth: 1.5,
-    borderColor: "#fff",
   },
 });

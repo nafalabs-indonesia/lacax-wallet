@@ -1,88 +1,103 @@
 // app/send.tsx
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { SUPPORTED_CHAINS } from "@/config/chains";
 import {
-    ArrowLeft,
-    ChevronDown,
-    QrCode,
-    SendHorizonal
+  BlockchainService,
+  ChainId,
+} from "@/services/blockchain/BlockchainService";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import {
+  ArrowLeft,
+  QrCode,
+  SendHorizonal
 } from "lucide-react-native";
 import React, { useCallback, useState } from "react";
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
-// Dummy data token
-const TOKENS = [
-  {
-    symbol: "ETH",
-    name: "Ethereum",
-    balance: "2.45",
-    usdValue: "$5,890.50",
-    icon: "⟠",
-    decimals: 18,
-  },
-  {
-    symbol: "USDC",
-    name: "USD Coin",
-    balance: "1,250.00",
-    usdValue: "$1,250.00",
-    icon: "○",
-    decimals: 6,
-  },
-  {
-    symbol: "USDT",
-    name: "Tether",
-    balance: "500.00",
-    usdValue: "$500.00",
-    icon: "○",
-    decimals: 6,
-  },
-];
-
+// Opsi Gas (Dummy untuk UI, karena estimasi gas real butuh logic kompleks)
 const GAS_OPTIONS = [
-  { label: "Lambat", time: "~10 menit", gwei: "12", usd: "$1.20" },
-  { label: "Standar", time: "~3 menit", gwei: "18", usd: "$2.40" },
-  { label: "Cepat", time: "~30 detik", gwei: "25", usd: "$4.10" },
+  { label: "Lambat", time: "~2 min", gwei: "12", usd: "$0.50" },
+  { label: "Standar", time: "~30 det", gwei: "18", usd: "$1.20" },
+  { label: "Cepat", time: "~15 det", gwei: "25", usd: "$2.50" },
 ];
 
 export default function SendScreen() {
   const router = useRouter();
-  const { to } = useLocalSearchParams<{ to?: string }>();
+  const { to, chainId } = useLocalSearchParams<{
+    to?: string;
+    chainId?: string;
+  }>();
+
   const { isDarkMode, walletAddress } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  const [selectedToken, setSelectedToken] = useState(TOKENS[0]);
+  // Default ke Ethereum jika tidak ada chainId yang dikirim
+  const activeChainId = (chainId as ChainId) || "ethereum-mainnet";
+  const activeChainConfig =
+    SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
+
+  // State
+  const [balance, setBalance] = useState<string>("0.0000");
   const [recipient, setRecipient] = useState(to || "");
   const [amount, setAmount] = useState("");
   const [selectedGas, setSelectedGas] = useState(1);
-  const [showTokenModal, setShowTokenModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingBalance, setIsFetchingBalance] = useState(true);
 
+  // Fetch Balance Real-time saat screen dibuka
+  const fetchBalance = useCallback(async () => {
+    if (!walletAddress) return;
+    setIsFetchingBalance(true);
+    try {
+      const bal = await BlockchainService.getBalance(
+        activeChainId,
+        walletAddress,
+      );
+      setBalance(bal);
+    } catch (error) {
+      console.error("Gagal ambil saldo di send screen:", error);
+      setBalance("0.0000");
+    } finally {
+      setIsFetchingBalance(false);
+    }
+  }, [walletAddress, activeChainId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchBalance();
+    }, [fetchBalance]),
+  );
+
+  // Validasi Alamat EVM Sederhana
   const isValidAddress = (addr: string) => /^0x[a-fA-F0-9]{40}$/.test(addr);
 
-  const maxAmount = parseFloat(selectedToken.balance.replace(/,/g, ""));
+  const maxAmount = parseFloat(balance);
 
   const handleMax = () => {
-    setAmount(selectedToken.balance.replace(/,/g, ""));
+    // Kurangi sedikit untuk biaya gas (estimasi kasar)
+    const maxVal = Math.max(0, maxAmount - 0.005);
+    setAmount(maxVal.toFixed(6));
   };
 
   const handleSend = useCallback(async () => {
     if (!isValidAddress(recipient)) {
-      Alert.alert("Error", "Alamat tidak valid");
+      Alert.alert("Error", "Alamat tujuan tidak valid (Format EVM 0x...)");
       return;
     }
     if (!amount || parseFloat(amount) <= 0) {
-      Alert.alert("Error", "Jumlah tidak valid");
+      Alert.alert("Error", "Jumlah harus lebih dari 0");
       return;
     }
     if (parseFloat(amount) > maxAmount) {
@@ -92,27 +107,27 @@ export default function SendScreen() {
 
     setIsLoading(true);
 
-    // Simulate send
+    // SIMULASI PROSES KIRIM
+    // Di implementasi nyata, di sini panggil BlockchainService.sendTransaction(...)
     setTimeout(() => {
       setIsLoading(false);
       Alert.alert(
-        "Berhasil!",
-        `Anda mengirim ${amount} ${selectedToken.symbol} ke ${recipient.slice(0, 6)}...${recipient.slice(-4)}`,
+        "Transaksi Berhasil!",
+        `Berhasil mengirim ${amount} ${activeChainConfig.symbol} ke:\n${recipient.slice(0, 6)}...${recipient.slice(-4)}`,
         [
           {
-            text: "OK",
-            onPress: () => router.back(),
+            text: "Lihat Riwayat",
+            onPress: () => router.replace("/(tabs)"), // Kembali ke home
           },
         ],
       );
-    }, 2000);
-  }, [recipient, amount, selectedToken, router, maxAmount]);
+    }, 2500);
+  }, [recipient, amount, maxAmount, activeChainConfig, router]);
 
-  const usdPerToken =
-    parseFloat(selectedToken.usdValue.replace(/[$,]/g, "")) /
-    parseFloat(selectedToken.balance.replace(/,/g, ""));
+  // Hitung estimasi USD (Dummy rate untuk contoh)
+  const pricePerToken = activeChainConfig.symbol === "ETH" ? 2400 : 0.05; // Harga dummy
   const usdAmount = amount
-    ? `$${(parseFloat(amount) * usdPerToken).toFixed(2)}`
+    ? `$${(parseFloat(amount) * pricePerToken).toFixed(2)}`
     : "$0.00";
 
   return (
@@ -122,10 +137,15 @@ export default function SendScreen() {
     >
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <ArrowLeft size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Kirim</Text>
+        <View style={styles.headerCenter}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Kirim</Text>
+          <View style={styles.chainBadge}>
+            <Text style={styles.chainBadgeText}>{activeChainConfig.name}</Text>
+          </View>
+        </View>
         <View style={{ width: 24 }} />
       </View>
 
@@ -133,97 +153,44 @@ export default function SendScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Token Selector */}
-        <TouchableOpacity
-          style={[
-            styles.tokenSelector,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-          onPress={() => setShowTokenModal(!showTokenModal)}
-        >
-          <View style={styles.tokenLeft}>
-            <Text style={styles.tokenIcon}>{selectedToken.icon}</Text>
-            <View>
-              <Text style={[styles.tokenSymbol, { color: theme.text }]}>
-                {selectedToken.symbol}
-              </Text>
-              <Text
-                style={[styles.tokenBalance, { color: theme.textSecondary }]}
-              >
-                {selectedToken.balance} {selectedToken.symbol}
-              </Text>
-            </View>
+        {/* Saldo Tersedia */}
+        <View style={styles.balanceContainer}>
+          <Text style={[styles.balanceLabel, { color: theme.textSecondary }]}>
+            Saldo Tersedia
+          </Text>
+          <View style={styles.balanceRow}>
+            {isFetchingBalance ? (
+              <ActivityIndicator size="small" color={theme.primary} />
+            ) : (
+              <>
+                <Text style={[styles.balanceValue, { color: theme.text }]}>
+                  {balance}
+                </Text>
+                <Text
+                  style={[styles.balanceSymbol, { color: theme.textSecondary }]}
+                >
+                  {activeChainConfig.symbol}
+                </Text>
+              </>
+            )}
           </View>
-          <ChevronDown size={20} color={theme.textSecondary} />
-        </TouchableOpacity>
+        </View>
 
-        {/* Token Modal */}
-        {showTokenModal && (
-          <View
-            style={[
-              styles.tokenModal,
-              { backgroundColor: theme.card, borderColor: theme.border },
-            ]}
-          >
-            {TOKENS.map((token) => (
-              <TouchableOpacity
-                key={token.symbol}
-                style={[
-                  styles.tokenOption,
-                  selectedToken.symbol === token.symbol && {
-                    backgroundColor: theme.primary + "15",
-                  },
-                ]}
-                onPress={() => {
-                  setSelectedToken(token);
-                  setShowTokenModal(false);
-                }}
-              >
-                <Text style={styles.tokenIcon}>{token.icon}</Text>
-                <View style={styles.tokenOptionInfo}>
-                  <Text
-                    style={[styles.tokenOptionSymbol, { color: theme.text }]}
-                  >
-                    {token.symbol}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.tokenOptionName,
-                      { color: theme.textSecondary },
-                    ]}
-                  >
-                    {token.name}
-                  </Text>
-                </View>
-                <View style={styles.tokenOptionRight}>
-                  <Text
-                    style={[styles.tokenOptionBalance, { color: theme.text }]}
-                  >
-                    {token.balance}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.tokenOptionUsd,
-                      { color: theme.textSecondary },
-                    ]}
-                  >
-                    {token.usdValue}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Recipient */}
+        {/* Recipient Address */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary }]}>
-            Kepada
+            Alamat Tujuan
           </Text>
           <View
             style={[
               styles.inputWrap,
-              { backgroundColor: theme.card, borderColor: theme.border },
+              {
+                backgroundColor: theme.card,
+                borderColor:
+                  recipient && !isValidAddress(recipient)
+                    ? "#EF4444"
+                    : theme.border,
+              },
             ]}
           >
             <TextInput
@@ -243,17 +210,17 @@ export default function SendScreen() {
             </TouchableOpacity>
           </View>
           {recipient && !isValidAddress(recipient) && (
-            <Text style={styles.errorText}>Alamat tidak valid</Text>
+            <Text style={styles.errorText}>Format alamat EVM tidak valid</Text>
           )}
         </View>
 
-        {/* Amount */}
+        {/* Amount Input */}
         <View style={styles.section}>
           <View style={styles.amountHeader}>
             <Text style={[styles.label, { color: theme.textSecondary }]}>
               Jumlah
             </Text>
-            <TouchableOpacity onPress={handleMax}>
+            <TouchableOpacity onPress={handleMax} disabled={isFetchingBalance}>
               <Text style={[styles.maxBtn, { color: theme.primary }]}>MAX</Text>
             </TouchableOpacity>
           </View>
@@ -272,18 +239,18 @@ export default function SendScreen() {
               keyboardType="decimal-pad"
             />
             <Text style={[styles.amountSymbol, { color: theme.textSecondary }]}>
-              {selectedToken.symbol}
+              {activeChainConfig.symbol}
             </Text>
           </View>
           <Text style={[styles.usdAmount, { color: theme.textSecondary }]}>
-            {usdAmount}
+            ≈ {usdAmount}
           </Text>
         </View>
 
-        {/* Gas Fee */}
+        {/* Gas Fee Selection */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary }]}>
-            Biaya Gas
+            Prioritas Gas
           </Text>
           <View style={styles.gasOptions}>
             {GAS_OPTIONS.map((gas, idx) => (
@@ -319,7 +286,7 @@ export default function SendScreen() {
           </View>
         </View>
 
-        {/* Summary */}
+        {/* Summary Transaction */}
         <View
           style={[
             styles.summary,
@@ -328,7 +295,15 @@ export default function SendScreen() {
         >
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>
-              Dari
+              Jaringan
+            </Text>
+            <Text style={[styles.summaryValue, { color: theme.text }]}>
+              {activeChainConfig.name}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>
+              Pengirim
             </Text>
             <Text style={[styles.summaryValue, { color: theme.text }]}>
               {walletAddress
@@ -338,7 +313,7 @@ export default function SendScreen() {
           </View>
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>
-              Biaya Gas
+              Estimasi Gas
             </Text>
             <Text style={[styles.summaryValue, { color: theme.text }]}>
               {GAS_OPTIONS[selectedGas].usd}
@@ -346,10 +321,10 @@ export default function SendScreen() {
           </View>
           <View style={[styles.summaryRow, styles.totalRow]}>
             <Text style={[styles.totalLabel, { color: theme.text }]}>
-              Total
+              Total Dikirim
             </Text>
             <Text style={[styles.totalValue, { color: theme.text }]}>
-              {amount ? `${amount} ${selectedToken.symbol}` : "-"}
+              {amount ? `${amount} ${activeChainConfig.symbol}` : "-"}
             </Text>
           </View>
         </View>
@@ -362,7 +337,10 @@ export default function SendScreen() {
             styles.sendBtn,
             {
               backgroundColor:
-                isValidAddress(recipient) && amount && parseFloat(amount) > 0
+                isValidAddress(recipient) &&
+                amount &&
+                parseFloat(amount) > 0 &&
+                !isLoading
                   ? theme.primary
                   : theme.border,
             },
@@ -371,11 +349,11 @@ export default function SendScreen() {
           disabled={!isValidAddress(recipient) || !amount || isLoading}
         >
           {isLoading ? (
-            <Text style={styles.sendBtnText}>Mengirim...</Text>
+            <ActivityIndicator color="#fff" />
           ) : (
             <>
               <SendHorizonal size={18} color="#fff" />
-              <Text style={styles.sendBtnText}>Kirim</Text>
+              <Text style={styles.sendBtnText}>Konfirmasi Kirim</Text>
             </>
           )}
         </TouchableOpacity>
@@ -397,71 +375,52 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: 1,
   },
+  backBtn: {
+    padding: 4,
+  },
+  headerCenter: {
+    alignItems: "center",
+  },
   headerTitle: {
     fontSize: 18,
     fontWeight: "700",
+  },
+  chainBadge: {
+    marginTop: 4,
+    backgroundColor: "rgba(128,128,128,0.1)",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  chainBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#888",
   },
   scrollContent: {
     padding: 20,
     gap: 24,
   },
-  tokenSelector: {
-    flexDirection: "row",
+  balanceContainer: {
     alignItems: "center",
-    justifyContent: "space-between",
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
+    marginBottom: 10,
   },
-  tokenLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  tokenIcon: {
-    fontSize: 24,
-  },
-  tokenSymbol: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  tokenBalance: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  tokenModal: {
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: "hidden",
-    marginTop: -8,
-  },
-  tokenOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    gap: 12,
-  },
-  tokenOptionInfo: {
-    flex: 1,
-  },
-  tokenOptionSymbol: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  tokenOptionName: {
-    fontSize: 13,
-    marginTop: 1,
-  },
-  tokenOptionRight: {
-    alignItems: "flex-end",
-  },
-  tokenOptionBalance: {
+  balanceLabel: {
     fontSize: 14,
-    fontWeight: "600",
+    marginBottom: 4,
   },
-  tokenOptionUsd: {
-    fontSize: 12,
-    marginTop: 2,
+  balanceRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+  },
+  balanceValue: {
+    fontSize: 32,
+    fontWeight: "800",
+  },
+  balanceSymbol: {
+    fontSize: 16,
+    fontWeight: "600",
   },
   section: {
     gap: 8,
