@@ -1,134 +1,1070 @@
 // app/(auth)/import.tsx
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import { ArrowLeft, Check, Delete } from "lucide-react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
+  Animated,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { Button } from "../../components/ui/Button";
+
 import { WalletRepository } from "../../modules/wallet/infrastructure/WalletRepository";
-import { KeyDerivationService } from "../../services/crypto/KeyDerivation";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
+
+type Step =
+  | "input-seed"
+  | "verify-seed"
+  | "create-pin"
+  | "confirm-pin"
+  | "loading"
+  | "success";
+
+const PIN_LENGTH = 6;
+const NUMPAD = [
+  ["1", "2", "3"],
+  ["4", "5", "6"],
+  ["7", "8", "9"],
+  ["", "0", "⌫"],
+];
 
 export default function ImportWalletScreen() {
   const router = useRouter();
   const { isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
+  // State Management
+  const [step, setStep] = useState<Step>("input-seed");
   const [mnemonic, setMnemonic] = useState("");
   const [pin, setPin] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
 
-  const handleImport = async () => {
+  // Verification State
+  const [verifyIndices, setVerifyIndices] = useState<number[]>([]);
+  const [selectedWords, setSelectedWords] = useState<string[]>([]);
+
+  // Refs
+  const isSubmitting = useRef(false);
+
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const dotScale = useRef(
+    Array.from({ length: PIN_LENGTH }, () => new Animated.Value(1)),
+  ).current;
+
+  // Success/Loading Animations
+  const successScale = useRef(new Animated.Value(0)).current;
+  const successCheckScale = useRef(new Animated.Value(0)).current;
+  const successOpacity = useRef(new Animated.Value(0)).current;
+  const spinAnim = useRef(new Animated.Value(0)).current;
+
+  // Entry Animation
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 380,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 80,
+        friction: 12,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  // Step Transition Animation
+  useEffect(() => {
+    if (
+      ["input-seed", "verify-seed", "create-pin", "confirm-pin"].includes(step)
+    ) {
+      fadeAnim.setValue(0);
+      slideAnim.setValue(30);
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 380,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          tension: 80,
+          friction: 12,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [step]);
+
+  // Generate random indices for verification when entering verify step
+  useEffect(() => {
+    if (step === "verify-seed") {
+      const words = mnemonic.trim().split(/\s+/);
+      const indices: number[] = [];
+      while (indices.length < 3) {
+        const r = Math.floor(Math.random() * words.length);
+        if (!indices.includes(r)) indices.push(r);
+      }
+      setVerifyIndices(indices.sort((a, b) => a - b));
+      setSelectedWords([]);
+      setError("");
+    }
+  }, [step, mnemonic]);
+
+  // --- Handlers ---
+
+  const handleNextToVerify = () => {
     setError("");
-    if (!KeyDerivationService.validateMnemonic(mnemonic.trim())) {
-      setError("Seed phrase tidak valid.");
+    const words = mnemonic.trim().split(/\s+/);
+
+    if (words.length < 12) {
+      setError("Seed phrase tidak valid. Minimal 12 kata.");
       return;
     }
-    if (pin.length !== 6) {
-      setError("PIN harus 6 digit.");
+    setStep("verify-seed");
+  };
+
+  const handleWordSelect = (word: string) => {
+    if (selectedWords.length < 3) {
+      setSelectedWords([...selectedWords, word]);
+    }
+  };
+
+  const handleRemoveWord = (index: number) => {
+    const newWords = [...selectedWords];
+    newWords.splice(index, 1);
+    setSelectedWords(newWords);
+  };
+
+  const handleVerifySubmit = () => {
+    if (selectedWords.length !== 3) {
+      setError("Lengkapi semua kata yang hilang.");
       return;
     }
 
-    setIsLoading(true);
-    try {
-      await WalletRepository.importWallet(mnemonic.trim(), pin);
-      router.replace("/(tabs)");
-    } catch (e) {
-      setError("Gagal mengimpor wallet.");
-    } finally {
-      setIsLoading(false);
+    const words = mnemonic.trim().split(/\s+/);
+    const isValid = verifyIndices.every((index, i) => {
+      return words[index].toLowerCase() === selectedWords[i].toLowerCase();
+    });
+
+    if (isValid) {
+      setStep("create-pin");
+    } else {
+      setError("Kata kunci salah. Coba lagi.");
+      setSelectedWords([]);
+      triggerShake();
     }
   };
+
+  const handleImportWallet = async (finalPin: string) => {
+    if (isSubmitting.current) return;
+    isSubmitting.current = true;
+
+    setStep("loading");
+    startSpin();
+
+    try {
+      await WalletRepository.importWallet(mnemonic.trim(), finalPin);
+
+      // Success Flow
+      spinAnim.stopAnimation();
+      setStep("success");
+
+      Animated.sequence([
+        Animated.spring(successScale, {
+          toValue: 1,
+          tension: 60,
+          friction: 8,
+          useNativeDriver: true,
+        }),
+        Animated.timing(successCheckScale, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(successOpacity, {
+          toValue: 1,
+          duration: 350,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setTimeout(() => {
+          router.replace("../(tabs)");
+        }, 1500);
+      });
+    } catch (e) {
+      console.error(e);
+      setError("Gagal mengimpor wallet. Cek seed phrase Anda.");
+      setStep("create-pin");
+      setPin("");
+      setConfirmPin("");
+    } finally {
+      isSubmitting.current = false;
+    }
+  };
+
+  // --- PIN Logic Helpers ---
+
+  const triggerShake = () => {
+    Animated.sequence([
+      Animated.timing(shakeAnim, {
+        toValue: 10,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: -10,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: 8,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: -8,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: 0,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const animateDot = (index: number) => {
+    Animated.sequence([
+      Animated.spring(dotScale[index], {
+        toValue: 1.4,
+        tension: 200,
+        friction: 5,
+        useNativeDriver: true,
+      }),
+      Animated.spring(dotScale[index], {
+        toValue: 1,
+        tension: 200,
+        friction: 5,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const startSpin = () => {
+    spinAnim.setValue(0);
+    Animated.loop(
+      Animated.timing(spinAnim, {
+        toValue: 1,
+        duration: 900,
+        useNativeDriver: true,
+      }),
+    ).start();
+  };
+
+  const handleNumpadPress = (val: string) => {
+    if (val === "") return;
+
+    const isCreate = step === "create-pin";
+    const current = isCreate ? pin : confirmPin;
+    const setter = isCreate ? setPin : setConfirmPin;
+
+    if (val === "⌫") {
+      if (current.length > 0) setter(current.slice(0, -1));
+      return;
+    }
+
+    if (current.length >= PIN_LENGTH) return;
+
+    const next = current + val;
+    setter(next);
+    animateDot(current.length);
+
+    if (next.length === PIN_LENGTH) {
+      if (isCreate) {
+        setTimeout(() => setStep("confirm-pin"), 300);
+      } else {
+        setTimeout(() => {
+          if (next === pin) {
+            handleImportWallet(next);
+          } else {
+            triggerShake();
+            setTimeout(() => {
+              setConfirmPin("");
+              setError("PIN tidak cocok");
+            }, 500);
+          }
+        }, 300);
+      }
+    }
+  };
+
+  // --- Render Helpers ---
+  const isCreatePin = step === "create-pin";
+  const isConfirmPin = step === "confirm-pin";
+  const isSuccess = step === "success";
+  const isLoading = step === "loading";
+  const isVerifySeed = step === "verify-seed";
+  const currentPin = isCreatePin ? pin : confirmPin;
+
+  // Get available words for verification selection (excluding already selected ones if needed,
+  // but usually we show all words or a subset. Here we show all words from mnemonic for simplicity)
+  const availableWords = useMemo(() => {
+    return mnemonic.trim().split(/\s+/);
+  }, [mnemonic]);
 
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.background }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={[styles.title, { color: theme.text }]}>Impor Wallet</Text>
-        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Masukkan 12 kata seed phrase Anda.
-        </Text>
+      <ScrollView
+        contentContainerStyle={[
+          styles.container,
+          { backgroundColor: theme.background },
+        ]}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={
+          !isCreatePin &&
+          !isConfirmPin &&
+          !isSuccess &&
+          !isLoading &&
+          !isVerifySeed
+        }
+      >
+        {/* HEADER */}
+        {!isSuccess && !isLoading && (
+          <Animated.View
+            style={[
+              styles.headerWrapper,
+              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+            ]}
+          >
+            <View style={styles.header}>
+              <TouchableOpacity
+                onPress={() => {
+                  if (step === "create-pin" || step === "confirm-pin") {
+                    setStep("verify-seed");
+                    setPin("");
+                    setConfirmPin("");
+                  } else if (step === "verify-seed") {
+                    setStep("input-seed");
+                    setSelectedWords([]);
+                  } else {
+                    router.back();
+                  }
+                }}
+                style={[styles.iconBtn, { borderColor: theme.border }]}
+              >
+                <ArrowLeft size={20} color={theme.text} />
+              </TouchableOpacity>
+              <Text style={[styles.headerTitle, { color: theme.text }]}>
+                {isCreatePin || isConfirmPin
+                  ? "Buat PIN"
+                  : isVerifySeed
+                    ? "Verifikasi"
+                    : "Impor Wallet"}
+              </Text>
+              <View style={{ width: 44 }} />
+            </View>
 
-        <TextInput
-          style={[
-            styles.input,
-            {
-              backgroundColor: theme.card,
-              color: theme.text,
-              borderColor: theme.border,
-            },
-          ]}
-          placeholder="Enter seed phrase..."
-          placeholderTextColor={theme.textSecondary}
-          multiline
-          numberOfLines={4}
-          value={mnemonic}
-          onChangeText={setMnemonic}
-          autoCapitalize="none"
-        />
+            {/* Dynamic Title/Desc */}
+            {step === "input-seed" && (
+              <View style={styles.introContent}>
+                <Text style={[styles.title, { color: theme.text }]}>
+                  Pulihkan Aset
+                </Text>
+                <Text style={[styles.desc, { color: theme.textSecondary }]}>
+                  Masukkan frasa pemulihan (seed phrase) untuk mengakses kembali
+                  wallet Anda.
+                </Text>
+              </View>
+            )}
 
-        <Text style={[styles.label, { color: theme.text }]}>
-          Buat PIN Keamanan
-        </Text>
-        <TextInput
-          style={[
-            styles.input,
-            {
-              backgroundColor: theme.card,
-              color: theme.text,
-              borderColor: theme.border,
-            },
-          ]}
-          placeholder="******"
-          placeholderTextColor={theme.textSecondary}
-          secureTextEntry
-          keyboardType="numeric"
-          maxLength={6}
-          value={pin}
-          onChangeText={setPin}
-        />
+            {step === "verify-seed" && (
+              <View style={styles.introContent}>
+                <Text style={[styles.title, { color: theme.text }]}>
+                  Verifikasi Seed
+                </Text>
+                <Text style={[styles.desc, { color: theme.textSecondary }]}>
+                  Pilih kata yang sesuai dengan nomor urut di bawah ini untuk
+                  memastikan Anda telah menyimpannya dengan benar.
+                </Text>
+              </View>
+            )}
+          </Animated.View>
+        )}
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {/* ─── STEP: INPUT SEED ─── */}
+        {step === "input-seed" && (
+          <Animated.View
+            style={[
+              styles.content,
+              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+            ]}
+          >
+            <View
+              style={[
+                styles.inputCard,
+                { backgroundColor: theme.card, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.label, { color: theme.textSecondary }]}>
+                Seed Phrase (12/24 Kata)
+              </Text>
+              <TextInput
+                style={[styles.textArea, { color: theme.text }]}
+                placeholder="example word another word..."
+                placeholderTextColor={theme.textSecondary + "80"}
+                multiline
+                numberOfLines={6}
+                value={mnemonic}
+                onChangeText={(t) => {
+                  setMnemonic(t);
+                  if (error) setError("");
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+              />
+            </View>
 
-        <Button
-          title={isLoading ? "Mengimpor..." : "Impor Wallet"}
-          onPress={handleImport}
-          disabled={isLoading}
-          style={{ marginTop: 20 }}
-        />
+            {error ? (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
 
-        <Button
-          title="Kembali"
-          variant="ghost"
-          onPress={() => router.back()}
-          style={{ marginTop: 10 }}
-        />
+            <TouchableOpacity
+              style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
+              onPress={handleNextToVerify}
+            >
+              <Text style={styles.primaryBtnText}>Lanjut</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+
+        {/* ─── STEP: VERIFY SEED ─── */}
+        {isVerifySeed && (
+          <Animated.View
+            style={[
+              styles.content,
+              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+            ]}
+          >
+            {/* Slots for answers */}
+            <View style={styles.verifySlotsContainer}>
+              {verifyIndices.map((index, i) => (
+                <View key={i} style={styles.verifySlotWrapper}>
+                  <Text
+                    style={[styles.verifyLabel, { color: theme.textSecondary }]}
+                  >
+                    Kata #{index + 1}
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.verifySlot,
+                      {
+                        backgroundColor: theme.card,
+                        borderColor: selectedWords[i]
+                          ? theme.primary
+                          : theme.border,
+                      },
+                    ]}
+                    onPress={() => {
+                      // Optional: allow removing by clicking
+                      if (selectedWords[i]) handleRemoveWord(i);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.verifySlotText,
+                        {
+                          color: selectedWords[i]
+                            ? theme.text
+                            : theme.textSecondary,
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {selectedWords[i] || "Pilih Kata"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+
+            {error ? (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
+
+            {/* Word Selection Grid */}
+            <View style={styles.wordGrid}>
+              {availableWords.map((word, idx) => {
+                const isSelected = selectedWords.includes(word);
+                // Disable if already selected 3 words and this one isn't one of them
+                const isDisabled = selectedWords.length >= 3 && !isSelected;
+
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[
+                      styles.wordChip,
+                      {
+                        backgroundColor: isSelected
+                          ? theme.primary + "20"
+                          : theme.card,
+                        borderColor: isSelected ? theme.primary : theme.border,
+                        opacity: isDisabled ? 0.5 : 1,
+                      },
+                    ]}
+                    onPress={() => {
+                      if (!isDisabled) handleWordSelect(word);
+                    }}
+                    disabled={isDisabled}
+                  >
+                    <Text style={[styles.wordChipText, { color: theme.text }]}>
+                      {word}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.primaryBtn,
+                {
+                  backgroundColor:
+                    selectedWords.length === 3 ? theme.primary : theme.border,
+                  marginTop: 20,
+                },
+              ]}
+              onPress={handleVerifySubmit}
+              disabled={selectedWords.length !== 3}
+            >
+              <Text
+                style={[
+                  styles.primaryBtnText,
+                  {
+                    color:
+                      selectedWords.length === 3 ? "#fff" : theme.textSecondary,
+                  },
+                ]}
+              >
+                Verifikasi
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+
+        {/* ─── STEP: LOADING ─── */}
+        {isLoading && (
+          <View style={styles.successWrapper}>
+            <View
+              style={[
+                styles.spinnerRing,
+                { borderColor: theme.primary + "30" },
+              ]}
+            >
+              <Animated.View
+                style={[
+                  styles.spinnerArc,
+                  {
+                    borderColor: "transparent",
+                    borderTopColor: theme.primary,
+                    transform: [
+                      {
+                        rotate: spinAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ["0deg", "360deg"],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              />
+            </View>
+            <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
+              Mengimpor wallet...
+            </Text>
+          </View>
+        )}
+
+        {/* ─── STEP: SUCCESS ─── */}
+        {isSuccess && (
+          <View style={styles.successWrapper}>
+            <Animated.View
+              style={[
+                styles.successCircleOuter,
+                {
+                  backgroundColor: theme.primary + "18",
+                  transform: [{ scale: successScale }],
+                },
+              ]}
+            >
+              <Animated.View
+                style={[
+                  styles.successCircleInner,
+                  {
+                    backgroundColor: theme.primary + "30",
+                    transform: [{ scale: successScale }],
+                  },
+                ]}
+              >
+                <Animated.View
+                  style={[
+                    styles.successCircleCore,
+                    {
+                      backgroundColor: theme.primary,
+                      transform: [{ scale: successCheckScale }],
+                    },
+                  ]}
+                >
+                  <Check size={36} color="#fff" strokeWidth={3} />
+                </Animated.View>
+              </Animated.View>
+            </Animated.View>
+
+            <Animated.View
+              style={{ opacity: successOpacity, alignItems: "center" }}
+            >
+              <Text style={[styles.successTitle, { color: theme.text }]}>
+                Import Berhasil!
+              </Text>
+              <Text
+                style={[styles.successSubtitle, { color: theme.textSecondary }]}
+              >
+                Wallet Anda telah pulih.{"\n"}Mengalihkan...
+              </Text>
+            </Animated.View>
+          </View>
+        )}
+
+        {/* ─── STEP: PIN CREATION / CONFIRMATION ─── */}
+        {(isCreatePin || isConfirmPin) && (
+          <Animated.View
+            style={[
+              styles.pinWrapper,
+              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+            ]}
+          >
+            <Text style={[styles.pinTitle, { color: theme.text }]}>
+              {isCreatePin ? "Buat PIN Baru" : "Konfirmasi PIN"}
+            </Text>
+            <Text style={[styles.pinSubtitle, { color: theme.textSecondary }]}>
+              {isCreatePin
+                ? "PIN akan digunakan untuk mengamankan wallet yang diimpor"
+                : "Masukkan kembali PIN Anda untuk konfirmasi"}
+            </Text>
+
+            {/* Dots */}
+            <Animated.View
+              style={[
+                styles.dotsRow,
+                { transform: [{ translateX: shakeAnim }] },
+              ]}
+            >
+              {Array.from({ length: PIN_LENGTH }).map((_, i) => {
+                const filled = i < currentPin.length;
+                return (
+                  <Animated.View
+                    key={i}
+                    style={[
+                      styles.dot,
+                      {
+                        backgroundColor:
+                          error && step === "confirm-pin"
+                            ? "#EF4444"
+                            : filled
+                              ? theme.primary
+                              : "transparent",
+                        borderColor:
+                          error && step === "confirm-pin"
+                            ? "#EF4444"
+                            : filled
+                              ? theme.primary
+                              : theme.border,
+                        transform: [{ scale: dotScale[i] }],
+                      },
+                    ]}
+                  />
+                );
+              })}
+            </Animated.View>
+
+            {error && step === "confirm-pin" && (
+              <Text style={styles.errorText}>{error}</Text>
+            )}
+
+            {/* Numpad */}
+            <View style={styles.numpad}>
+              {NUMPAD.map((row, rIdx) => (
+                <View key={rIdx} style={styles.numpadRow}>
+                  {row.map((key, kIdx) => {
+                    if (key === "")
+                      return <View key={kIdx} style={styles.numpadEmpty} />;
+                    const isDelete = key === "⌫";
+                    return (
+                      <TouchableOpacity
+                        key={kIdx}
+                        style={[
+                          styles.numpadKey,
+                          {
+                            backgroundColor: isDelete
+                              ? "transparent"
+                              : theme.card,
+                            borderColor: isDelete
+                              ? "transparent"
+                              : theme.border,
+                          },
+                        ]}
+                        onPress={() => handleNumpadPress(key)}
+                        activeOpacity={0.65}
+                      >
+                        {isDelete ? (
+                          <Delete size={22} color={theme.textSecondary} />
+                        ) : (
+                          <Text
+                            style={[
+                              styles.numpadKeyText,
+                              { color: theme.text },
+                            ]}
+                          >
+                            {key}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+
+            {/* Step Indicator Dots */}
+            <View style={styles.stepIndicator}>
+              <View
+                style={[
+                  styles.stepDot,
+                  {
+                    backgroundColor: isCreatePin ? theme.primary : theme.border,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  styles.stepDot,
+                  {
+                    backgroundColor: isConfirmPin
+                      ? theme.primary
+                      : theme.border,
+                  },
+                ]}
+              />
+            </View>
+          </Animated.View>
+        )}
+
+        {/* Spacer for bottom scrolling */}
+        <View style={{ height: 40 }} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24, flexGrow: 1 },
-  title: { fontSize: 28, fontWeight: "bold", marginBottom: 8 },
-  subtitle: { fontSize: 16, marginBottom: 24 },
-  input: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    minHeight: 100,
-    textAlignVertical: "top",
+  container: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingTop: 60,
+    paddingBottom: 30,
   },
-  label: { fontSize: 16, fontWeight: "600", marginTop: 20, marginBottom: 8 },
-  errorText: { color: "#ff4d4d", marginTop: 10 },
+  headerWrapper: {
+    marginBottom: 24,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 24,
+  },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  introContent: {
+    marginBottom: 10,
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: "800",
+    marginBottom: 12,
+    lineHeight: 38,
+  },
+  desc: {
+    fontSize: 15.5,
+    lineHeight: 24,
+  },
+  content: {
+    flex: 1,
+  },
+  inputCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  textArea: {
+    fontSize: 16,
+    lineHeight: 24,
+    minHeight: 120,
+    textAlignVertical: "top",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  primaryBtn: {
+    borderRadius: 9999,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  primaryBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  errorContainer: {
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#EF444410",
+    borderWidth: 1,
+    borderColor: "#EF444430",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 14,
+    fontWeight: "500",
+    textAlign: "center",
+    marginTop: 8,
+  },
+
+  // Verify Seed Styles
+  verifySlotsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 24,
+    gap: 10,
+  },
+  verifySlotWrapper: {
+    flex: 1,
+    alignItems: "center",
+  },
+  verifyLabel: {
+    fontSize: 12,
+    marginBottom: 6,
+    fontWeight: "600",
+  },
+  verifySlot: {
+    width: "100%",
+    height: 50,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  verifySlotText: {
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  wordGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "center",
+    marginTop: 10,
+  },
+  wordChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  wordChipText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+
+  // PIN Styles
+  pinWrapper: {
+    flex: 1,
+    alignItems: "center",
+    paddingTop: 16,
+  },
+  pinTitle: {
+    fontSize: 26,
+    fontWeight: "800",
+    marginBottom: 8,
+    letterSpacing: -0.5,
+  },
+  pinSubtitle: {
+    fontSize: 14,
+    lineHeight: 22,
+    textAlign: "center",
+    paddingHorizontal: 24,
+    marginBottom: 40,
+  },
+  dotsRow: {
+    flexDirection: "row",
+    gap: 14,
+    marginBottom: 24,
+  },
+  dot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+  },
+  numpad: {
+    marginTop: 10,
+    gap: 12,
+    width: "100%",
+    paddingHorizontal: 16,
+  },
+  numpadRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 16,
+  },
+  numpadEmpty: {
+    width: 68,
+    height: 68,
+  },
+  numpadKey: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  numpadKeyText: {
+    fontSize: 21,
+    fontWeight: "600",
+    letterSpacing: -0.5,
+  },
+  stepIndicator: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 32,
+  },
+  stepDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+
+  // Loading & Success
+  successWrapper: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: 60,
+    gap: 36,
+    minHeight: 300,
+  },
+  spinnerRing: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  spinnerArc: {
+    position: "absolute",
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 5,
+    borderColor: "transparent",
+  },
+  loadingText: {
+    fontSize: 15,
+    fontWeight: "500",
+    marginTop: 20,
+  },
+  successCircleOuter: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successCircleInner: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successCircleCore: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  successSubtitle: {
+    fontSize: 15,
+    lineHeight: 24,
+    textAlign: "center",
+  },
 });

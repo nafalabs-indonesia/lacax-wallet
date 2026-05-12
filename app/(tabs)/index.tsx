@@ -1,6 +1,7 @@
 // app/(tabs)/index.tsx
 import { useFocusEffect } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
+import { router } from "expo-router";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -20,7 +21,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { HomeHeader } from "../../components/HomeHeader";
 import { EthereumService } from "../../services/blockchain/EthereumService";
@@ -148,10 +149,14 @@ export default function HomeScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       {/* ── Fixed Header ── */}
-      <HomeHeader hasNotif={false} onNotifPress={() => {}} />
+      <HomeHeader
+        onNotifPress={() => router.push("/notifications")}
+        onScanPress={() => router.push("/scan")}
+        hasNotif={true}
+      />
 
       <ScrollView
-        style={{ backgroundColor: theme.background }}
+        style={{ flex: 1, backgroundColor: theme.background }}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -232,7 +237,7 @@ export default function HomeScreen() {
             label="Kirim"
             Icon={ArrowUpRight}
             accent="#EF4444"
-            onPress={() => {}}
+            onPress={() => router.push("/send")}
             theme={theme}
           />
           <View style={[styles.qaDivider, { backgroundColor: theme.border }]} />
@@ -240,7 +245,7 @@ export default function HomeScreen() {
             label="Terima"
             Icon={ArrowDownLeft}
             accent="#22C55E"
-            onPress={() => {}}
+            onPress={() => router.push("/receive")} // ✅ Aktif
             theme={theme}
           />
           <View style={[styles.qaDivider, { backgroundColor: theme.border }]} />
@@ -308,7 +313,8 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        <View style={{ height: 32 }} />
+        {/* ✅ Tambah padding bottom biar tidak ketutup tab bar */}
+        <View style={{ height: 120 }} />
       </ScrollView>
     </View>
   );
@@ -319,7 +325,7 @@ const styles = StyleSheet.create({
   scroll: {
     padding: 20,
     paddingTop: 8,
-    flexGrow: 1,
+    // ✅ Hapus flexGrow: 1 biar scroll normal
   },
   centered: {
     flex: 1,

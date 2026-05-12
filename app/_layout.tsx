@@ -20,25 +20,23 @@ export default function RootLayout() {
 
   const navTheme = isDarkMode ? DarkTheme : DefaultTheme;
 
-  // Tandai layout sudah selesai mount
   useEffect(() => {
     setIsReady(true);
   }, []);
 
   useEffect(() => {
-    if (!isReady) return; // Guard: tunggu sampai Root Layout benar-benar mounted
+    if (!isReady) return;
 
     const currentPath = segments.join("/");
 
     // 1. Jika BELUM ADA WALLET
     if (!walletAddress) {
-      // TAMBAHKAN route baru ke publicRoutes agar tidak kena redirect ke welcome
       const publicRoutes = [
         "welcome",
         "(auth)/import",
-        "(auth)/backup-intro", // New Step 0
-        "(auth)/reveal-seed", // New Step 1 (View Seed)
-        "(auth)/wallet-ready", // Success screen after wallet creation
+        "(auth)/backup-intro",
+        "(auth)/reveal-seed",
+        "(auth)/wallet-ready",
       ];
 
       const isPublic = publicRoutes.some((route) =>
@@ -53,8 +51,12 @@ export default function RootLayout() {
 
     // 2. Jika SUDAH PUNYA WALLET tapi BELUM UNLOCK
     if (!isUnlocked) {
-      // wallet-ready boleh diakses sebelum unlock (baru saja buat wallet)
-      const unlockedExceptions = ["unlock", "wallet-ready"];
+      const unlockedExceptions = [
+        "unlock",
+        "wallet-ready",
+        "send",
+        "notifications",
+      ]; // ✅ Tambah send & notifications ke exception (bisa diakses sebelum unlock kalau perlu, atau hapus kalau mau tetap protected)
       const isException = unlockedExceptions.some((r) =>
         currentPath.includes(r),
       );
@@ -65,7 +67,6 @@ export default function RootLayout() {
     }
 
     // 3. Jika SUDAH UNLOCK
-    // Route auth tidak boleh diakses jika sudah login & unlock
     const privateOnlyRoutes = [
       "welcome",
       "unlock",
@@ -91,11 +92,28 @@ export default function RootLayout() {
     <ThemeProvider value={navTheme}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="welcome" />
-        {/* Register New Auth Screens */}
         <Stack.Screen name="(auth)/backup-intro" />
         <Stack.Screen name="(auth)/reveal-seed" />
         <Stack.Screen name="(auth)/wallet-ready" />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+
+        {/* ✅ TAMBAH: Register page baru */}
+        <Stack.Screen
+          name="send"
+          options={{ presentation: "modal", headerShown: false }}
+        />
+        <Stack.Screen
+          name="notifications"
+          options={{ presentation: "modal", headerShown: false }}
+        />
+        <Stack.Screen
+          name="scan"
+          options={{ presentation: "modal", headerShown: false }}
+        />
+        <Stack.Screen
+          name="receive"
+          options={{ presentation: "modal", headerShown: false }}
+        />
       </Stack>
       <StatusBar style={isDarkMode ? "light" : "dark"} />
     </ThemeProvider>

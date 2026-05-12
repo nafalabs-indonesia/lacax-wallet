@@ -306,7 +306,7 @@ export default function RevealSeedScreen() {
             />
           </View>
           <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
-            Menyimpan wallet...
+            Menyiapkan wallet...
           </Text>
         </View>
       )}
@@ -782,11 +782,11 @@ const styles = StyleSheet.create({
 
   primaryBtn: {
     borderRadius: 9999,
-    paddingVertical: 16,
+    paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 5,
-    marginBottom: 50,
+    marginBottom: 60,
   },
 
   primaryBtnText: {
