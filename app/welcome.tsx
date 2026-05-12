@@ -1,9 +1,7 @@
 // app/welcome.tsx
 import { useRouter } from "expo-router";
-import { ShieldCheck } from "lucide-react-native";
 import React from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
-import { Button } from "../components/ui/Button";
+import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
@@ -19,41 +17,61 @@ export default function WelcomeScreen() {
         <Image
           source={
             isDarkMode
-              ? require("../assets/lacax-dark.png")
-              : require("../assets/lacax-light.png")
+              ? require("../assets/logo/lacax-dark.png")
+              : require("../assets/logo/lacax-light.png")
           }
           style={styles.logo}
           resizeMode="contain"
         />
 
         <Text style={[styles.title, { color: theme.text }]}>
-          Selamat Datang di LacaX
+          Trade, Earn, Grow.
         </Text>
 
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Dompet kripto terdesentralisasi yang aman dan mudah digunakan.
+          Your keys, your crypto. Manage assets securely and effortlessly.
         </Text>
 
-        {/* Icon */}
+        {/* Welcome Illustration */}
         <View style={styles.illustration}>
-          <ShieldCheck size={80} color={theme.primary} strokeWidth={1.5} />
+          <Image
+            source={require("../assets/welcome.png")}
+            style={styles.welcomeImage}
+            resizeMode="contain"
+          />
         </View>
 
-        {/* Button Group */}
+        {/* Button Group: Import (kiri) | Create Wallet (kanan) */}
         <View style={styles.buttonGroup}>
-          <Button
-            title="Buat Wallet Baru"
-            onPress={() => router.push("/(auth)/create")}
-            variant="primary"
-            style={styles.button}
-          />
-
-          <Button
-            title="Saya Sudah Punya Wallet"
+          {/* Import - ghost/outline */}
+          <TouchableOpacity
+            style={[
+              styles.button,
+              styles.buttonOutline,
+              { borderColor: theme.primary },
+            ]}
             onPress={() => router.push("/(auth)/import")}
-            variant="ghost"
-            style={styles.button}
-          />
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.buttonText, { color: theme.primary }]}>
+              Import
+            </Text>
+          </TouchableOpacity>
+
+          {/* Create Wallet - solid */}
+          <TouchableOpacity
+            style={[
+              styles.button,
+              styles.buttonSolid,
+              { backgroundColor: theme.primary },
+            ]}
+            onPress={() => router.push("/(auth)/create")}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.buttonText, { color: "#fff" }]}>
+              Create Wallet
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -92,17 +110,28 @@ const styles = StyleSheet.create({
     marginBottom: 50,
     alignItems: "center",
   },
-
-  // container only layout
+  welcomeImage: {
+    width: 220,
+    height: 220,
+  },
   buttonGroup: {
     width: "100%",
+    flexDirection: "row",
     gap: 12,
   },
-
-  // IMPORTANT: rounded full ada di button, bukan group
   button: {
-    width: "100%",
+    flex: 1,
     borderRadius: 9999,
     paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonOutline: {
+    borderWidth: 1.5,
+  },
+  buttonSolid: {},
+  buttonText: {
+    fontSize: 15,
+    fontWeight: "600",
   },
 });
