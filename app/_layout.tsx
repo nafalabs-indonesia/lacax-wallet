@@ -35,12 +35,9 @@ export default function RootLayout() {
       // TAMBAHKAN route baru ke publicRoutes agar tidak kena redirect ke welcome
       const publicRoutes = [
         "welcome",
-        "(auth)/create", // Legacy/Old flow
         "(auth)/import",
         "(auth)/backup-intro", // New Step 0
         "(auth)/reveal-seed", // New Step 1 (View Seed)
-        "(auth)/verify-seed", // New Step 2 (Verify)
-        "(auth)/create-pin", // New Step 3 (Create PIN - jika sudah dibuat)
       ];
 
       const isPublic = publicRoutes.some((route) =>
@@ -90,8 +87,6 @@ export default function RootLayout() {
         {/* Register New Auth Screens */}
         <Stack.Screen name="(auth)/backup-intro" />
         <Stack.Screen name="(auth)/reveal-seed" />
-        <Stack.Screen name="(auth)/verify-seed" />
-        <Stack.Screen name="(auth)/create-pin" />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style={isDarkMode ? "light" : "dark"} />

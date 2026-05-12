@@ -6,10 +6,12 @@ import { KeyDerivationService } from "../services/crypto/KeyDerivation";
 import { useAppStore } from "../store/appStore";
 
 export const useCreateWallet = () => {
-  const router = useRouter();
+  const router = useRouter(); // Router tetap di-import jika dibutuhkan di fungsi lain, tapi tidak dipakai di finalizeWallet
 
   const [step, setStep] = useState(1);
   const [mnemonic, setMnemonic] = useState("");
+  // State 'pin' di hook ini mungkin tidak lagi digunakan untuk finalisasi jika kita kirim via argumen,
+  // tapi biarkan saja jika dipakai di step lain.
   const [pin, setPin] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,18 +66,19 @@ export const useCreateWallet = () => {
     }
   };
 
-  const finalizeWallet = async () => {
-    if (pin.length !== 6) {
+  // PERBAIKAN DI SINI: Terima argumen inputPin dan return boolean
+  const finalizeWallet = async (inputPin: string): Promise<boolean> => {
+    if (inputPin.length !== 6) {
       setError("PIN harus 6 digit");
-      return;
+      return false;
     }
 
     setIsLoading(true);
     setError(null);
 
     try {
-      // 1. Simpan ke SecureStore
-      await WalletRepository.createWallet(mnemonic, pin);
+      // 1. Simpan ke SecureStore menggunakan inputPin
+      await WalletRepository.createWallet(mnemonic, inputPin);
 
       // 2. Derive Address
       const privateKey =
@@ -84,16 +87,18 @@ export const useCreateWallet = () => {
 
       // 3. Update Global Store
       useAppStore.getState().setWalletAddress(address);
-      useAppStore.getState().setUnlocked(true); // ← Penting!
-      useAppStore.getState().setMnemonic(mnemonic); // Optional
+      useAppStore.getState().setUnlocked(true);
+      useAppStore.getState().setMnemonic(mnemonic);
 
       console.log("✅ Wallet Created Successfully:", address);
 
-      // 4. Redirect ke Home
-      router.replace("/(tabs)");
+      // HAPUS router.replace dari sini. Biarkan komponen yang melakukan navigasi.
+
+      return true; // Sukses
     } catch (e: any) {
       console.error("❌ Create Wallet Error:", e);
       setError(e.message || "Gagal menyimpan wallet.");
+      return false; // Gagal
     } finally {
       setIsLoading(false);
     }

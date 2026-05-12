@@ -36,7 +36,7 @@ export default function BackupIntroScreen() {
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
           Anda memerlukan{" "}
           <Text style={{ fontWeight: "600", color: theme.text }}>
-            secret recovery phrase
+            frasa pemulihan rahasia
           </Text>{" "}
           untuk memulihkan kripto jika perangkat hilang atau beralih wallet.
           {"\n"}
