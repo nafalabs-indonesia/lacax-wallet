@@ -61,14 +61,6 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
               color={isFocused ? theme.primary : theme.textSecondary}
             />
           );
-        } else if (route.name === "explore") {
-          icon = (
-            <Ionicons
-              name="compass"
-              size={22}
-              color={isFocused ? theme.primary : theme.textSecondary}
-            />
-          );
         } else if (route.name === "settings") {
           icon = (
             <Settings
@@ -150,7 +142,6 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Home" }} />
-      <Tabs.Screen name="explore" options={{ title: "Explore" }} />
       <Tabs.Screen name="settings" options={{ title: "Pengaturan" }} />
     </Tabs>
   );
