@@ -38,6 +38,7 @@ export default function RootLayout() {
         "(auth)/import",
         "(auth)/backup-intro", // New Step 0
         "(auth)/reveal-seed", // New Step 1 (View Seed)
+        "(auth)/wallet-ready", // Success screen after wallet creation
       ];
 
       const isPublic = publicRoutes.some((route) =>
@@ -52,7 +53,12 @@ export default function RootLayout() {
 
     // 2. Jika SUDAH PUNYA WALLET tapi BELUM UNLOCK
     if (!isUnlocked) {
-      if (!currentPath.includes("unlock")) {
+      // wallet-ready boleh diakses sebelum unlock (baru saja buat wallet)
+      const unlockedExceptions = ["unlock", "wallet-ready"];
+      const isException = unlockedExceptions.some((r) =>
+        currentPath.includes(r),
+      );
+      if (!isException) {
         router.replace("/(auth)/unlock");
       }
       return;
@@ -69,6 +75,7 @@ export default function RootLayout() {
       "reveal-seed",
       "verify-seed",
       "create-pin",
+      "wallet-ready",
     ];
 
     const isPrivateRoute = privateOnlyRoutes.some((route) =>
@@ -87,6 +94,7 @@ export default function RootLayout() {
         {/* Register New Auth Screens */}
         <Stack.Screen name="(auth)/backup-intro" />
         <Stack.Screen name="(auth)/reveal-seed" />
+        <Stack.Screen name="(auth)/wallet-ready" />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style={isDarkMode ? "light" : "dark"} />

@@ -1,38 +1,41 @@
 // components/HomeHeader.tsx
-import { Bell } from "lucide-react-native";
+import { Bell, ScanLine } from "lucide-react-native";
 import React, { useRef } from "react";
 import {
-    Animated,
-    Image,
-    Platform,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  Animated,
+  Image,
+  Platform,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
 interface HomeHeaderProps {
   onNotifPress?: () => void;
+  onScanPress?: () => void;
   hasNotif?: boolean;
 }
 
 export function HomeHeader({
   onNotifPress,
+  onScanPress,
   hasNotif = false,
 }: HomeHeaderProps) {
   const { isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
-  const scale = useRef(new Animated.Value(1)).current;
+  const notifScale = useRef(new Animated.Value(1)).current;
+  const scanScale = useRef(new Animated.Value(1)).current;
 
   const handleNotifPress = () => {
     Animated.sequence([
-      Animated.timing(scale, {
+      Animated.timing(notifScale, {
         toValue: 0.88,
         duration: 80,
         useNativeDriver: true,
       }),
-      Animated.timing(scale, {
+      Animated.timing(notifScale, {
         toValue: 1,
         duration: 120,
         useNativeDriver: true,
@@ -41,37 +44,66 @@ export function HomeHeader({
     onNotifPress?.();
   };
 
+  const handleScanPress = () => {
+    Animated.sequence([
+      Animated.timing(scanScale, {
+        toValue: 0.88,
+        duration: 80,
+        useNativeDriver: true,
+      }),
+      Animated.timing(scanScale, {
+        toValue: 1,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    onScanPress?.();
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Logo */}
       <Image
         source={
           isDarkMode
-            ? require("../assets/logo/lacax-dark.png")
-            : require("../assets/logo/lacax-light.png")
+            ? require("../assets/lacax-dark.png")
+            : require("../assets/lacax-light.png")
         }
         style={styles.logo}
         resizeMode="contain"
       />
 
-      {/* Notif button */}
-      <TouchableOpacity onPress={handleNotifPress} activeOpacity={1}>
-        <Animated.View
-          style={[
-            styles.notifBtn,
-            {
-              backgroundColor: theme.card,
-              borderColor: theme.border,
-              transform: [{ scale }],
-            },
-          ]}
-        >
-          <Bell size={18} color={theme.text} strokeWidth={2} />
+      <View style={styles.rightButtons}>
+        <TouchableOpacity onPress={handleScanPress} activeOpacity={1}>
+          <Animated.View
+            style={[
+              styles.iconBtn,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                transform: [{ scale: scanScale }],
+              },
+            ]}
+          >
+            <ScanLine size={18} color={theme.text} strokeWidth={2} />
+          </Animated.View>
+        </TouchableOpacity>
 
-          {/* Dot badge */}
-          {hasNotif && <View style={styles.badge} />}
-        </Animated.View>
-      </TouchableOpacity>
+        <TouchableOpacity onPress={handleNotifPress} activeOpacity={1}>
+          <Animated.View
+            style={[
+              styles.iconBtn,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                transform: [{ scale: notifScale }],
+              },
+            ]}
+          >
+            <Bell size={18} color={theme.text} strokeWidth={2} />
+            {hasNotif && <View style={styles.badge} />}
+          </Animated.View>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -89,7 +121,12 @@ const styles = StyleSheet.create({
     width: 100,
     height: 36,
   },
-  notifBtn: {
+  rightButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  iconBtn: {
     width: 42,
     height: 42,
     borderRadius: 21,

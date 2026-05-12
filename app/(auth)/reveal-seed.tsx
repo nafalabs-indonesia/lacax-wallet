@@ -210,7 +210,7 @@ export default function RevealSeedScreen() {
                   useNativeDriver: true,
                 }),
               ]).start(() => {
-                setTimeout(() => router.replace("/(tabs)"), 800);
+                setTimeout(() => router.replace("../(auth)/wallet-ready"), 800);
               });
             } else {
               // Save failed — reset back to create-pin so user can retry

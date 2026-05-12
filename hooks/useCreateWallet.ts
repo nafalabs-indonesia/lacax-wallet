@@ -6,12 +6,10 @@ import { KeyDerivationService } from "../services/crypto/KeyDerivation";
 import { useAppStore } from "../store/appStore";
 
 export const useCreateWallet = () => {
-  const router = useRouter(); // Router tetap di-import jika dibutuhkan di fungsi lain, tapi tidak dipakai di finalizeWallet
+  const router = useRouter();
 
   const [step, setStep] = useState(1);
   const [mnemonic, setMnemonic] = useState("");
-  // State 'pin' di hook ini mungkin tidak lagi digunakan untuk finalisasi jika kita kirim via argumen,
-  // tapi biarkan saja jika dipakai di step lain.
   const [pin, setPin] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +64,6 @@ export const useCreateWallet = () => {
     }
   };
 
-  // PERBAIKAN DI SINI: Terima argumen inputPin dan return boolean
   const finalizeWallet = async (inputPin: string): Promise<boolean> => {
     if (inputPin.length !== 6) {
       setError("PIN harus 6 digit");
@@ -85,20 +82,18 @@ export const useCreateWallet = () => {
         KeyDerivationService.getPrivateKeyFromMnemonic(mnemonic);
       const address = KeyDerivationService.getAddressFromPrivateKey(privateKey);
 
-      // 3. Update Global Store
+      // 3. Update Global Store — TIDAK set isUnlocked di sini,
+      //    user harus unlock manual lewat halaman unlock agar flow benar.
       useAppStore.getState().setWalletAddress(address);
-      useAppStore.getState().setUnlocked(true);
       useAppStore.getState().setMnemonic(mnemonic);
 
       console.log("✅ Wallet Created Successfully:", address);
 
-      // HAPUS router.replace dari sini. Biarkan komponen yang melakukan navigasi.
-
-      return true; // Sukses
+      return true;
     } catch (e: any) {
       console.error("❌ Create Wallet Error:", e);
       setError(e.message || "Gagal menyimpan wallet.");
-      return false; // Gagal
+      return false;
     } finally {
       setIsLoading(false);
     }
