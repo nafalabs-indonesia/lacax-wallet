@@ -1,7 +1,7 @@
 // app/(auth)/import.tsx
 import { useRouter } from "expo-router";
 import { ArrowLeft, Check, Delete } from "lucide-react-native";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   KeyboardAvoidingView,
@@ -15,16 +15,11 @@ import {
 } from "react-native";
 
 import { WalletRepository } from "../../modules/wallet/infrastructure/WalletRepository";
+import { KeyDerivationService } from "../../services/crypto/KeyDerivation";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
-type Step =
-  | "input-seed"
-  | "verify-seed"
-  | "create-pin"
-  | "confirm-pin"
-  | "loading"
-  | "success";
+type Step = "input-seed" | "create-pin" | "confirm-pin" | "loading" | "success";
 
 const PIN_LENGTH = 6;
 const NUMPAD = [
@@ -45,10 +40,6 @@ export default function ImportWalletScreen() {
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
-
-  // Verification State
-  const [verifyIndices, setVerifyIndices] = useState<number[]>([]);
-  const [selectedWords, setSelectedWords] = useState<string[]>([]);
 
   // Refs
   const isSubmitting = useRef(false);
@@ -86,9 +77,7 @@ export default function ImportWalletScreen() {
 
   // Step Transition Animation
   useEffect(() => {
-    if (
-      ["input-seed", "verify-seed", "create-pin", "confirm-pin"].includes(step)
-    ) {
+    if (["input-seed", "create-pin", "confirm-pin"].includes(step)) {
       fadeAnim.setValue(0);
       slideAnim.setValue(30);
       Animated.parallel([
@@ -107,64 +96,32 @@ export default function ImportWalletScreen() {
     }
   }, [step]);
 
-  // Generate random indices for verification when entering verify step
-  useEffect(() => {
-    if (step === "verify-seed") {
-      const words = mnemonic.trim().split(/\s+/);
-      const indices: number[] = [];
-      while (indices.length < 3) {
-        const r = Math.floor(Math.random() * words.length);
-        if (!indices.includes(r)) indices.push(r);
-      }
-      setVerifyIndices(indices.sort((a, b) => a - b));
-      setSelectedWords([]);
-      setError("");
-    }
-  }, [step, mnemonic]);
-
   // --- Handlers ---
 
-  const handleNextToVerify = () => {
+  const handleNextToPin = () => {
     setError("");
-    const words = mnemonic.trim().split(/\s+/);
+    const cleanMnemonic = mnemonic.trim();
 
-    if (words.length < 12) {
-      setError("Seed phrase tidak valid. Minimal 12 kata.");
-      return;
-    }
-    setStep("verify-seed");
-  };
-
-  const handleWordSelect = (word: string) => {
-    if (selectedWords.length < 3) {
-      setSelectedWords([...selectedWords, word]);
-    }
-  };
-
-  const handleRemoveWord = (index: number) => {
-    const newWords = [...selectedWords];
-    newWords.splice(index, 1);
-    setSelectedWords(newWords);
-  };
-
-  const handleVerifySubmit = () => {
-    if (selectedWords.length !== 3) {
-      setError("Lengkapi semua kata yang hilang.");
+    // 1. Cek jumlah kata dasar
+    const words = cleanMnemonic.split(/\s+/);
+    if (words.length !== 12 && words.length !== 24) {
+      setError("Seed phrase harus terdiri dari 12 atau 24 kata.");
       return;
     }
 
-    const words = mnemonic.trim().split(/\s+/);
-    const isValid = verifyIndices.every((index, i) => {
-      return words[index].toLowerCase() === selectedWords[i].toLowerCase();
-    });
+    // 2. VALIDASI KRITOGRAFI (Cek apakah seed phrase valid)
+    // Menggunakan fungsi validateMnemonic dari service Anda
+    const isValid = KeyDerivationService.validateMnemonic(cleanMnemonic);
 
-    if (isValid) {
-      setStep("create-pin");
-    } else {
-      setError("Kata kunci salah. Coba lagi.");
-      setSelectedWords([]);
-      triggerShake();
+    if (!isValid) {
+      setError(
+        "Seed phrase tidak valid. Periksa kembali ejaan dan urutan kata.",
+      );
+      return;
     }
+
+    // Jika valid, lanjut ke PIN
+    setStep("create-pin");
   };
 
   const handleImportWallet = async (finalPin: string) => {
@@ -175,6 +132,7 @@ export default function ImportWalletScreen() {
     startSpin();
 
     try {
+      // Import wallet dengan seed phrase yang SUDAH tervalidasi
       await WalletRepository.importWallet(mnemonic.trim(), finalPin);
 
       // Success Flow
@@ -205,7 +163,7 @@ export default function ImportWalletScreen() {
       });
     } catch (e) {
       console.error(e);
-      setError("Gagal mengimpor wallet. Cek seed phrase Anda.");
+      setError("Gagal mengimpor wallet. Terjadi kesalahan sistem.");
       setStep("create-pin");
       setPin("");
       setConfirmPin("");
@@ -316,14 +274,7 @@ export default function ImportWalletScreen() {
   const isConfirmPin = step === "confirm-pin";
   const isSuccess = step === "success";
   const isLoading = step === "loading";
-  const isVerifySeed = step === "verify-seed";
   const currentPin = isCreatePin ? pin : confirmPin;
-
-  // Get available words for verification selection (excluding already selected ones if needed,
-  // but usually we show all words or a subset. Here we show all words from mnemonic for simplicity)
-  const availableWords = useMemo(() => {
-    return mnemonic.trim().split(/\s+/);
-  }, [mnemonic]);
 
   return (
     <KeyboardAvoidingView
@@ -337,11 +288,7 @@ export default function ImportWalletScreen() {
         ]}
         showsVerticalScrollIndicator={false}
         scrollEnabled={
-          !isCreatePin &&
-          !isConfirmPin &&
-          !isSuccess &&
-          !isLoading &&
-          !isVerifySeed
+          !isCreatePin && !isConfirmPin && !isSuccess && !isLoading
         }
       >
         {/* HEADER */}
@@ -356,12 +303,10 @@ export default function ImportWalletScreen() {
               <TouchableOpacity
                 onPress={() => {
                   if (step === "create-pin" || step === "confirm-pin") {
-                    setStep("verify-seed");
+                    setStep("input-seed");
                     setPin("");
                     setConfirmPin("");
-                  } else if (step === "verify-seed") {
-                    setStep("input-seed");
-                    setSelectedWords([]);
+                    setError("");
                   } else {
                     router.back();
                   }
@@ -371,36 +316,20 @@ export default function ImportWalletScreen() {
                 <ArrowLeft size={20} color={theme.text} />
               </TouchableOpacity>
               <Text style={[styles.headerTitle, { color: theme.text }]}>
-                {isCreatePin || isConfirmPin
-                  ? "Buat PIN"
-                  : isVerifySeed
-                    ? "Verifikasi"
-                    : "Impor Wallet"}
+                {isCreatePin || isConfirmPin ? "Buat PIN" : "Impor Wallet"}
               </Text>
               <View style={{ width: 44 }} />
             </View>
 
-            {/* Dynamic Title/Desc */}
+            {/* Dynamic Title/Desc based on Step */}
             {step === "input-seed" && (
               <View style={styles.introContent}>
                 <Text style={[styles.title, { color: theme.text }]}>
                   Pulihkan Aset
                 </Text>
                 <Text style={[styles.desc, { color: theme.textSecondary }]}>
-                  Masukkan frasa pemulihan (seed phrase) untuk mengakses kembali
-                  wallet Anda.
-                </Text>
-              </View>
-            )}
-
-            {step === "verify-seed" && (
-              <View style={styles.introContent}>
-                <Text style={[styles.title, { color: theme.text }]}>
-                  Verifikasi Seed
-                </Text>
-                <Text style={[styles.desc, { color: theme.textSecondary }]}>
-                  Pilih kata yang sesuai dengan nomor urut di bawah ini untuk
-                  memastikan Anda telah menyimpannya dengan benar.
+                  Masukkan frasa pemulihan (seed phrase) valid untuk mengakses
+                  kembali wallet Anda.
                 </Text>
               </View>
             )}
@@ -449,125 +378,9 @@ export default function ImportWalletScreen() {
 
             <TouchableOpacity
               style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
-              onPress={handleNextToVerify}
+              onPress={handleNextToPin}
             >
               <Text style={styles.primaryBtnText}>Lanjut</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        )}
-
-        {/* ─── STEP: VERIFY SEED ─── */}
-        {isVerifySeed && (
-          <Animated.View
-            style={[
-              styles.content,
-              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-            ]}
-          >
-            {/* Slots for answers */}
-            <View style={styles.verifySlotsContainer}>
-              {verifyIndices.map((index, i) => (
-                <View key={i} style={styles.verifySlotWrapper}>
-                  <Text
-                    style={[styles.verifyLabel, { color: theme.textSecondary }]}
-                  >
-                    Kata #{index + 1}
-                  </Text>
-                  <TouchableOpacity
-                    style={[
-                      styles.verifySlot,
-                      {
-                        backgroundColor: theme.card,
-                        borderColor: selectedWords[i]
-                          ? theme.primary
-                          : theme.border,
-                      },
-                    ]}
-                    onPress={() => {
-                      // Optional: allow removing by clicking
-                      if (selectedWords[i]) handleRemoveWord(i);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.verifySlotText,
-                        {
-                          color: selectedWords[i]
-                            ? theme.text
-                            : theme.textSecondary,
-                        },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {selectedWords[i] || "Pilih Kata"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-
-            {error ? (
-              <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            ) : null}
-
-            {/* Word Selection Grid */}
-            <View style={styles.wordGrid}>
-              {availableWords.map((word, idx) => {
-                const isSelected = selectedWords.includes(word);
-                // Disable if already selected 3 words and this one isn't one of them
-                const isDisabled = selectedWords.length >= 3 && !isSelected;
-
-                return (
-                  <TouchableOpacity
-                    key={idx}
-                    style={[
-                      styles.wordChip,
-                      {
-                        backgroundColor: isSelected
-                          ? theme.primary + "20"
-                          : theme.card,
-                        borderColor: isSelected ? theme.primary : theme.border,
-                        opacity: isDisabled ? 0.5 : 1,
-                      },
-                    ]}
-                    onPress={() => {
-                      if (!isDisabled) handleWordSelect(word);
-                    }}
-                    disabled={isDisabled}
-                  >
-                    <Text style={[styles.wordChipText, { color: theme.text }]}>
-                      {word}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <TouchableOpacity
-              style={[
-                styles.primaryBtn,
-                {
-                  backgroundColor:
-                    selectedWords.length === 3 ? theme.primary : theme.border,
-                  marginTop: 20,
-                },
-              ]}
-              onPress={handleVerifySubmit}
-              disabled={selectedWords.length !== 3}
-            >
-              <Text
-                style={[
-                  styles.primaryBtnText,
-                  {
-                    color:
-                      selectedWords.length === 3 ? "#fff" : theme.textSecondary,
-                  },
-                ]}
-              >
-                Verifikasi
-              </Text>
             </TouchableOpacity>
           </Animated.View>
         )}
@@ -885,54 +698,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
     marginTop: 8,
-  },
-
-  // Verify Seed Styles
-  verifySlotsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 24,
-    gap: 10,
-  },
-  verifySlotWrapper: {
-    flex: 1,
-    alignItems: "center",
-  },
-  verifyLabel: {
-    fontSize: 12,
-    marginBottom: 6,
-    fontWeight: "600",
-  },
-  verifySlot: {
-    width: "100%",
-    height: 50,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 8,
-  },
-  verifySlotText: {
-    fontSize: 14,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  wordGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    justifyContent: "center",
-    marginTop: 10,
-  },
-  wordChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  wordChipText: {
-    fontSize: 13,
-    fontWeight: "500",
   },
 
   // PIN Styles

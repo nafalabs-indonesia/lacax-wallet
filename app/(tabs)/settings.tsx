@@ -1,25 +1,25 @@
 // app/(tabs)/settings.tsx
 import { useRouter } from "expo-router";
 import {
-    ChevronRight,
-    Fingerprint,
-    Globe,
-    Info,
-    LogOut,
-    Moon,
-    Shield,
-    Sun,
-    Wallet,
+  ChevronRight,
+  Fingerprint,
+  Globe,
+  Info,
+  LogOut,
+  Moon,
+  Shield,
+  Sun,
+  Wallet,
 } from "lucide-react-native";
 import React from "react";
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";

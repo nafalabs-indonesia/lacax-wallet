@@ -1,4 +1,9 @@
 // app/(tabs)/index.tsx
+import { SUPPORTED_CHAINS } from "@/config/chains";
+import {
+  BlockchainService,
+  ChainId,
+} from "@/services/blockchain/BlockchainService";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
@@ -16,6 +21,7 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -24,11 +30,60 @@ import {
   View,
 } from "react-native";
 import { HomeHeader } from "../../components/HomeHeader";
-import { EthereumService } from "../../services/blockchain/EthereumService";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
 const { width: W } = Dimensions.get("window");
+
+// ─────────────────────────────────────────────
+// Helper: Mapping Icon Lokal
+// Karena React Native require() harus statis, kita map manual di sini
+// ─────────────────────────────────────────────
+const LOCAL_ICON_MAP: Record<string, any> = {
+  "ethereum-mainnet": require("../../assets/chains/eth.png"), // Pastikan path ini benar sesuai struktur folder Anda
+  // Jika Anda punya bdag.png, tambahkan di sini:
+  "blockdag-mainnet": require("../../assets/chains/bdag.png"),
+};
+
+// Komponen Icon Chain yang Robust
+function ChainIcon({ chainId, symbol }: { chainId: string; symbol: string }) {
+  const source = LOCAL_ICON_MAP[chainId];
+
+  // 1. Jika ada mapping file lokal (PNG/JPG), gunakan Image
+  if (source) {
+    return (
+      <View style={[styles.assetIcon, { backgroundColor: "#fff" }]}>
+        <Image
+          source={source}
+          style={{ width: 46, height: 46, resizeMode: "contain" }}
+        />
+      </View>
+    );
+  }
+
+  // 2. Jika tidak ada (misal SVG atau belum di-map), gunakan Fallback UI
+  // Kita buat lingkaran berwarna dengan inisial token
+  let bgColor = "#627EEA18"; // Default ETH Blue
+  let textColor = "#627EEA";
+  let initial = symbol.charAt(0);
+
+  if (symbol.includes("BDAG")) {
+    bgColor = "#F59E0B18"; // Orange/Gold
+    textColor = "#F59E0B";
+    initial = "BD"; // BlockDAG
+  } else if (symbol.includes("BTC")) {
+    bgColor = "#F7931A18";
+    textColor = "#F7931A";
+  }
+
+  return (
+    <View style={[styles.assetIcon, { backgroundColor: bgColor }]}>
+      <Text style={{ fontSize: 14, fontWeight: "800", color: textColor }}>
+        {initial}
+      </Text>
+    </View>
+  );
+}
 
 // ─────────────────────────────────────────────
 // Quick Action Button
@@ -47,7 +102,6 @@ function QuickAction({
   theme: any;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
-
   const handlePress = () => {
     Animated.sequence([
       Animated.timing(scale, {
@@ -63,7 +117,6 @@ function QuickAction({
     ]).start();
     onPress();
   };
-
   return (
     <TouchableOpacity
       onPress={handlePress}
@@ -95,34 +148,65 @@ export default function HomeScreen() {
   const { walletAddress, isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  const [balance, setBalance] = useState<string>("0.0000");
+  // State untuk mengelola saldo multiple chain
+  const [balances, setBalances] = useState<Record<string, string>>({});
+
+  // Default active chain
+  const [activeChainId, setActiveChainId] =
+    useState<ChainId>("ethereum-mainnet");
+
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const fetchBalance = useCallback(async () => {
+  // Ambil config chain yang aktif saat ini
+  const activeChainConfig =
+    SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
+  const currentBalance = balances[activeChainId] || "0.0000";
+
+  // Fungsi fetch balance untuk SEMUA chain yang didukung
+  const fetchAllBalances = useCallback(async () => {
     if (!walletAddress) return;
+
     setIsLoading(true);
+    const newBalances: Record<string, string> = { ...balances };
+
     try {
-      const ethBalance = await EthereumService.getBalance(walletAddress);
-      setBalance(ethBalance);
+      await Promise.all(
+        SUPPORTED_CHAINS.map(async (chain) => {
+          try {
+            const bal = await BlockchainService.getBalance(
+              chain.id as ChainId,
+              walletAddress,
+            );
+            newBalances[chain.id] = bal;
+          } catch (err) {
+            console.warn(`Gagal fetch balance untuk ${chain.name}`, err);
+            if (!newBalances[chain.id]) {
+              newBalances[chain.id] = "0.0000";
+            }
+          }
+        }),
+      );
+      setBalances(newBalances);
     } catch (error) {
-      console.error("Failed to fetch balance:", error);
+      console.error("Failed to fetch balances:", error);
     } finally {
       setIsLoading(false);
       setRefreshing(false);
     }
-  }, [walletAddress, refreshing]);
+  }, [walletAddress]);
 
+  // Load data saat screen fokus
   useFocusEffect(
     useCallback(() => {
-      fetchBalance();
-    }, [fetchBalance]),
+      fetchAllBalances();
+    }, [fetchAllBalances]),
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchBalance();
+    fetchAllBalances();
   };
 
   const copyToClipboard = async () => {
@@ -154,7 +238,6 @@ export default function HomeScreen() {
         onScanPress={() => router.push("/scan")}
         hasNotif={true}
       />
-
       <ScrollView
         style={{ flex: 1, backgroundColor: theme.background }}
         contentContainerStyle={styles.scroll}
@@ -173,10 +256,10 @@ export default function HomeScreen() {
           <View style={styles.decCircle1} />
           <View style={styles.decCircle2} />
 
-          {/* Network badge inside card */}
+          {/* Network badge inside card - DINAMIS */}
           <View style={styles.netBadgeInCard}>
             <View style={styles.netDot} />
-            <Text style={styles.netText}>Sepolia Testnet</Text>
+            <Text style={styles.netText}>{activeChainConfig.name}</Text>
           </View>
 
           <Text style={styles.balCardLabel}>Total Balance</Text>
@@ -189,8 +272,8 @@ export default function HomeScreen() {
             />
           ) : (
             <>
-              <Text style={styles.balAmount}>{balance}</Text>
-              <Text style={styles.balUnit}>ETH</Text>
+              <Text style={styles.balAmount}>{currentBalance}</Text>
+              <Text style={styles.balUnit}>{activeChainConfig.symbol}</Text>
               <Text style={styles.balFiat}>≈ $0.00 USD</Text>
             </>
           )}
@@ -214,7 +297,7 @@ export default function HomeScreen() {
 
             <TouchableOpacity
               style={styles.refreshBtn}
-              onPress={fetchBalance}
+              onPress={fetchAllBalances}
               activeOpacity={0.8}
             >
               <RefreshCw
@@ -245,7 +328,7 @@ export default function HomeScreen() {
             label="Terima"
             Icon={ArrowDownLeft}
             accent="#22C55E"
-            onPress={() => router.push("/receive")} // ✅ Aktif
+            onPress={() => router.push("/receive")}
             theme={theme}
           />
           <View style={[styles.qaDivider, { backgroundColor: theme.border }]} />
@@ -276,42 +359,51 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ETH Asset Row */}
-        <View
-          style={[
-            styles.assetCard,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-        >
-          <View style={[styles.assetIcon, { backgroundColor: "#627EEA18" }]}>
-            <Text style={styles.assetEmoji}>Ξ</Text>
-          </View>
+        {/* Render Asset List Dinamis berdasarkan SUPPORTED_CHAINS */}
+        {SUPPORTED_CHAINS.map((chain) => {
+          const bal = balances[chain.id] || "0.0000";
+          const isActive = chain.id === activeChainId;
 
-          <View style={styles.assetInfo}>
-            <Text style={[styles.assetName, { color: theme.text }]}>
-              Ethereum
-            </Text>
-            <Text style={[styles.assetSub, { color: theme.textSecondary }]}>
-              ETH • Sepolia
-            </Text>
-          </View>
+          return (
+            <TouchableOpacity
+              key={chain.id}
+              activeOpacity={0.7}
+              onPress={() => setActiveChainId(chain.id as ChainId)}
+              style={[
+                styles.assetCard,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: isActive ? theme.primary : theme.border,
+                  borderWidth: isActive ? 2 : 1,
+                },
+              ]}
+            >
+              {/* Gunakan Komponen ChainIcon Custom */}
+              <ChainIcon chainId={chain.id} symbol={chain.symbol} />
 
-          <View style={styles.assetRight}>
-            <Text style={[styles.assetBal, { color: theme.text }]}>
-              {balance} ETH
-            </Text>
-            <Text style={[styles.assetFiat, { color: theme.textSecondary }]}>
-              $0.00
-            </Text>
-          </View>
-        </View>
+              <View style={styles.assetInfo}>
+                <Text style={[styles.assetName, { color: theme.text }]}>
+                  {chain.name.split(" ")[0]}
+                </Text>
+                <Text style={[styles.assetSub, { color: theme.textSecondary }]}>
+                  {chain.symbol} •{" "}
+                  {chain.name.includes("Mainnet") ? "Mainnet" : "Testnet"}
+                </Text>
+              </View>
 
-        {/* Empty hint */}
-        <View style={[styles.emptyHint, { borderColor: theme.border }]}>
-          <Text style={[styles.emptyHintText, { color: theme.textSecondary }]}>
-            Token lain akan muncul di sini setelah ditambahkan.
-          </Text>
-        </View>
+              <View style={styles.assetRight}>
+                <Text style={[styles.assetBal, { color: theme.text }]}>
+                  {bal} {chain.symbol}
+                </Text>
+                <Text
+                  style={[styles.assetFiat, { color: theme.textSecondary }]}
+                >
+                  $0.00
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
 
         {/* ✅ Tambah padding bottom biar tidak ketutup tab bar */}
         <View style={{ height: 120 }} />
@@ -325,14 +417,12 @@ const styles = StyleSheet.create({
   scroll: {
     padding: 20,
     paddingTop: 8,
-    // ✅ Hapus flexGrow: 1 biar scroll normal
   },
   centered: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-
   // Balance card
   balanceCard: {
     borderRadius: 28,
@@ -359,7 +449,6 @@ const styles = StyleSheet.create({
     bottom: -40,
     left: -20,
   },
-
   // Network badge inside card
   netBadgeInCard: {
     flexDirection: "row",
@@ -384,7 +473,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 0.2,
   },
-
   balCardLabel: {
     color: "rgba(255,255,255,0.6)",
     fontSize: 13,
@@ -410,7 +498,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 24,
   },
-
   // Card bottom row
   cardBottomRow: {
     flexDirection: "row",
@@ -440,7 +527,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   // Quick actions
   qaCard: {
     flexDirection: "row",
@@ -472,7 +558,6 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 1,
   },
-
   // Section header
   sectionHeader: {
     flexDirection: "row",
@@ -489,7 +574,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-
   // Asset card
   assetCard: {
     flexDirection: "row",
@@ -506,11 +590,7 @@ const styles = StyleSheet.create({
     borderRadius: 23,
     alignItems: "center",
     justifyContent: "center",
-  },
-  assetEmoji: {
-    fontSize: 22,
-    color: "#627EEA",
-    fontWeight: "700",
+    overflow: "hidden",
   },
   assetInfo: { flex: 1 },
   assetName: {
@@ -532,7 +612,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
-
   // Empty hint
   emptyHint: {
     borderWidth: 1,
