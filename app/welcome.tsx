@@ -25,11 +25,11 @@ export default function WelcomeScreen() {
         />
 
         <Text style={[styles.title, { color: theme.text }]}>
-          Trade, Earn, Grow.
+          Own Your Crypto.
         </Text>
 
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Your keys, your crypto. Manage assets securely and effortlessly.
+          Full control of your digital assets.
         </Text>
 
         {/* Welcome Illustration */}
@@ -65,7 +65,7 @@ export default function WelcomeScreen() {
               styles.buttonSolid,
               { backgroundColor: theme.primary },
             ]}
-            onPress={() => router.push("/(auth)/create")}
+            onPress={() => router.push("/(auth)/backup-intro")}
             activeOpacity={0.7}
           >
             <Text style={[styles.buttonText, { color: "#fff" }]}>
