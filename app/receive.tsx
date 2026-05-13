@@ -4,12 +4,12 @@ import { useRouter } from "expo-router";
 import { ArrowLeft, Check, Copy, Share2 } from "lucide-react-native";
 import React, { useState } from "react";
 import {
-    Platform,
-    Share,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Platform,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import { useAppStore } from "../store/appStore";
@@ -123,7 +123,7 @@ export default function ReceiveScreen() {
             size={200}
             color={isDarkMode ? "#fff" : "#000"}
             backgroundColor="transparent"
-            logo={require("../assets/logo/lacax-light.png")}
+            logo={require("../assets/lacax-light.png")}
             logoSize={40}
             logoBackgroundColor={theme.card}
             logoBorderRadius={8}
