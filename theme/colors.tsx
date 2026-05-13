@@ -10,7 +10,7 @@ export const Colors = {
     error: "#FF3B30",
   },
   dark: {
-    background: "#000000",
+    background: "#303030",
     text: "#FFFFFF",
     textSecondary: "#AAAAAA",
     card: "#1C1C1E",

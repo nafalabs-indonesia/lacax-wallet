@@ -1,6 +1,4 @@
 // app/_layout.tsx
-import "../polyfills";
-
 import {
   DarkTheme,
   DefaultTheme,
@@ -8,8 +6,9 @@ import {
 } from "@react-navigation/native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import "react-native-reanimated";
+import "../polyfills";
 import { useAppStore } from "../store/appStore";
 
 export default function RootLayout() {
@@ -22,47 +21,60 @@ export default function RootLayout() {
   } = useAppStore();
   const router = useRouter();
   const segments = useSegments();
+  const [splashDone, setSplashDone] = useState(false);
 
   const navTheme = isDarkMode ? DarkTheme : DefaultTheme;
 
-  // ✅ FIX: Panggil loadWalletFromStorage SEKALI saat app pertama kali mount
-  // Ini yang sebelumnya hilang — tanpanya, walletAddress selalu null setiap buka app
+  // 1. Load wallet dari storage SEKALI
   useEffect(() => {
     loadWalletFromStorage();
   }, []);
 
-  // ✅ FIX: Routing guard sekarang nunggu isStorageLoaded = true dulu
-  // Sebelumnya: guard langsung jalan sebelum SecureStore selesai dibaca → redirect ke /welcome
+  // 2. Splash screen delay (1.5 detik)
   useEffect(() => {
-    if (!isStorageLoaded) return; // ← kunci utama, jangan route sebelum storage siap
+    if (!isStorageLoaded) return;
+
+    const timer = setTimeout(() => {
+      setSplashDone(true);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [isStorageLoaded]);
+
+  // 3. Routing guard (jalan setelah splash selesai)
+  useEffect(() => {
+    if (!isStorageLoaded || !splashDone) return;
 
     const currentPath = segments.join("/");
 
-    // 1. Belum ada wallet → arahkan ke welcome, kecuali sudah di public route
+    // Route publik yang boleh diakses tanpa wallet
+    const publicRoutes = [
+      "index",
+      "get-started",
+      "welcome",
+      "(auth)/import",
+      "(auth)/backup-intro",
+      "(auth)/reveal-seed",
+      "(auth)/wallet-ready",
+    ];
+
+    const isPublic = publicRoutes.some(
+      (route) => currentPath === route || currentPath.startsWith(route),
+    );
+
+    // CASE 1: Belum ada wallet
     if (!walletAddress) {
-      const publicRoutes = [
-        "welcome",
-        "(auth)/import",
-        "(auth)/backup-intro",
-        "(auth)/reveal-seed",
-        "(auth)/wallet-ready",
-      ];
-
-      const isPublic = publicRoutes.some((route) =>
-        currentPath.startsWith(route),
-      );
-
       if (!isPublic) {
-        router.replace("/welcome");
+        router.replace("/get-started");
       }
       return;
     }
 
-    // 2. Punya wallet tapi belum unlock → arahkan ke halaman unlock
+    // CASE 2: Ada wallet tapi belum unlock
     if (!isUnlocked) {
-      const unlockedExceptions = ["unlock", "wallet-ready"];
-      const isException = unlockedExceptions.some((r) =>
-        currentPath.includes(r),
+      const unlockExceptions = ["unlock", "wallet-ready", "index", ""];
+      const isException = unlockExceptions.some(
+        (r) => currentPath.includes(r) || currentPath === r,
       );
       if (!isException) {
         router.replace("/(auth)/unlock");
@@ -70,8 +82,9 @@ export default function RootLayout() {
       return;
     }
 
-    // 3. Sudah unlock → jangan biarkan akses halaman onboarding/auth
+    // CASE 3: Sudah unlock → blokir halaman onboarding
     const privateOnlyRoutes = [
+      "get-started",
       "welcome",
       "unlock",
       "create",
@@ -90,15 +103,33 @@ export default function RootLayout() {
     if (isPrivateRoute) {
       router.replace("/(tabs)");
     }
-  }, [isStorageLoaded, walletAddress, isUnlocked, segments, router]);
+  }, [
+    isStorageLoaded,
+    splashDone,
+    walletAddress,
+    isUnlocked,
+    segments,
+    router,
+  ]);
 
   return (
     <ThemeProvider value={navTheme}>
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="welcome" />
-        <Stack.Screen name="(auth)/backup-intro" />
-        <Stack.Screen name="(auth)/reveal-seed" />
-        <Stack.Screen name="(auth)/wallet-ready" />
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="get-started" options={{ headerShown: false }} />
+        <Stack.Screen name="welcome" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="(auth)/backup-intro"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="(auth)/reveal-seed"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="(auth)/wallet-ready"
+          options={{ headerShown: false }}
+        />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="send"

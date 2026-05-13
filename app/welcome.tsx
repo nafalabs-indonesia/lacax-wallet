@@ -1,4 +1,3 @@
-// app/welcome.tsx
 import { useRouter } from "expo-router";
 import React from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -12,38 +11,29 @@ export default function WelcomeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.content}>
-        {/* Logo */}
+      {/* Bagian Atas: Ilustrasi */}
+      <View style={styles.topSection}>
         <Image
-          source={
-            isDarkMode
-              ? require("../assets/logo/lacax-dark.png")
-              : require("../assets/logo/lacax-light.png")
-          }
-          style={styles.logo}
+          source={require("../assets/welcome.png")}
+          style={styles.illustration}
           resizeMode="contain"
         />
+      </View>
 
+      {/* Bagian Tengah: Judul & Subjudul */}
+      <View style={styles.middleSection}>
         <Text style={[styles.title, { color: theme.text }]}>
-          Own Your Crypto.
+          Own Your{"\n"}Crypto
         </Text>
-
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Full control of your digital assets.
+          Full control of your digital assets
         </Text>
+      </View>
 
-        {/* Welcome Illustration */}
-        <View style={styles.illustration}>
-          <Image
-            source={require("../assets/welcome.png")}
-            style={styles.welcomeImage}
-            resizeMode="contain"
-          />
-        </View>
-
-        {/* Button Group: Import (kiri) | Create Wallet (kanan) */}
+      {/* Bagian Bawah: Tombol */}
+      <View style={styles.bottomSection}>
         <View style={styles.buttonGroup}>
-          {/* Import - ghost/outline */}
+          {/* Import - Outline */}
           <TouchableOpacity
             style={[
               styles.button,
@@ -58,7 +48,7 @@ export default function WelcomeScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Create Wallet - solid */}
+          {/* Create Wallet - Solid */}
           <TouchableOpacity
             style={[
               styles.button,
@@ -68,7 +58,7 @@ export default function WelcomeScreen() {
             onPress={() => router.push("/(auth)/backup-intro")}
             activeOpacity={0.7}
           >
-            <Text style={[styles.buttonText, { color: "#fff" }]}>
+            <Text style={[styles.buttonText, { color: "#FFFFFF" }]}>
               Create Wallet
             </Text>
           </TouchableOpacity>
@@ -82,56 +72,65 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 24,
-    justifyContent: "center",
+    // Kita pakai justifyContent: 'space-between' untuk menyebar 3 bagian utama
+    // Top (Illustration), Middle (Text), Bottom (Buttons)
+    justifyContent: "space-between",
+    paddingTop: 130, // Jarak dari atas layar ke ilustrasi
+    paddingBottom: 80, // Jarak dari tombol ke bawah layar
   },
-  content: {
+  topSection: {
     alignItems: "center",
-    width: "100%",
-  },
-  logo: {
-    width: 180,
-    height: 80,
+    // Margin bottom ini mengatur jarak antara Ilustrasi dan Judul
     marginBottom: 20,
   },
+  illustration: {
+    width: 250,
+    height: 250,
+  },
+  middleSection: {
+    alignItems: "center",
+    // Flex grow bisa membantu mendorong section ini ke tengah jika diperlukan,
+    // tapi dengan space-between di parent, ini sudah cukup rapi.
+  },
   title: {
-    fontSize: 28,
+    fontSize: 40,
     fontWeight: "bold",
-    marginBottom: 10,
     textAlign: "center",
+    lineHeight: 48,
+    marginBottom: 12,
   },
   subtitle: {
     fontSize: 16,
     textAlign: "center",
-    marginBottom: 40,
     paddingHorizontal: 20,
     lineHeight: 22,
+    // Margin bottom ini mengatur jarak antara Subjudul dan Tombol
+    marginBottom: 20,
   },
-  illustration: {
-    marginBottom: 50,
-    alignItems: "center",
-  },
-  welcomeImage: {
-    width: 220,
-    height: 220,
+  bottomSection: {
+    width: "100%",
+    // Jika tombol masih terasa terlalu tinggi, tambah marginTop di sini
+    marginTop: 20,
   },
   buttonGroup: {
-    width: "100%",
     flexDirection: "row",
-    gap: 12,
+    width: "100%",
+    gap: 16,
   },
   button: {
     flex: 1,
     borderRadius: 9999,
-    paddingVertical: 14,
+    paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
   },
   buttonOutline: {
     borderWidth: 1.5,
+    backgroundColor: "transparent",
   },
   buttonSolid: {},
   buttonText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "600",
   },
 });

@@ -20,7 +20,7 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  isDarkMode: false,
+  isDarkMode: true,
   toggleTheme: () => set((state) => ({ isDarkMode: !state.isDarkMode })),
 
   walletAddress: null,

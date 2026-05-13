@@ -189,8 +189,8 @@ export default function UnlockScreen() {
           <Image
             source={
               isDarkMode
-                ? require("../../assets/logo/lacax-dark.png")
-                : require("../../assets/logo/lacax-light.png")
+                ? require("../../assets/lacax-dark.png")
+                : require("../../assets/lacax-light.png")
             }
             style={styles.logoImage}
             resizeMode="contain"
