@@ -1,50 +1,123 @@
-# Welcome to your Expo app 👋
+<div align="center">
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+<img src="assets/readme/mockup.png" alt="Lacax Wallet Preview" width="100%" />
 
-## Get started
+# Lacax Wallet
 
-1. Install dependencies
+### One Wallet. Secure and Simple.
 
-   ```bash
-   npm install
-   ```
+Make crypto simple and secure.  
+Store, manage, and transact crypto safely with ease.
 
-2. Start the app
+</div>
 
-   ```bash
-   npx expo start
-   ```
+---
 
-In the output, you'll find options to open the app in a
+## About
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Lacax Wallet is a modern crypto wallet built with React Native and Expo, designed to make digital asset management simple, secure, and accessible.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+---
 
-## Get a fresh project
+## Tech Stack
 
-When you're ready, run:
+- React Native
+- Expo
+- TypeScript
+- Expo Router
+
+---
+
+## Installation
+
+Clone the repository:
 
 ```bash
-npm run reset-project
+git clone https://github.com/nafalabs-indonesia/lacax-wallet.git
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Enter the project directory:
 
-## Learn more
+```bash
+cd lacax-wallet
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+Install dependencies:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+npm install
+```
 
-## Join the community
+---
 
-Join our community of developers creating universal apps.
+## Running the App
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Start the development server:
+
+```bash
+npx expo start
+```
+
+Run on Android:
+
+```bash
+npx expo run:android
+```
+
+Run on iOS:
+
+```bash
+npx expo run:ios
+```
+
+Run on Web:
+
+```bash
+npx expo start --web
+```
+
+---
+
+## Build with Expo
+
+Install EAS CLI:
+
+```bash
+npm install -g eas-cli
+```
+
+Login to Expo:
+
+```bash
+eas login
+```
+
+Configure EAS Build:
+
+```bash
+eas build:configure
+```
+
+Build Android APK:
+
+```bash
+eas build -p android --profile preview
+```
+
+Build Android App Bundle:
+
+```bash
+eas build -p android --profile production
+```
+
+Build iOS:
+
+```bash
+eas build -p ios --profile production
+```
+
+---
+
+## License
+
+MIT License © 2026 Nafalabs Indonesia
