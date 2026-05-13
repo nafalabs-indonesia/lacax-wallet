@@ -1,15 +1,9 @@
 // app/(tabs)/_layout.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
-import { Settings } from "lucide-react-native";
+import { Clock, Coins } from "lucide-react-native";
 import React from "react";
-import {
-  Platform,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { WalletRepository } from "../../modules/wallet/infrastructure/WalletRepository";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
@@ -26,8 +20,6 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
           backgroundColor: theme.card,
           borderTopColor: theme.border,
           bottom: Platform.OS === "ios" ? 40 : 30,
-          marginHorizontal: 20,
-          borderRadius: 24,
           shadowColor: "#000",
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.15,
@@ -47,25 +39,36 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
             target: route.key,
             canPreventDefault: true,
           });
+
           if (!isFocused && !event.defaultPrevented) {
             navigation.navigate(route.name);
           }
         };
 
         let icon;
+
         if (route.name === "index") {
           icon = (
             <Ionicons
-              name="home"
+              name={isFocused ? "wallet" : "wallet-outline"}
               size={22}
               color={isFocused ? theme.primary : theme.textSecondary}
             />
           );
-        } else if (route.name === "settings") {
+        } else if (route.name === "history") {
           icon = (
-            <Settings
+            <Clock
               size={22}
               color={isFocused ? theme.primary : theme.textSecondary}
+              strokeWidth={isFocused ? 2.5 : 2}
+            />
+          );
+        } else if (route.name === "earn") {
+          icon = (
+            <Coins
+              size={22}
+              color={isFocused ? theme.primary : theme.textSecondary}
+              strokeWidth={isFocused ? 2.5 : 2}
             />
           );
         }
@@ -78,17 +81,6 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
             activeOpacity={0.7}
           >
             {icon}
-            <Text
-              style={[
-                styles.tabLabel,
-                {
-                  color: isFocused ? theme.primary : theme.textSecondary,
-                  fontWeight: isFocused ? "700" : "500",
-                },
-              ]}
-            >
-              {label}
-            </Text>
           </TouchableOpacity>
         );
       })}
@@ -97,8 +89,7 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
 }
 
 export default function TabLayout() {
-  const { isDarkMode, walletAddress } = useAppStore();
-  const theme = isDarkMode ? Colors.dark : Colors.light;
+  const { walletAddress } = useAppStore();
 
   const [status, setStatus] = React.useState<
     "checking" | "locked" | "new" | "ready"
@@ -112,6 +103,7 @@ export default function TabLayout() {
       }
 
       const initialized = await WalletRepository.isInitialized();
+
       if (initialized) {
         setStatus("locked");
       } else {
@@ -122,27 +114,18 @@ export default function TabLayout() {
     checkAuth();
   }, [walletAddress]);
 
-  if (status === "checking") {
-    return null;
-  }
-
-  if (status === "locked") {
-    return <Redirect href="/(auth)/unlock" />;
-  }
-
-  if (status === "new") {
-    return <Redirect href="/welcome" />;
-  }
+  if (status === "checking") return null;
+  if (status === "locked") return <Redirect href="/(auth)/unlock" />;
+  if (status === "new") return <Redirect href="/welcome" />;
 
   return (
     <Tabs
       tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-      }}
+      screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen name="index" options={{ title: "Home" }} />
-      <Tabs.Screen name="settings" options={{ title: "Pengaturan" }} />
+      <Tabs.Screen name="history" options={{ title: "Riwayat" }} />
+      <Tabs.Screen name="earn" options={{ title: "Earn" }} />
     </Tabs>
   );
 }
@@ -151,21 +134,18 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: "row",
     position: "absolute",
-    left: 20,
-    right: 20,
-    height: 64,
+    alignSelf: "center", // bikin center
+    width: 220, // lebih pendek
+    height: 56,
     alignItems: "center",
     justifyContent: "space-around",
     borderTopWidth: 1,
-    borderRadius: 24,
+    borderRadius: 9999,
   },
+
   tabItem: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-  },
-  tabLabel: {
-    fontSize: 11,
   },
 });

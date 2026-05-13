@@ -1,4 +1,5 @@
 // app/(auth)/unlock.tsx
+import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
 import { Delete } from "lucide-react-native";
 import React, { useRef, useState } from "react";
@@ -11,6 +12,7 @@ import {
   Vibration,
   View,
 } from "react-native";
+
 import { WalletRepository } from "../../modules/wallet/infrastructure/WalletRepository";
 import { KeyDerivationService } from "../../services/crypto/KeyDerivation";
 import { useAppStore } from "../../store/appStore";
@@ -27,7 +29,9 @@ const NUMPAD = [
 
 export default function UnlockScreen() {
   const router = useRouter();
+
   const { setWalletAddress, setUnlocked, isDarkMode } = useAppStore();
+
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
   const [pin, setPin] = useState("");
@@ -36,14 +40,12 @@ export default function UnlockScreen() {
 
   // Animations
   const shakeAnim = useRef(new Animated.Value(0)).current;
-  const dotScale = useRef(
-    Array.from({ length: PIN_LENGTH }, () => new Animated.Value(1)),
-  ).current;
   const spinAnim = useRef(new Animated.Value(0)).current;
   const loadingOpacity = useRef(new Animated.Value(0)).current;
 
   const triggerShake = () => {
     Vibration.vibrate(300);
+
     Animated.sequence([
       Animated.timing(shakeAnim, {
         toValue: 10,
@@ -73,25 +75,9 @@ export default function UnlockScreen() {
     ]).start();
   };
 
-  const animateDot = (index: number) => {
-    Animated.sequence([
-      Animated.spring(dotScale[index], {
-        toValue: 1.4,
-        tension: 200,
-        friction: 5,
-        useNativeDriver: true,
-      }),
-      Animated.spring(dotScale[index], {
-        toValue: 1,
-        tension: 200,
-        friction: 5,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
   const startSpin = () => {
     spinAnim.setValue(0);
+
     Animated.loop(
       Animated.timing(spinAnim, {
         toValue: 1,
@@ -99,6 +85,7 @@ export default function UnlockScreen() {
         useNativeDriver: true,
       }),
     ).start();
+
     Animated.timing(loadingOpacity, {
       toValue: 1,
       duration: 200,
@@ -108,7 +95,12 @@ export default function UnlockScreen() {
 
   const stopSpin = () => {
     spinAnim.stopAnimation();
-    loadingOpacity.setValue(0);
+
+    Animated.timing(loadingOpacity, {
+      toValue: 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
   };
 
   const handleUnlock = async (fullPin: string) => {
@@ -117,7 +109,6 @@ export default function UnlockScreen() {
     startSpin();
 
     try {
-      // 1. Verifikasi PIN via SHA-256 hash
       const isValid = await WalletRepository.verifyPin(fullPin);
 
       if (!isValid) {
@@ -129,7 +120,6 @@ export default function UnlockScreen() {
         return;
       }
 
-      // 2. Load mnemonic
       const mnemonic = await WalletRepository.getMnemonic();
 
       if (!mnemonic) {
@@ -138,23 +128,26 @@ export default function UnlockScreen() {
         return;
       }
 
-      // 3. Derive address
       const privateKey =
         KeyDerivationService.getPrivateKeyFromMnemonic(mnemonic);
+
       const address = KeyDerivationService.getAddressFromPrivateKey(privateKey);
 
-      // 4. Update store
-      setWalletAddress(address);
+      await setWalletAddress(address);
+
       setUnlocked(true);
 
       stopSpin();
+
       router.replace("/(tabs)");
     } catch (e: any) {
       console.error(e);
+
       stopSpin();
       setIsLoading(false);
       setPin("");
       setError("Terjadi kesalahan. Coba lagi.");
+
       triggerShake();
     }
   };
@@ -172,8 +165,8 @@ export default function UnlockScreen() {
     if (pin.length >= PIN_LENGTH) return;
 
     const next = pin + val;
+
     setPin(next);
-    animateDot(pin.length);
 
     if (next.length === PIN_LENGTH) {
       setTimeout(() => handleUnlock(next), 300);
@@ -182,7 +175,9 @@ export default function UnlockScreen() {
 
   const handleReset = async () => {
     await WalletRepository.wipeWallet();
-    useAppStore.getState().setWalletAddress("");
+
+    await useAppStore.getState().setWalletAddress(null);
+
     router.replace("/welcome");
   };
 
@@ -190,8 +185,7 @@ export default function UnlockScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Top section */}
       <View style={styles.topSection}>
-        <View style={[styles.logoBadge]}>
-          {/* ✅ FIX: pakai isDarkMode bukan theme.mode */}
+        <View style={styles.logoBadge}>
           <Image
             source={
               isDarkMode
@@ -206,6 +200,7 @@ export default function UnlockScreen() {
         <Text style={[styles.title, { color: theme.text }]}>
           Selamat Datang
         </Text>
+
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
           Masukkan PIN untuk membuka wallet Anda
         </Text>
@@ -214,12 +209,18 @@ export default function UnlockScreen() {
       {/* Dots */}
       <View style={styles.middleSection}>
         <Animated.View
-          style={[styles.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
+          style={[
+            styles.dotsRow,
+            {
+              transform: [{ translateX: shakeAnim }],
+            },
+          ]}
         >
           {Array.from({ length: PIN_LENGTH }).map((_, i) => {
             const filled = i < pin.length;
+
             return (
-              <Animated.View
+              <View
                 key={i}
                 style={[
                   styles.dot,
@@ -229,12 +230,12 @@ export default function UnlockScreen() {
                       : filled
                         ? theme.primary
                         : "transparent",
+
                     borderColor: error
                       ? "#EF4444"
                       : filled
                         ? theme.primary
                         : theme.border,
-                    transform: [{ scale: dotScale[i] }],
                   },
                 ]}
               />
@@ -242,41 +243,7 @@ export default function UnlockScreen() {
           })}
         </Animated.View>
 
-        {/* Spinner */}
-        <Animated.View
-          style={[styles.spinnerWrap, { opacity: loadingOpacity }]}
-          pointerEvents="none"
-        >
-          <View
-            style={[styles.spinnerRing, { borderColor: theme.primary + "30" }]}
-          >
-            <Animated.View
-              style={[
-                styles.spinnerArc,
-                {
-                  borderColor: "transparent",
-                  borderTopColor: theme.primary,
-                  transform: [
-                    {
-                      rotate: spinAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ["0deg", "360deg"],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            />
-          </View>
-        </Animated.View>
-
-        {error ? (
-          <Text style={styles.errorText}>{error}</Text>
-        ) : (
-          <Text style={[styles.pinHint, { color: "transparent" }]}>
-            placeholder
-          </Text>
-        )}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
 
       {/* Numpad */}
@@ -287,7 +254,9 @@ export default function UnlockScreen() {
               if (key === "") {
                 return <View key={kIdx} style={styles.numpadEmpty} />;
               }
+
               const isDelete = key === "⌫";
+
               return (
                 <TouchableOpacity
                   key={kIdx}
@@ -295,6 +264,7 @@ export default function UnlockScreen() {
                     styles.numpadKey,
                     {
                       backgroundColor: isDelete ? "transparent" : theme.card,
+
                       borderColor: isDelete ? "transparent" : theme.border,
                     },
                   ]}
@@ -326,6 +296,55 @@ export default function UnlockScreen() {
           Lupa PIN? Reset Wallet
         </Text>
       </TouchableOpacity>
+
+      {/* ✅ Spinner overlay — HARUS di paling bawah */}
+      {isLoading && (
+        <Animated.View
+          style={[styles.spinnerOverlay, { opacity: loadingOpacity }]}
+          pointerEvents="none"
+        >
+          <BlurView
+            intensity={90}
+            tint={isDarkMode ? "dark" : "light"}
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: isDarkMode
+                  ? "rgba(0,0,0,0.22)"
+                  : "rgba(255,255,255,0.22)",
+              },
+            ]}
+          />
+
+          <View
+            style={[
+              styles.spinnerRing,
+              {
+                borderColor: theme.primary + "25",
+              },
+            ]}
+          >
+            <Animated.View
+              style={[
+                styles.spinnerArc,
+                {
+                  borderColor: "transparent",
+                  borderTopColor: theme.primary,
+
+                  transform: [
+                    {
+                      rotate: spinAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ["0deg", "360deg"],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+          </View>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -338,6 +357,34 @@ const styles = StyleSheet.create({
     paddingTop: 80,
     paddingBottom: 44,
     paddingHorizontal: 28,
+  },
+
+  spinnerOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 999,
+  },
+
+  spinnerRing: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  spinnerArc: {
+    position: "absolute",
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 4,
   },
 
   topSection: {
@@ -354,14 +401,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
 
-  // ✅ FIX: Hapus logoInner (tidak dipakai lagi)
-  // logoInner: {
-  //   width: 28,
-  //   height: 28,
-  //   borderRadius: 8,
-  // },
-
-  // ✅ FIX: Tambah logoImage style
   logoImage: {
     width: 150,
     height: 150,
@@ -396,39 +435,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
 
-  spinnerWrap: {
-    position: "absolute",
-    top: -44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  spinnerRing: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 4,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  spinnerArc: {
-    position: "absolute",
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 4,
-  },
-
   errorText: {
     fontSize: 13,
     color: "#EF4444",
     fontWeight: "600",
     textAlign: "center",
-  },
-
-  pinHint: {
-    fontSize: 13,
   },
 
   numpad: {

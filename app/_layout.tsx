@@ -8,28 +8,37 @@ import {
 } from "@react-navigation/native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import "react-native-reanimated";
 import { useAppStore } from "../store/appStore";
 
 export default function RootLayout() {
-  const { isDarkMode, walletAddress, isUnlocked } = useAppStore();
+  const {
+    isDarkMode,
+    walletAddress,
+    isUnlocked,
+    isStorageLoaded,
+    loadWalletFromStorage,
+  } = useAppStore();
   const router = useRouter();
   const segments = useSegments();
-  const [isReady, setIsReady] = useState(false);
 
   const navTheme = isDarkMode ? DarkTheme : DefaultTheme;
 
+  // ✅ FIX: Panggil loadWalletFromStorage SEKALI saat app pertama kali mount
+  // Ini yang sebelumnya hilang — tanpanya, walletAddress selalu null setiap buka app
   useEffect(() => {
-    setIsReady(true);
+    loadWalletFromStorage();
   }, []);
 
+  // ✅ FIX: Routing guard sekarang nunggu isStorageLoaded = true dulu
+  // Sebelumnya: guard langsung jalan sebelum SecureStore selesai dibaca → redirect ke /welcome
   useEffect(() => {
-    if (!isReady) return;
+    if (!isStorageLoaded) return; // ← kunci utama, jangan route sebelum storage siap
 
     const currentPath = segments.join("/");
 
-    // 1. Jika BELUM ADA WALLET
+    // 1. Belum ada wallet → arahkan ke welcome, kecuali sudah di public route
     if (!walletAddress) {
       const publicRoutes = [
         "welcome",
@@ -49,14 +58,9 @@ export default function RootLayout() {
       return;
     }
 
-    // 2. Jika SUDAH PUNYA WALLET tapi BELUM UNLOCK
+    // 2. Punya wallet tapi belum unlock → arahkan ke halaman unlock
     if (!isUnlocked) {
-      const unlockedExceptions = [
-        "unlock",
-        "wallet-ready",
-        "send",
-        "notifications",
-      ]; // ✅ Tambah send & notifications ke exception (bisa diakses sebelum unlock kalau perlu, atau hapus kalau mau tetap protected)
+      const unlockedExceptions = ["unlock", "wallet-ready"];
       const isException = unlockedExceptions.some((r) =>
         currentPath.includes(r),
       );
@@ -66,7 +70,7 @@ export default function RootLayout() {
       return;
     }
 
-    // 3. Jika SUDAH UNLOCK
+    // 3. Sudah unlock → jangan biarkan akses halaman onboarding/auth
     const privateOnlyRoutes = [
       "welcome",
       "unlock",
@@ -86,7 +90,7 @@ export default function RootLayout() {
     if (isPrivateRoute) {
       router.replace("/(tabs)");
     }
-  }, [isReady, walletAddress, isUnlocked, segments, router]);
+  }, [isStorageLoaded, walletAddress, isUnlocked, segments, router]);
 
   return (
     <ThemeProvider value={navTheme}>
@@ -96,8 +100,6 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)/reveal-seed" />
         <Stack.Screen name="(auth)/wallet-ready" />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-
-        {/* ✅ TAMBAH: Register page baru */}
         <Stack.Screen
           name="send"
           options={{ presentation: "modal", headerShown: false }}

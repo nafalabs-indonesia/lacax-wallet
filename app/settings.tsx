@@ -1,6 +1,7 @@
 // app/(tabs)/settings.tsx
 import { useRouter } from "expo-router";
 import {
+    ArrowLeft,
     ChevronRight,
     Fingerprint,
     Globe,
@@ -21,8 +22,8 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { useAppStore } from "../../store/appStore";
-import { Colors } from "../../theme/colors";
+import { useAppStore } from "../store/appStore";
+import { Colors } from "../theme/colors";
 
 interface SettingItemProps {
   icon: React.ReactNode;
@@ -105,7 +106,6 @@ export default function SettingsScreen() {
           onPress: () => {
             setUnlocked(false);
             setWalletAddress("");
-            // TODO: Wipe secure storage kalau perlu
             router.replace("/welcome");
           },
         },
@@ -117,9 +117,23 @@ export default function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity
+          style={[
+            styles.backBtn,
+            { backgroundColor: theme.card, borderColor: theme.border },
+          ]}
+          onPress={() => router.back()}
+          activeOpacity={0.75}
+        >
+          <ArrowLeft size={18} color={theme.text} strokeWidth={2.2} />
+        </TouchableOpacity>
+
         <Text style={[styles.headerTitle, { color: theme.text }]}>
           Pengaturan
         </Text>
+
+        {/* Spacer agar title tetap center */}
+        <View style={styles.backBtn} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -142,17 +156,13 @@ export default function SettingsScreen() {
                   ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
                   : "-"
               }
-              onPress={() => {
-                // TODO: Copy address or show QR
-              }}
+              onPress={() => {}}
             />
             <SettingItem
               icon={<Shield size={18} color={theme.primary} />}
               title="Keamanan"
               subtitle="PIN & Backup"
-              onPress={() => {
-                // TODO: Navigate to security settings
-              }}
+              onPress={() => {}}
             />
           </View>
         </View>
@@ -181,7 +191,7 @@ export default function SettingsScreen() {
               rightElement={
                 <Switch
                   value={isDarkMode}
-                  onValueChange={() => toggleTheme()} // ✅ BENAR
+                  onValueChange={() => toggleTheme()}
                 />
               }
             />
@@ -189,9 +199,7 @@ export default function SettingsScreen() {
               icon={<Globe size={18} color={theme.primary} />}
               title="Bahasa"
               subtitle="Bahasa Indonesia"
-              onPress={() => {
-                // TODO: Language selector
-              }}
+              onPress={() => {}}
             />
           </View>
         </View>
@@ -217,9 +225,7 @@ export default function SettingsScreen() {
               icon={<Info size={18} color={theme.primary} />}
               title="Tentang"
               subtitle="Versi 1.0.0"
-              onPress={() => {
-                // TODO: About page
-              }}
+              onPress={() => {}}
             />
           </View>
         </View>
@@ -247,9 +253,6 @@ export default function SettingsScreen() {
           <Text style={[styles.footerText, { color: theme.textSecondary }]}>
             Lacax Wallet v1.0.0
           </Text>
-          <Text style={[styles.footerText, { color: theme.textSecondary }]}>
-            Built with Expo & React Native
-          </Text>
         </View>
       </ScrollView>
     </View>
@@ -261,14 +264,25 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 16,
-    borderBottomWidth: 1,
+  },
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: -0.3,
   },
   section: {
     marginTop: 24,

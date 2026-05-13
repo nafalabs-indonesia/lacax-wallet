@@ -11,6 +11,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Check,
+  ChevronDown,
   Copy,
   RefreshCw,
   Repeat2,
@@ -24,6 +25,7 @@ import {
   Animated,
   Dimensions,
   Image,
+  Modal,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -252,6 +254,9 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // State untuk Dropdown Network
+  const [showNetworkModal, setShowNetworkModal] = useState(false);
+
   const activeChainConfig =
     SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
   const currentBalance = balances[activeChainId] || "0.0000";
@@ -398,12 +403,14 @@ export default function HomeScreen() {
               </Text>
             </View>
 
-            {/* Network Badge */}
-            <View
+            {/* Network Selector Dropdown Trigger */}
+            <TouchableOpacity
               style={[
                 styles.netBadge,
                 { backgroundColor: theme.primary + "15" },
               ]}
+              onPress={() => setShowNetworkModal(true)}
+              activeOpacity={0.7}
             >
               <View
                 style={[styles.netDot, { backgroundColor: theme.primary }]}
@@ -411,7 +418,8 @@ export default function HomeScreen() {
               <Text style={[styles.netText, { color: theme.primary }]}>
                 {activeChainConfig.name}
               </Text>
-            </View>
+              <ChevronDown size={14} color={theme.primary} strokeWidth={2.5} />
+            </TouchableOpacity>
           </View>
 
           {/* Address & Refresh Row */}
@@ -494,7 +502,19 @@ export default function HomeScreen() {
             <TouchableOpacity
               key={chain.id}
               activeOpacity={0.7}
-              onPress={() => setActiveChainId(chain.id as ChainId)}
+              onPress={() => {
+                // Ambil ID CoinGecko dari mapping
+                const cgId = COINGECKO_IDS[chain.id];
+                if (cgId) {
+                  router.push({
+                    pathname: "/coin-detail",
+                    params: { coinId: cgId },
+                  });
+                } else {
+                  // Fallback jika tidak ada mapping, tetap ganti chain aktif
+                  setActiveChainId(chain.id as ChainId);
+                }
+              }}
               style={[
                 styles.assetRow,
                 isActive && { backgroundColor: theme.primary + "08" },
@@ -524,6 +544,60 @@ export default function HomeScreen() {
 
         <View style={{ height: 120 }} />
       </ScrollView>
+
+      {/* ── Network Selection Modal ── */}
+      <Modal
+        visible={showNetworkModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNetworkModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowNetworkModal(false)}
+        >
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              Pilih Jaringan
+            </Text>
+            {SUPPORTED_CHAINS.map((chain) => {
+              const isSelected = chain.id === activeChainId;
+              return (
+                <TouchableOpacity
+                  key={chain.id}
+                  style={[
+                    styles.networkOption,
+                    isSelected && { backgroundColor: theme.primary + "10" },
+                  ]}
+                  onPress={() => {
+                    setActiveChainId(chain.id as ChainId);
+                    setShowNetworkModal(false);
+                  }}
+                >
+                  <ChainIcon chainId={chain.id} symbol={chain.symbol} />
+                  <View style={styles.networkInfo}>
+                    <Text style={[styles.networkName, { color: theme.text }]}>
+                      {chain.name}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.networkSymbol,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      {chain.symbol}
+                    </Text>
+                  </View>
+                  {isSelected && (
+                    <Check size={20} color={theme.primary} strokeWidth={2.5} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -574,7 +648,7 @@ const styles = StyleSheet.create({
     gap: 6,
     borderRadius: 99,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8, // Sedikit diperbesar untuk tap area
   },
   netDot: {
     width: 6,
@@ -724,5 +798,49 @@ const styles = StyleSheet.create({
   changeText: {
     fontSize: 11,
     fontWeight: "700",
+  },
+
+  // ── Network Modal Styles ──
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: W * 0.85,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  networkOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  networkInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  networkName: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  networkSymbol: {
+    fontSize: 13,
+    marginTop: 2,
   },
 });
