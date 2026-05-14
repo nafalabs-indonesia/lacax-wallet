@@ -1,6 +1,4 @@
-// app/(auth)/backup-intro.tsx
 import { useRouter } from "expo-router";
-import { ArrowLeft } from "lucide-react-native";
 import React from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useAppStore } from "../../store/appStore";
@@ -13,39 +11,27 @@ export default function BackupIntroScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Top Bar with Back Button */}
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={[
-            styles.iconBtn,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-          activeOpacity={0.7}
-        >
-          <ArrowLeft size={20} color={theme.text} strokeWidth={2} />
-        </TouchableOpacity>
-      </View>
-
       <View style={styles.content}>
-        {/* Title & Description - DI ATAS */}
+        {/* Title */}
         <Text style={[styles.title, { color: theme.text }]}>
-          Cadangkan Wallet Anda
+          Back Up Your Wallet
         </Text>
 
+        {/* Description */}
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Anda memerlukan{" "}
+          Your{" "}
           <Text style={{ fontWeight: "600", color: theme.text }}>
-            frasa pemulihan rahasia
+            secret recovery phrase
           </Text>{" "}
-          untuk memulihkan kripto jika perangkat hilang atau beralih wallet.
+          is required to restore access to your crypto if you lose your device
+          or move to another wallet.
           {"\n"}
           <Text style={{ fontWeight: "600", color: theme.text }}>
-            Jangan pernah membagikannya kepada siapapun.
+            Keep it private and never share it with anyone.
           </Text>
         </Text>
 
-        {/* Illustration / Secure Image - DI TENGAH (Diturunkan) */}
+        {/* Illustration */}
         <View style={styles.illustration}>
           <Image
             source={require("../../assets/secure.png")}
@@ -54,38 +40,14 @@ export default function BackupIntroScreen() {
           />
         </View>
 
-        {/* Button Group: Skip (kiri) | Lanjutkan (kanan) */}
-        <View style={styles.buttonGroup}>
-          {/* Skip - ghost/outline */}
-          <TouchableOpacity
-            style={[
-              styles.button,
-              styles.buttonOutline,
-              { borderColor: theme.border },
-            ]}
-            onPress={() => router.push("/(auth)/reveal-seed")}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.buttonText, { color: theme.textSecondary }]}>
-              Lewati
-            </Text>
-          </TouchableOpacity>
-
-          {/* Reveal/Lanjutkan - solid */}
-          <TouchableOpacity
-            style={[
-              styles.button,
-              styles.buttonSolid,
-              { backgroundColor: theme.primary },
-            ]}
-            onPress={() => router.push("/(auth)/reveal-seed")}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.buttonText, { color: "#fff" }]}>
-              Lanjutkan
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {/* Single CTA Button */}
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: theme.primary }]}
+          onPress={() => router.push("/(auth)/reveal-seed")}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.buttonText}>Reveal Recovery Phrase</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -95,66 +57,48 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 24,
-    paddingTop: 60, // Space for status bar
-  },
-  topBar: {
-    marginBottom: 20,
-  },
-  iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "center", // Pusatkan semua konten secara vertikal
   },
   content: {
-    flex: 1,
-    alignItems: "center",
-    paddingBottom: 10,
     width: "100%",
+    maxWidth: 400,
+    alignItems: "center",
+    paddingHorizontal: 10,
   },
   title: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: "bold",
-    marginBottom: 10,
-    textAlign: "left",
-    alignSelf: "flex-start",
+    textAlign: "center",
+    marginBottom: 20,
+    lineHeight: 38,
   },
   subtitle: {
     fontSize: 16,
-    textAlign: "left",
-    alignSelf: "flex-start",
-    marginBottom: 10, // Kurangi margin bawah teks agar tidak terlalu jauh dari gambar
-    lineHeight: 22,
+    textAlign: "center",
+    lineHeight: 24,
+    marginBottom: 30,
+    paddingHorizontal: 5,
   },
   illustration: {
-    marginTop: 30, // TAMBAHKAN INI: Mendorong gambar ke bawah
-    marginBottom: 30, // Jarak antara gambar dan tombol
     alignItems: "center",
+    marginVertical: 20,
   },
   welcomeImage: {
-    width: 240,
-    height: 240,
-  },
-  buttonGroup: {
-    width: "100%",
-    flexDirection: "row",
-    gap: 12,
+    width: 260,
+    height: 260,
   },
   button: {
-    flex: 1,
+    width: "100%",
     borderRadius: 9999,
-    paddingVertical: 14,
+    paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
+    marginTop: 30,
   },
-  buttonOutline: {
-    borderWidth: 1.5,
-  },
-  buttonSolid: {},
   buttonText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "600",
+    color: "#FFFFFF",
   },
 });
