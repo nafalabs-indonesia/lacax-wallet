@@ -2,12 +2,12 @@
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef } from "react";
 import {
-    Animated,
-    Image,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Animated,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 import { useAppStore } from "../../store/appStore";
@@ -107,7 +107,7 @@ export default function WalletReadyScreen() {
             },
           ]}
         >
-          Wallet Anda telah siap!
+          Your wallet is ready!
         </Animated.Text>
 
         {/* ✅ Subtitle ditambahkan di sini */}
@@ -128,7 +128,7 @@ export default function WalletReadyScreen() {
             },
           ]}
         >
-          Masuk dan mulai terhubung.
+          Sign in and start connecting.
         </Animated.Text>
       </View>
 
@@ -154,7 +154,7 @@ export default function WalletReadyScreen() {
           onPress={handleMasuk}
           activeOpacity={0.82}
         >
-          <Text style={styles.buttonText}>Masuk ke Wallet</Text>
+          <Text style={styles.buttonText}>Enter Wallet</Text>
         </TouchableOpacity>
       </Animated.View>
     </View>

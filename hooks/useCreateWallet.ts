@@ -8,20 +8,18 @@ import { useAppStore } from "../store/appStore";
 export const useCreateWallet = () => {
   const router = useRouter();
 
-  const [step, setStep] = useState(1);
+  // State yang masih diperlukan
   const [mnemonic, setMnemonic] = useState("");
-  const [pin, setPin] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [verifyIndices, setVerifyIndices] = useState<number[]>([]);
-  const [selectedWords, setSelectedWords] = useState<string[]>([]);
+  // Hapus state pin, step, verifyIndices, selectedWords jika tidak dipakai lagi oleh UI baru
+  // Karena UI reveal-seed.tsx sekarang menangani flow sendiri, hook ini hanya fokus pada create & finalize
 
   const generateNewWallet = () => {
     try {
       const newMnemonic = KeyDerivationService.generateMnemonic();
       setMnemonic(newMnemonic);
-      setStep(1);
       setError(null);
     } catch (e) {
       console.error(e);
@@ -29,44 +27,10 @@ export const useCreateWallet = () => {
     }
   };
 
-  const startVerification = () => {
-    const indices: number[] = [];
-    while (indices.length < 3) {
-      const r = Math.floor(Math.random() * 12);
-      if (!indices.includes(r)) indices.push(r);
-    }
-    setVerifyIndices(indices.sort((a, b) => a - b));
-    setStep(2);
-  };
-
-  const handleWordSelect = (word: string) => {
-    if (selectedWords.length < 3) {
-      setSelectedWords([...selectedWords, word]);
-    }
-  };
-
-  const verifySeedPhrase = () => {
-    const words = mnemonic.split(" ");
-
-    if (selectedWords.length < 3) return;
-
-    const isValid = verifyIndices.every((index, i) => {
-      return words[index] === selectedWords[i];
-    });
-
-    if (isValid) {
-      setStep(3);
-      setSelectedWords([]);
-      setError(null);
-    } else {
-      setError("Kata kunci tidak sesuai. Coba lagi.");
-      setSelectedWords([]);
-    }
-  };
-
-  const finalizeWallet = async (inputPin: string): Promise<boolean> => {
-    if (inputPin.length !== 6) {
-      setError("PIN harus 6 digit");
+  const finalizeWallet = async (password: string): Promise<boolean> => {
+    // Validasi password minimal (opsional, bisa juga divalidasi di UI)
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
       return false;
     }
 
@@ -74,18 +38,21 @@ export const useCreateWallet = () => {
     setError(null);
 
     try {
-      // 1. Simpan ke SecureStore menggunakan inputPin
-      await WalletRepository.createWallet(mnemonic, inputPin);
+      // 1. Simpan ke SecureStore menggunakan PASSWORD sebagai kunci enkripsi
+      // Pastikan WalletRepository.createWallet menerima password, bukan pin
+      await WalletRepository.createWallet(mnemonic, password);
 
-      // 2. Derive Address
+      // 2. Derive Address (untuk ditampilkan/disimpan di store)
       const privateKey =
         KeyDerivationService.getPrivateKeyFromMnemonic(mnemonic);
       const address = KeyDerivationService.getAddressFromPrivateKey(privateKey);
 
-      // 3. Update Global Store — TIDAK set isUnlocked di sini,
-      //    user harus unlock manual lewat halaman unlock agar flow benar.
+      // 3. Update Global Store
       useAppStore.getState().setWalletAddress(address);
       useAppStore.getState().setMnemonic(mnemonic);
+
+      // Catatan: isUnlocked TIDAK diset true di sini.
+      // User harus melalui halaman unlock setelah restart app.
 
       console.log("✅ Wallet Created Successfully:", address);
 
@@ -100,18 +67,10 @@ export const useCreateWallet = () => {
   };
 
   return {
-    step,
     mnemonic,
-    pin,
-    setPin,
     isLoading,
     error,
-    verifyIndices,
-    selectedWords,
     generateNewWallet,
-    startVerification,
-    handleWordSelect,
-    verifySeedPhrase,
     finalizeWallet,
     setError,
   };

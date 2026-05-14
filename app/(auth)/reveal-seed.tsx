@@ -1,7 +1,13 @@
-// app/(auth)/reveal-seed.tsx
+import { BlurView } from "expo-blur"; // Import BlurView dari expo-blur
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
-import { ArrowLeft, Check, ClipboardCopy, Delete } from "lucide-react-native";
+import {
+  Check,
+  ChevronLeft,
+  ClipboardCopy,
+  Eye,
+  EyeOff,
+} from "lucide-react-native";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -9,8 +15,8 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
-  Vibration,
   View,
 } from "react-native";
 
@@ -18,74 +24,105 @@ import { useCreateWallet } from "../../hooks/useCreateWallet";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
-// Step: 'reveal' | 'seed' | 'create-pin' | 'confirm-pin' | 'success'
-type Step =
-  | "reveal"
-  | "seed"
-  | "create-pin"
-  | "confirm-pin"
-  | "loading"
-  | "success";
+// Step: 'seed' | 'confirm' | 'password' | 'loading'
+type Step = "seed" | "confirm" | "password" | "loading";
 
-const PIN_LENGTH = 6;
-
-const NUMPAD = [
-  ["1", "2", "3"],
-  ["4", "5", "6"],
-  ["7", "8", "9"],
-  ["", "0", "⌫"],
-];
+// Posisi yang akan dikonfirmasi (bisa diubah sesuai kebutuhan)
+const CONFIRM_POSITIONS = [2, 6, 7, 11];
 
 export default function RevealSeedScreen() {
   const router = useRouter();
   const { isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  const { mnemonic, generateNewWallet, startVerification, finalizeWallet } =
-    useCreateWallet();
+  const { mnemonic, generateNewWallet, finalizeWallet } = useCreateWallet();
 
-  const [step, setStep] = useState<Step>("reveal");
+  const [step, setStep] = useState<Step>("seed");
   const [copied, setCopied] = useState(false);
 
-  // PIN state
-  const [pin, setPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-  const [pinError, setPinError] = useState(false);
+  // Password state
+  const [password, setPassword] = useState("");
+  const [repeatPassword, setRepeatPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showRepeatPassword, setShowRepeatPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
 
-  // Animations
-  const shakeAnim = useRef(new Animated.Value(0)).current;
-  const dotScale = useRef(
-    Array.from({ length: PIN_LENGTH }, () => new Animated.Value(1)),
-  ).current;
+  // Confirmation state
+  const [confirmationInputs, setConfirmationInputs] = useState<
+    Record<number, string>
+  >({});
+  const [confirmationError, setConfirmationError] = useState("");
+
+  // Password strength
+  const [strengthScore, setStrengthScore] = useState(0); // 0-4
+  const [strengthLabel, setStrengthLabel] = useState("Weak");
+  const [strengthColor, setStrengthColor] = useState("#EF4444"); // Red by default
+
+  // Animations for fade-in content
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
-  const successScale = useRef(new Animated.Value(0)).current;
-  const successCheckScale = useRef(new Animated.Value(0)).current;
-  const successOpacity = useRef(new Animated.Value(0)).current;
-  const spinAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
     if (!mnemonic) generateNewWallet();
   }, []);
 
   useEffect(() => {
-    // Fade-in when step changes
+    // Fade-in animation when step changes
     fadeAnim.setValue(0);
-    slideAnim.setValue(30);
+    slideAnim.setValue(20);
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 380,
+        duration: 300,
         useNativeDriver: true,
       }),
       Animated.spring(slideAnim, {
         toValue: 0,
-        tension: 80,
-        friction: 12,
+        tension: 50,
+        friction: 7,
         useNativeDriver: true,
       }),
     ]).start();
+
+    // Reset errors when changing steps
+    setPasswordError("");
+    setConfirmationError("");
   }, [step]);
+
+  // Calculate password strength
+  useEffect(() => {
+    if (password.length === 0) {
+      setStrengthScore(0);
+      setStrengthLabel("Weak");
+      setStrengthColor("#EF4444");
+      return;
+    }
+
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^A-Za-z0-9]/.test(password)) score++;
+
+    // Cap at 4 for UI purposes
+    const finalScore = Math.min(score, 4);
+    setStrengthScore(finalScore);
+
+    if (finalScore <= 1) {
+      setStrengthLabel("Weak");
+      setStrengthColor("#EF4444"); // Red
+    } else if (finalScore <= 2) {
+      setStrengthLabel("Medium");
+      setStrengthColor("#F59E0B"); // Orange
+    } else if (finalScore <= 3) {
+      setStrengthLabel("Strong");
+      setStrengthColor("#10B981"); // Green
+    } else {
+      setStrengthLabel("Very Strong");
+      setStrengthColor("#10B981"); // Green
+    }
+  }, [password]);
 
   const words = mnemonic ? mnemonic.split(" ") : [];
 
@@ -93,159 +130,64 @@ export default function RevealSeedScreen() {
     if (mnemonic) {
       await Clipboard.setStringAsync(mnemonic);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  const triggerShake = () => {
-    Vibration.vibrate(300);
-    Animated.sequence([
-      Animated.timing(shakeAnim, {
-        toValue: 10,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shakeAnim, {
-        toValue: -10,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shakeAnim, {
-        toValue: 8,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shakeAnim, {
-        toValue: -8,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shakeAnim, {
-        toValue: 0,
-        duration: 60,
-        useNativeDriver: true,
-      }),
-    ]).start();
+  const handleNextToConfirm = () => {
+    setStep("confirm");
   };
 
-  const startSpin = () => {
-    spinAnim.setValue(0);
-    Animated.loop(
-      Animated.timing(spinAnim, {
-        toValue: 1,
-        duration: 900,
-        useNativeDriver: true,
-      }),
-    ).start();
+  const handleConfirmSeed = () => {
+    // Validate confirmation inputs
+    let isValid = true;
+    for (const pos of CONFIRM_POSITIONS) {
+      const userInput = confirmationInputs[pos]?.trim().toLowerCase();
+      const correctWord = words[pos - 1]?.toLowerCase(); // pos is 1-based, array is 0-based
+      if (userInput !== correctWord) {
+        isValid = false;
+        break;
+      }
+    }
+
+    if (isValid) {
+      setStep("password");
+    } else {
+      setConfirmationError("Incorrect words. Please check and try again.");
+    }
   };
 
-  const animateDot = (index: number) => {
-    Animated.sequence([
-      Animated.spring(dotScale[index], {
-        toValue: 1.4,
-        tension: 200,
-        friction: 5,
-        useNativeDriver: true,
-      }),
-      Animated.spring(dotScale[index], {
-        toValue: 1,
-        tension: 200,
-        friction: 5,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  const handleNumpadPress = (val: string) => {
-    if (val === "") return;
-
-    const isCreate = step === "create-pin";
-    const current = isCreate ? pin : confirmPin;
-    const setter = isCreate ? setPin : setConfirmPin;
-
-    if (val === "⌫") {
-      if (current.length > 0) setter(current.slice(0, -1));
+  const handleCreatePassword = async () => {
+    if (password.length < 8) {
+      setPasswordError("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== repeatPassword) {
+      setPasswordError("Passwords do not match.");
       return;
     }
 
-    if (current.length >= PIN_LENGTH) return;
+    setStep("loading");
 
-    const next = current + val;
-    setter(next);
-    animateDot(current.length);
+    try {
+      const ok = await finalizeWallet(password);
 
-    if (next.length === PIN_LENGTH) {
-      if (isCreate) {
-        // Move to confirm step
-        setTimeout(() => setStep("confirm-pin"), 300);
+      if (ok) {
+        router.replace("/(auth)/wallet-ready");
       } else {
-        // Verify PINs match
-        setTimeout(async () => {
-          if (next === pin) {
-            // Show spinner while wallet is being saved
-            setStep("loading");
-            startSpin();
-
-            // Await wallet save
-            const ok = await finalizeWallet(next);
-            if (ok) {
-              // Transition to success then navigate
-              spinAnim.stopAnimation();
-              setStep("success");
-              Animated.sequence([
-                Animated.spring(successScale, {
-                  toValue: 1,
-                  tension: 60,
-                  friction: 8,
-                  useNativeDriver: true,
-                }),
-                Animated.timing(successCheckScale, {
-                  toValue: 1,
-                  duration: 300,
-                  useNativeDriver: true,
-                }),
-                Animated.timing(successOpacity, {
-                  toValue: 1,
-                  duration: 350,
-                  useNativeDriver: true,
-                }),
-              ]).start(() => {
-                setTimeout(() => router.replace("../(auth)/wallet-ready"), 800);
-              });
-            } else {
-              // Save failed — reset back to create-pin so user can retry
-              setStep("create-pin");
-              setPin("");
-              setConfirmPin("");
-              successScale.setValue(0);
-              successCheckScale.setValue(0);
-              successOpacity.setValue(0);
-            }
-          } else {
-            setPinError(true);
-            triggerShake();
-            setTimeout(() => {
-              setConfirmPin("");
-              setPinError(false);
-            }, 800);
-          }
-        }, 300);
+        setPasswordError("Failed to save wallet. Please try again.");
+        setStep("password");
       }
+    } catch (error) {
+      console.error(error);
+      setPasswordError("An error occurred. Please try again.");
+      setStep("password");
     }
-  };
-
-  const handleGoToPin = () => {
-    setPin("");
-    setConfirmPin("");
-    setStep("create-pin");
   };
 
   if (!mnemonic) return null;
 
-  const isCreatePin = step === "create-pin";
-  const isConfirmPin = step === "confirm-pin";
-  const isSuccess = step === "success";
-  const currentPin = isCreatePin ? pin : confirmPin;
+  const isLoading = step === "loading";
 
   return (
     <ScrollView
@@ -254,196 +196,65 @@ export default function RevealSeedScreen() {
         { backgroundColor: theme.background },
       ]}
       showsVerticalScrollIndicator={false}
-      scrollEnabled={!isCreatePin && !isConfirmPin && !isSuccess}
+      scrollEnabled={!isLoading}
+      keyboardShouldPersistTaps="handled"
     >
-      {/* HEADER — hidden on success */}
-      {!isSuccess && (
+      {/* HEADER */}
+      {!isLoading && (
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => {
-              if (step === "seed") setStep("reveal");
-              else if (step === "confirm-pin") {
-                setConfirmPin("");
-                setStep("create-pin");
-              } else if (step === "create-pin") setStep("seed");
+              if (step === "password") setStep("confirm");
+              else if (step === "confirm") setStep("seed");
               else router.back();
             }}
-            style={[styles.iconBtn, { borderColor: theme.border }]}
+            style={styles.backButton}
           >
-            <ArrowLeft size={20} color={theme.text} />
+            <ChevronLeft size={28} color={theme.text} />
           </TouchableOpacity>
 
-          <Text style={[styles.headerTitle, { color: theme.text }]}>
-            {isCreatePin || isConfirmPin ? "Buat PIN" : "Cadangkan Wallet"}
-          </Text>
-
-          <View style={{ width: 44 }} />
+          <Image
+            source={
+              isDarkMode
+                ? require("../../assets/lacax-dark.png")
+                : require("../../assets/lacax-light.png")
+            }
+            style={styles.logo}
+            resizeMode="contain"
+          />
         </View>
       )}
 
       {/* ─── STEP: LOADING ─── */}
-      {step === "loading" && (
-        <View style={styles.successWrapper}>
-          <View
-            style={[styles.spinnerRing, { borderColor: theme.primary + "30" }]}
-          >
-            <Animated.View
-              style={[
-                styles.spinnerArc,
-                {
-                  borderColor: "transparent",
-                  borderTopColor: theme.primary,
-                  transform: [
-                    {
-                      rotate: spinAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ["0deg", "360deg"],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            />
-          </View>
+      {/* ─── STEP: LOADING ─── */}
+      {isLoading && (
+        <View style={styles.loadingWrapper}>
           <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
-            Menyiapkan wallet...
+            Saving your wallet securely...
           </Text>
-        </View>
-      )}
 
-      {/* ─── STEP: SUCCESS ─── */}
-      {isSuccess && (
-        <View style={styles.successWrapper}>
-          <Animated.View
-            style={[
-              styles.successCircleOuter,
-              {
-                backgroundColor: theme.primary + "18",
-                transform: [{ scale: successScale }],
-              },
-            ]}
-          >
-            <Animated.View
-              style={[
-                styles.successCircleInner,
-                {
-                  backgroundColor: theme.primary + "30",
-                  transform: [{ scale: successScale }],
-                },
-              ]}
-            >
-              <Animated.View
+          {/* Indikator Loading: 4 Kotak Kecil Horizontal */}
+          <View style={styles.loadingDotsContainer}>
+            {[0, 1, 2, 3].map((index) => (
+              <View
+                key={index}
                 style={[
-                  styles.successCircleCore,
+                  styles.loadingDot,
                   {
-                    backgroundColor: theme.primary,
-                    transform: [{ scale: successCheckScale }],
+                    // Warna berubah berdasarkan index dan waktu (simulasi geser)
+                    backgroundColor:
+                      (Date.now() % 1000) / 250 > index
+                        ? theme.primary
+                        : theme.border,
                   },
                 ]}
-              >
-                <Check size={36} color="#fff" strokeWidth={3} />
-              </Animated.View>
-            </Animated.View>
-          </Animated.View>
-
-          <Animated.View
-            style={{ opacity: successOpacity, alignItems: "center" }}
-          >
-            <Text style={[styles.successTitle, { color: theme.text }]}>
-              Wallet Berhasil Dibuat!
-            </Text>
-            <Text
-              style={[styles.successSubtitle, { color: theme.textSecondary }]}
-            >
-              PIN Anda telah tersimpan.{"\n"}Selamat datang di wallet Anda.
-            </Text>
-
-            <View style={styles.successDotsRow}>
-              {[0, 1, 2].map((i) => (
-                <Animated.View
-                  key={i}
-                  style={[
-                    styles.successDotPulse,
-                    {
-                      backgroundColor: theme.primary,
-                      opacity: successOpacity,
-                      transform: [
-                        {
-                          scale: successOpacity.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.6, 1],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                />
-              ))}
-            </View>
-          </Animated.View>
+              />
+            ))}
+          </View>
         </View>
       )}
 
-      {/* ─── STEP: REVEAL (landing) ─── */}
-      {step === "reveal" && (
-        <Animated.View
-          style={[
-            styles.content,
-            { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-          ]}
-        >
-          <View>
-            <Text style={[styles.title, { color: theme.text }]}>
-              Amankan Aset Anda
-            </Text>
-            <Text style={[styles.desc, { color: theme.textSecondary }]}>
-              Ketuk{" "}
-              <Text style={{ fontWeight: "700", color: theme.primary }}>
-                Lihat Frasa
-              </Text>{" "}
-              untuk melihat 12 kata pemulihan rahasia Anda.
-            </Text>
-          </View>
-
-          <View style={styles.imageContainer}>
-            <Image
-              source={require("../../assets/secure-wallet.png")}
-              style={styles.seedImage}
-              resizeMode="contain"
-            />
-          </View>
-
-          <View style={styles.buttonGroup}>
-            <TouchableOpacity
-              style={[
-                styles.button,
-                styles.buttonOutline,
-                { borderColor: theme.border },
-              ]}
-              onPress={handleGoToPin}
-            >
-              <Text style={[styles.buttonText, { color: theme.textSecondary }]}>
-                Lewati
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.button,
-                styles.buttonSolid,
-                { backgroundColor: theme.primary },
-              ]}
-              onPress={() => setStep("seed")}
-            >
-              <Text style={[styles.buttonText, { color: "#fff" }]}>
-                Lihat Frasa
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
-      )}
-
-      {/* ─── STEP: SEED ─── */}
+      {/* ─── STEP: SEED PHRASE ─── */}
       {step === "seed" && (
         <Animated.View
           style={[
@@ -452,189 +263,298 @@ export default function RevealSeedScreen() {
           ]}
         >
           <View>
-            <Text
-              style={[
-                styles.desc,
-                { color: theme.textSecondary, marginBottom: 20 },
-              ]}
-            >
-              Salin atau tulis 12 kata ini. Ini adalah satu-satunya cara
-              memulihkan wallet Anda.
+            <Text style={[styles.title, { color: theme.text }]}>
+              Write down your 12-word seed phrase in order
+            </Text>
+            <Text style={[styles.desc, { color: theme.textSecondary }]}>
+              Never pass the phrase from your wallet to anyone. If lost, your
+              account will not be retrievable.
             </Text>
 
-            <View
-              style={[
-                styles.seedCard,
-                { backgroundColor: theme.card, borderColor: theme.border },
-              ]}
-            >
-              <View style={styles.seedGrid}>
-                {words.map((word, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.seedItem,
-                      {
-                        backgroundColor: theme.background,
-                        borderColor: theme.border,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.seedNum, { color: theme.primary }]}>
-                      {index + 1}
-                    </Text>
-                    <Text style={[styles.seedWord, { color: theme.text }]}>
-                      {word}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.copyBtn,
-                  {
-                    backgroundColor: copied
-                      ? theme.primary + "18"
-                      : theme.background,
-                    borderColor: copied ? theme.primary : theme.border,
-                  },
-                ]}
-                onPress={handleCopy}
-              >
-                {copied ? (
-                  <Check size={15} color={theme.primary} />
-                ) : (
-                  <ClipboardCopy size={15} color={theme.textSecondary} />
-                )}
-                <Text
+            <View style={styles.seedGrid}>
+              {words.map((word, index) => (
+                <View
+                  key={index}
                   style={[
-                    styles.copyText,
-                    { color: copied ? theme.primary : theme.textSecondary },
+                    styles.seedItem,
+                    {
+                      backgroundColor: theme.card,
+                      borderColor: theme.border,
+                    },
                   ]}
                 >
-                  {copied ? "Tersalin!" : "Salin Frasa"}
-                </Text>
-              </TouchableOpacity>
+                  <Text
+                    style={[styles.seedNum, { color: theme.textSecondary }]}
+                  >
+                    {index + 1}
+                  </Text>
+                  <Text style={[styles.seedWord, { color: theme.text }]}>
+                    {word}
+                  </Text>
+                </View>
+              ))}
             </View>
+
+            <TouchableOpacity
+              style={[
+                styles.copyBtn,
+                {
+                  backgroundColor: copied
+                    ? theme.primary + "18"
+                    : theme.background,
+                  borderColor: copied ? theme.primary : theme.border,
+                },
+              ]}
+              onPress={handleCopy}
+            >
+              {copied ? (
+                <Check size={15} color={theme.primary} />
+              ) : (
+                <ClipboardCopy size={15} color={theme.textSecondary} />
+              )}
+              <Text
+                style={[
+                  styles.copyText,
+                  { color: copied ? theme.primary : theme.textSecondary },
+                ]}
+              >
+                {copied ? "Copied!" : "Copy Phrase"}
+              </Text>
+            </TouchableOpacity>
           </View>
+
+          <Text style={[styles.instruction, { color: theme.textSecondary }]}>
+            Write this down and click "Continue" to confirm seed phrase.
+          </Text>
 
           <TouchableOpacity
             style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
-            onPress={handleGoToPin}
+            onPress={handleNextToConfirm}
           >
-            <Text style={styles.primaryBtnText}>Saya Sudah Menyimpannya</Text>
+            <Text style={styles.primaryBtnText}>Continue</Text>
           </TouchableOpacity>
         </Animated.View>
       )}
 
-      {/* ─── STEP: CREATE PIN / CONFIRM PIN ─── */}
-      {(isCreatePin || isConfirmPin) && (
+      {/* ─── STEP: CONFIRM SEED ─── */}
+      {step === "confirm" && (
         <Animated.View
           style={[
-            styles.pinWrapper,
+            styles.content,
             { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
           ]}
         >
-          {/* Title */}
-          <Text style={[styles.pinTitle, { color: theme.text }]}>
-            {isCreatePin ? "Buat PIN Baru" : "Konfirmasi PIN"}
-          </Text>
-          <Text style={[styles.pinSubtitle, { color: theme.textSecondary }]}>
-            {isCreatePin
-              ? "PIN digunakan untuk mengamankan akses ke wallet Anda"
-              : "Masukkan kembali PIN Anda untuk konfirmasi"}
-          </Text>
+          <View>
+            <Text style={[styles.title, { color: theme.text }]}>
+              Confirm Seed Phrase
+            </Text>
+            <Text style={[styles.desc, { color: theme.textSecondary }]}>
+              Enter the secret phrase for the numbers highlighted below.
+            </Text>
 
-          {/* Dot indicators */}
-          <Animated.View
-            style={[styles.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
-          >
-            {Array.from({ length: PIN_LENGTH }).map((_, i) => {
-              const filled = i < currentPin.length;
-              return (
-                <Animated.View
-                  key={i}
-                  style={[
-                    styles.dot,
-                    {
-                      backgroundColor: pinError
-                        ? "#EF4444"
-                        : filled
-                          ? theme.primary
-                          : "transparent",
-                      borderColor: pinError
-                        ? "#EF4444"
-                        : filled
+            <View style={styles.confirmGrid}>
+              {words.map((word, index) => {
+                const position = index + 1;
+                const isHighlighted = CONFIRM_POSITIONS.includes(position);
+                const inputValue = confirmationInputs[position] || "";
+
+                return (
+                  <View
+                    key={index}
+                    style={[
+                      styles.confirmItem,
+                      {
+                        backgroundColor: theme.card,
+                        borderColor: isHighlighted
                           ? theme.primary
                           : theme.border,
-                      transform: [{ scale: dotScale[i] }],
+                        borderWidth: isHighlighted ? 1 : 0.5,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.seedNum, { color: theme.textSecondary }]}
+                    >
+                      {position}
+                    </Text>
+                    {isHighlighted ? (
+                      <TextInput
+                        style={[styles.confirmInput, { color: theme.text }]}
+                        value={inputValue}
+                        onChangeText={(text) =>
+                          setConfirmationInputs({
+                            ...confirmationInputs,
+                            [position]: text,
+                          })
+                        }
+                        autoCapitalize="none"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder=""
+                      />
+                    ) : (
+                      <Text style={[styles.seedWord, { color: theme.text }]}>
+                        {word}
+                      </Text>
+                    )}
+
+                    {/* FIX: Gunakan BlurView dari expo-blur untuk efek blur nyata */}
+                    {!isHighlighted && (
+                      <BlurView
+                        intensity={80} // Atur intensitas blur (0-100)
+                        tint={isDarkMode ? "dark" : "light"} // Sesuaikan tint dengan tema
+                        style={[
+                          StyleSheet.absoluteFillObject,
+                          { borderRadius: 10 }, // Samakan dengan borderRadius parent
+                        ]}
+                      />
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
+          {confirmationError ? (
+            <Text style={styles.errorText}>{confirmationError}</Text>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
+            onPress={handleConfirmSeed}
+          >
+            <Text style={styles.primaryBtnText}>Submit</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
+      {/* ─── STEP: PASSWORD ─── */}
+      {step === "password" && (
+        <Animated.View
+          style={[
+            styles.passwordContent,
+            { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+          ]}
+        >
+          <Text style={[styles.passwordTitle, { color: theme.text }]}>
+            Create a Password
+          </Text>
+          <Text style={[styles.passwordDesc, { color: theme.textSecondary }]}>
+            Your password helps keep your wallet secure and private.
+          </Text>
+
+          {/* Password Input */}
+          <View style={styles.inputGroup}>
+            <Text style={[styles.inputLabel, { color: theme.text }]}>
+              Password
+            </Text>
+            <View
+              style={[styles.inputContainer, { borderColor: theme.border }]}
+            >
+              <TextInput
+                style={[styles.input, { color: theme.text }]}
+                placeholder="Enter password"
+                placeholderTextColor={theme.textSecondary}
+                secureTextEntry={!showPassword}
+                value={password}
+                onChangeText={setPassword}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                style={styles.eyeIcon}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? (
+                  <EyeOff size={20} color={theme.textSecondary} />
+                ) : (
+                  <Eye size={20} color={theme.textSecondary} />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Repeat Password Input */}
+          <View style={styles.inputGroup}>
+            <Text style={[styles.inputLabel, { color: theme.text }]}>
+              Repeat Password
+            </Text>
+            <View
+              style={[styles.inputContainer, { borderColor: theme.border }]}
+            >
+              <TextInput
+                style={[styles.input, { color: theme.text }]}
+                placeholder="Repeat password"
+                placeholderTextColor={theme.textSecondary}
+                secureTextEntry={!showRepeatPassword}
+                value={repeatPassword}
+                onChangeText={setRepeatPassword}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                style={styles.eyeIcon}
+                onPress={() => setShowRepeatPassword(!showRepeatPassword)}
+              >
+                {showRepeatPassword ? (
+                  <EyeOff size={20} color={theme.textSecondary} />
+                ) : (
+                  <Eye size={20} color={theme.textSecondary} />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Strength Indicator - Bars always visible, Label hidden until typing */}
+          <View style={styles.strengthContainer}>
+            <Text style={[styles.strengthText, { color: theme.textSecondary }]}>
+              Use at least 8 characters, including letters and numbers.
+            </Text>
+
+            {/* Bars - Always Visible */}
+            <View style={styles.strengthBars}>
+              {[1, 2, 3, 4].map((level) => (
+                <View
+                  key={level}
+                  style={[
+                    styles.strengthBar,
+                    {
+                      backgroundColor:
+                        level <= strengthScore ? strengthColor : theme.border,
                     },
                   ]}
                 />
-              );
-            })}
-          </Animated.View>
+              ))}
+            </View>
 
-          {/* Error hint */}
-          {pinError && (
-            <Text style={styles.errorText}>PIN tidak cocok, coba lagi</Text>
-          )}
-
-          {/* Numpad */}
-          <View style={styles.numpad}>
-            {NUMPAD.map((row, rIdx) => (
-              <View key={rIdx} style={styles.numpadRow}>
-                {row.map((key, kIdx) => {
-                  if (key === "") {
-                    return <View key={kIdx} style={styles.numpadEmpty} />;
-                  }
-                  const isDelete = key === "⌫";
-                  return (
-                    <TouchableOpacity
-                      key={kIdx}
-                      style={[
-                        styles.numpadKey,
-                        {
-                          backgroundColor: isDelete
-                            ? "transparent"
-                            : theme.card,
-                          borderColor: isDelete ? "transparent" : theme.border,
-                        },
-                      ]}
-                      onPress={() => handleNumpadPress(key)}
-                      activeOpacity={0.65}
-                    >
-                      {isDelete ? (
-                        <Delete size={22} color={theme.textSecondary} />
-                      ) : (
-                        <Text
-                          style={[styles.numpadKeyText, { color: theme.text }]}
-                        >
-                          {key}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            ))}
+            {/* Label - Only show if password is being typed */}
+            {password.length > 0 && (
+              <Text style={[styles.strengthLabel, { color: strengthColor }]}>
+                {strengthLabel}
+              </Text>
+            )}
           </View>
 
-          {/* Step indicator */}
-          <View style={styles.stepIndicator}>
-            <View
-              style={[styles.stepDot, { backgroundColor: theme.primary }]}
-            />
-            <View
-              style={[
-                styles.stepDot,
-                {
-                  backgroundColor: isConfirmPin ? theme.primary : theme.border,
-                },
-              ]}
-            />
-          </View>
+          {passwordError ? (
+            <Text style={styles.errorText}>{passwordError}</Text>
+          ) : null}
+
+          {/* Button at the bottom */}
+          <TouchableOpacity
+            style={[
+              styles.primaryBtn,
+              {
+                backgroundColor: theme.primary,
+                marginTop: 125,
+                marginBottom: 0,
+                opacity: isLoading ? 0.7 : 1, // Sedikit transparan saat loading
+              },
+            ]}
+            onPress={handleCreatePassword}
+            disabled={isLoading} // Nonaktifkan klik saat loading
+          >
+            <Text style={styles.primaryBtnText}>
+              {isLoading ? "Creating your wallet..." : "Create Password"}
+            </Text>
+          </TouchableOpacity>
         </Animated.View>
       )}
     </ScrollView>
@@ -648,123 +568,89 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 30,
   },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 20,
+    marginBottom: 30,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  logo: {
+    width: 80,
+    height: 30,
   },
 
-  iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-  },
-
-  // ── SEED STEPS ──
+  // Seed & Confirm Styles
   content: {
     flex: 1,
     justifyContent: "space-between",
   },
-
   title: {
-    fontSize: 30,
-    fontWeight: "800",
+    fontSize: 24,
+    fontWeight: "normal",
     marginBottom: 12,
-    lineHeight: 38,
+    lineHeight: 30,
   },
-
   desc: {
-    fontSize: 15.5,
-    lineHeight: 24,
-  },
-
-  imageContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100%",
-    marginTop: 10,
-  },
-
-  seedImage: {
-    width: "85%",
-    maxWidth: 340,
-    height: 340,
-  },
-
-  buttonGroup: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 10,
-    paddingBottom: 55,
-  },
-
-  button: {
-    flex: 1,
-    borderRadius: 9999,
-    paddingVertical: 15,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  buttonOutline: {
-    borderWidth: 1.5,
-  },
-
-  buttonSolid: {},
-
-  buttonText: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-
-  seedCard: {
-    borderRadius: 24,
-    borderWidth: 1,
-    padding: 16,
+    fontSize: 14,
+    lineHeight: 20,
     marginBottom: 20,
   },
-
   seedGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
+    gap: 10,
+    marginBottom: 20,
   },
-
+  confirmGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 20,
+  },
   seedItem: {
-    width: "47.5%",
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    borderRadius: 14,
+    width: "31%",
+    height: 48,
+    paddingHorizontal: 10,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
     gap: 8,
   },
-
+  confirmItem: {
+    width: "31%",
+    height: 48,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 0.5,
+    gap: 8,
+    overflow: "hidden", // Penting agar BlurView tidak keluar dari border radius
+    position: "relative", // Diperlukan untuk absolute positioning BlurView
+  },
+  confirmInput: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "500",
+    textAlign: "left",
+  },
   seedNum: {
     fontSize: 11,
-    fontWeight: "800",
-    width: 18,
-    textAlign: "right",
+    fontWeight: "500",
+    width: 11,
+    textAlign: "left",
   },
-
   seedWord: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "500",
+    flex: 1,
+    textAlign: "left",
   },
-
   copyBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -772,198 +658,125 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
     borderRadius: 999,
-    paddingVertical: 13,
+    paddingVertical: 12,
+    marginBottom: 20,
   },
-
   copyText: {
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: "700",
   },
-
+  instruction: {
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 30,
+  },
   primaryBtn: {
     borderRadius: 9999,
-    paddingVertical: 14,
+    paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 5,
-    marginBottom: 60,
+    marginBottom: 48,
   },
-
   primaryBtnText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
   },
 
-  // ── PIN ──
-  pinWrapper: {
+  // Password Styles
+  passwordContent: {
     flex: 1,
-    alignItems: "center",
-    paddingTop: 16,
     paddingBottom: 20,
   },
-
-  pinTitle: {
-    fontSize: 26,
-    fontWeight: "800",
+  passwordTitle: {
+    fontSize: 32,
+    fontWeight: "bold",
     marginBottom: 8,
-    letterSpacing: -0.5,
+    textAlign: "left",
   },
-
-  pinSubtitle: {
-    fontSize: 14,
+  passwordDesc: {
+    fontSize: 15,
+    textAlign: "left",
+    marginBottom: 30,
     lineHeight: 22,
-    textAlign: "center",
-    paddingHorizontal: 24,
-    marginBottom: 40,
   },
-
-  dotsRow: {
+  inputGroup: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    marginBottom: 8,
+  },
+  inputContainer: {
     flexDirection: "row",
-    gap: 14,
-    marginBottom: 14,
-  },
-
-  dot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-  },
-
-  errorText: {
-    fontSize: 13,
-    color: "#EF4444",
-    marginBottom: 12,
-    fontWeight: "600",
-  },
-
-  numpad: {
-    marginTop: 28,
-    gap: 12,
-    width: "100%",
-    paddingHorizontal: 16,
-  },
-
-  numpadRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 16,
-  },
-
-  numpadEmpty: {
-    width: 68,
-    height: 68,
-  },
-
-  numpadKey: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    borderWidth: 1,
     alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 56,
   },
-
-  numpadKeyText: {
-    fontSize: 21,
-    fontWeight: "600",
-    letterSpacing: -0.5,
+  input: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "500",
   },
-
-  stepIndicator: {
+  eyeIcon: {
+    padding: 8,
+  },
+  strengthContainer: {
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  strengthText: {
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  strengthBars: {
     flexDirection: "row",
     gap: 6,
-    marginTop: 32,
+    marginBottom: 8,
   },
-
-  stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-
-  // ── LOADING ──
-  spinnerRing: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  spinnerArc: {
-    position: "absolute",
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 5,
-    borderColor: "transparent",
-  },
-
-  loadingText: {
-    fontSize: 15,
-    fontWeight: "500",
-    marginTop: 20,
-  },
-
-  // ── SUCCESS ──
-  successWrapper: {
+  strengthBar: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingBottom: 60,
-    gap: 36,
+    height: 6,
+    borderRadius: 3,
   },
-
-  successCircleOuter: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    alignItems: "center",
-    justifyContent: "center",
+  strengthLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "right",
   },
-
-  successCircleInner: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  successCircleCore: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  successTitle: {
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: -0.5,
+  errorText: {
+    color: "#EF4444",
+    fontSize: 13,
+    fontWeight: "600",
     marginBottom: 10,
     textAlign: "center",
   },
 
-  successSubtitle: {
-    fontSize: 15,
-    lineHeight: 24,
-    textAlign: "center",
+  // Loading
+  loadingWrapper: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingBottom: 100,
   },
-
-  successDotsRow: {
+  loadingText: {
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  // Loading Styles Tambahan
+  loadingDotsContainer: {
     flexDirection: "row",
     gap: 8,
-    marginTop: 24,
+    marginTop: 20,
   },
-
-  successDotPulse: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  loadingDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
 });

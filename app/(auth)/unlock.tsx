@@ -1,13 +1,13 @@
-// app/(auth)/unlock.tsx
 import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
-import { Delete } from "lucide-react-native";
+import { Eye, EyeOff, Lock } from "lucide-react-native";
 import React, { useRef, useState } from "react";
 import {
   Animated,
   Image,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   Vibration,
   View,
@@ -18,23 +18,13 @@ import { KeyDerivationService } from "../../services/crypto/KeyDerivation";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
-const PIN_LENGTH = 6;
-
-const NUMPAD = [
-  ["1", "2", "3"],
-  ["4", "5", "6"],
-  ["7", "8", "9"],
-  ["", "0", "⌫"],
-];
-
 export default function UnlockScreen() {
   const router = useRouter();
-
   const { setWalletAddress, setUnlocked, isDarkMode } = useAppStore();
-
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  const [pin, setPin] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -45,7 +35,6 @@ export default function UnlockScreen() {
 
   const triggerShake = () => {
     Vibration.vibrate(300);
-
     Animated.sequence([
       Animated.timing(shakeAnim, {
         toValue: 10,
@@ -77,7 +66,6 @@ export default function UnlockScreen() {
 
   const startSpin = () => {
     spinAnim.setValue(0);
-
     Animated.loop(
       Animated.timing(spinAnim, {
         toValue: 1,
@@ -85,7 +73,6 @@ export default function UnlockScreen() {
         useNativeDriver: true,
       }),
     ).start();
-
     Animated.timing(loadingOpacity, {
       toValue: 1,
       duration: 200,
@@ -95,7 +82,6 @@ export default function UnlockScreen() {
 
   const stopSpin = () => {
     spinAnim.stopAnimation();
-
     Animated.timing(loadingOpacity, {
       toValue: 0,
       duration: 180,
@@ -103,81 +89,62 @@ export default function UnlockScreen() {
     }).start();
   };
 
-  const handleUnlock = async (fullPin: string) => {
+  const handleUnlock = async () => {
+    if (!password) return;
+
     setError("");
     setIsLoading(true);
     startSpin();
 
     try {
-      const isValid = await WalletRepository.verifyPin(fullPin);
+      // 1. Verifikasi Password
+      const isValid = await WalletRepository.verifyPassword(password);
 
       if (!isValid) {
         stopSpin();
         setIsLoading(false);
-        setPin("");
-        setError("PIN salah. Coba lagi.");
+        setPassword("");
+        setError("Incorrect password. Please try again.");
         triggerShake();
         return;
       }
 
-      const mnemonic = await WalletRepository.getMnemonic();
+      // 2. Ambil Mnemonic jika password benar
+      const mnemonic = await WalletRepository.getMnemonicIfValid(password);
 
       if (!mnemonic) {
+        // Jika mnemonic hilang tapi password benar (aneh), reset saja
         await WalletRepository.wipeWallet();
         router.replace("/welcome");
         return;
       }
 
+      // 3. Derive Address dari Mnemonic untuk memastikan konsistensi
       const privateKey =
         KeyDerivationService.getPrivateKeyFromMnemonic(mnemonic);
-
       const address = KeyDerivationService.getAddressFromPrivateKey(privateKey);
 
-      await setWalletAddress(address);
-
+      // 4. Update Store
+      setWalletAddress(address);
       setUnlocked(true);
 
       stopSpin();
 
+      // Masuk ke main app
       router.replace("/(tabs)");
     } catch (e: any) {
       console.error(e);
-
       stopSpin();
       setIsLoading(false);
-      setPin("");
-      setError("Terjadi kesalahan. Coba lagi.");
-
+      setPassword("");
+      setError("An error occurred. Please try again.");
       triggerShake();
-    }
-  };
-
-  const handleNumpadPress = (val: string) => {
-    if (isLoading) return;
-    if (val === "") return;
-
-    if (val === "⌫") {
-      setError("");
-      setPin((p) => p.slice(0, -1));
-      return;
-    }
-
-    if (pin.length >= PIN_LENGTH) return;
-
-    const next = pin + val;
-
-    setPin(next);
-
-    if (next.length === PIN_LENGTH) {
-      setTimeout(() => handleUnlock(next), 300);
     }
   };
 
   const handleReset = async () => {
     await WalletRepository.wipeWallet();
-
     await useAppStore.getState().setWalletAddress(null);
-
     router.replace("/welcome");
   };
 
@@ -197,107 +164,86 @@ export default function UnlockScreen() {
           />
         </View>
 
-        <Text style={[styles.title, { color: theme.text }]}>
-          Selamat Datang
-        </Text>
+        <Text style={[styles.title, { color: theme.text }]}>Welcome Back</Text>
 
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Masukkan PIN untuk membuka wallet Anda
+          Enter your password to unlock your wallet
         </Text>
       </View>
 
-      {/* Dots */}
+      {/* Input Section */}
       <View style={styles.middleSection}>
         <Animated.View
           style={[
-            styles.dotsRow,
+            styles.inputContainer,
             {
+              borderColor: error ? "#EF4444" : theme.border,
               transform: [{ translateX: shakeAnim }],
             },
           ]}
         >
-          {Array.from({ length: PIN_LENGTH }).map((_, i) => {
-            const filled = i < pin.length;
+          <Lock
+            size={20}
+            color={theme.textSecondary}
+            style={{ marginRight: 12 }}
+          />
 
-            return (
-              <View
-                key={i}
-                style={[
-                  styles.dot,
-                  {
-                    backgroundColor: error
-                      ? "#EF4444"
-                      : filled
-                        ? theme.primary
-                        : "transparent",
+          <TextInput
+            style={[styles.input, { color: theme.text }]}
+            placeholder="Enter Password"
+            placeholderTextColor={theme.textSecondary}
+            secureTextEntry={!showPassword}
+            value={password}
+            onChangeText={(text) => {
+              setPassword(text);
+              if (error) setError("");
+            }}
+            autoCapitalize="none"
+            onSubmitEditing={handleUnlock}
+            returnKeyType="done"
+          />
 
-                    borderColor: error
-                      ? "#EF4444"
-                      : filled
-                        ? theme.primary
-                        : theme.border,
-                  },
-                ]}
-              />
-            );
-          })}
+          <TouchableOpacity
+            onPress={() => setShowPassword(!showPassword)}
+            style={{ padding: 8 }}
+          >
+            {showPassword ? (
+              <EyeOff size={20} color={theme.textSecondary} />
+            ) : (
+              <Eye size={20} color={theme.textSecondary} />
+            )}
+          </TouchableOpacity>
         </Animated.View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
 
-      {/* Numpad */}
-      <View style={styles.numpad}>
-        {NUMPAD.map((row, rIdx) => (
-          <View key={rIdx} style={styles.numpadRow}>
-            {row.map((key, kIdx) => {
-              if (key === "") {
-                return <View key={kIdx} style={styles.numpadEmpty} />;
-              }
+      {/* Spacer agar tombol terdorong ke bawah */}
+      <View style={{ flex: 1 }} />
 
-              const isDelete = key === "⌫";
+      {/* Bottom Actions */}
+      <View style={styles.bottomSection}>
+        <TouchableOpacity
+          style={[styles.unlockBtn, { backgroundColor: theme.primary }]}
+          onPress={handleUnlock}
+          disabled={isLoading || !password}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.unlockBtnText}>Unlock Wallet</Text>
+        </TouchableOpacity>
 
-              return (
-                <TouchableOpacity
-                  key={kIdx}
-                  style={[
-                    styles.numpadKey,
-                    {
-                      backgroundColor: isDelete ? "transparent" : theme.card,
-
-                      borderColor: isDelete ? "transparent" : theme.border,
-                    },
-                  ]}
-                  onPress={() => handleNumpadPress(key)}
-                  activeOpacity={0.65}
-                  disabled={isLoading}
-                >
-                  {isDelete ? (
-                    <Delete size={22} color={theme.textSecondary} />
-                  ) : (
-                    <Text style={[styles.numpadKeyText, { color: theme.text }]}>
-                      {key}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ))}
+        <TouchableOpacity
+          onPress={handleReset}
+          style={styles.resetBtn}
+          disabled={isLoading}
+        >
+          <Text style={[styles.resetText, { color: theme.textSecondary }]}>
+            Forgot Password? Reset Wallet
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Reset */}
-      <TouchableOpacity
-        onPress={handleReset}
-        style={styles.resetBtn}
-        disabled={isLoading}
-      >
-        <Text style={[styles.resetText, { color: theme.textSecondary }]}>
-          Lupa PIN? Reset Wallet
-        </Text>
-      </TouchableOpacity>
-
-      {/* ✅ Spinner overlay — HARUS di paling bawah */}
+      {/* Spinner overlay */}
       {isLoading && (
         <Animated.View
           style={[styles.spinnerOverlay, { opacity: loadingOpacity }]}
@@ -317,12 +263,7 @@ export default function UnlockScreen() {
           />
 
           <View
-            style={[
-              styles.spinnerRing,
-              {
-                borderColor: theme.primary + "25",
-              },
-            ]}
+            style={[styles.spinnerRing, { borderColor: theme.primary + "25" }]}
           >
             <Animated.View
               style={[
@@ -330,7 +271,6 @@ export default function UnlockScreen() {
                 {
                   borderColor: "transparent",
                   borderTopColor: theme.primary,
-
                   transform: [
                     {
                       rotate: spinAnim.interpolate({
@@ -353,12 +293,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "space-between", // Spread top, middle, bottom
     paddingTop: 80,
     paddingBottom: 44,
     paddingHorizontal: 28,
   },
-
   spinnerOverlay: {
     position: "absolute",
     top: 0,
@@ -369,7 +308,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 999,
   },
-
   spinnerRing: {
     width: 56,
     height: 56,
@@ -378,7 +316,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   spinnerArc: {
     position: "absolute",
     width: 56,
@@ -386,12 +323,10 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     borderWidth: 4,
   },
-
   topSection: {
     alignItems: "center",
     gap: 12,
   },
-
   logoBadge: {
     width: 64,
     height: 64,
@@ -400,84 +335,67 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 4,
   },
-
   logoImage: {
     width: 150,
     height: 150,
   },
-
   title: {
     fontSize: 26,
     fontWeight: "800",
     letterSpacing: -0.5,
   },
-
   subtitle: {
     fontSize: 14,
     lineHeight: 22,
     textAlign: "center",
   },
-
   middleSection: {
     alignItems: "center",
     gap: 14,
+    width: "100%",
+    marginTop: 40,
   },
-
-  dotsRow: {
+  inputContainer: {
     flexDirection: "row",
-    gap: 14,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 56,
+    width: "100%",
+    backgroundColor: "transparent",
   },
-
-  dot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 2,
+  input: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "500",
   },
-
   errorText: {
     fontSize: 13,
     color: "#EF4444",
     fontWeight: "600",
     textAlign: "center",
   },
-
-  numpad: {
-    gap: 12,
+  bottomSection: {
     width: "100%",
-    paddingHorizontal: 16,
-  },
-
-  numpadRow: {
-    flexDirection: "row",
-    justifyContent: "center",
+    alignItems: "center",
     gap: 16,
   },
-
-  numpadEmpty: {
-    width: 68,
-    height: 68,
-  },
-
-  numpadKey: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    borderWidth: 1,
+  unlockBtn: {
+    width: "100%",
+    borderRadius: 9999,
+    paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
   },
-
-  numpadKeyText: {
-    fontSize: 21,
+  unlockBtnText: {
+    color: "#FFFFFF",
+    fontSize: 16,
     fontWeight: "600",
-    letterSpacing: -0.5,
   },
-
   resetBtn: {
     paddingVertical: 8,
   },
-
   resetText: {
     fontSize: 13.5,
     fontWeight: "500",

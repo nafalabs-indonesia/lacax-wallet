@@ -1,6 +1,7 @@
 // store/appStore.ts
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
+import { WalletRepository } from "../modules/wallet/infrastructure/WalletRepository";
 
 interface AppState {
   isDarkMode: boolean;
@@ -8,15 +9,15 @@ interface AppState {
 
   walletAddress: string | null;
   isUnlocked: boolean;
-  mnemonic: string | null;
-  isStorageLoaded: boolean; // ✅ BARU: flag bahwa SecureStore sudah selesai dibaca
+  mnemonic: string | null; // Hanya digunakan sementara saat create/unlock, tidak disimpan persisten sebagai plain text
+  isStorageLoaded: boolean; // Flag bahwa SecureStore sudah selesai dibaca
 
   setWalletAddress: (address: string | null) => void;
   setUnlocked: (value: boolean) => void;
   setMnemonic: (mnemonic: string | null) => void;
 
   loadWalletFromStorage: () => Promise<void>;
-  resetWallet: () => Promise<void>; // ✅ FIX: ubah signature jadi async
+  resetWallet: () => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -26,39 +27,45 @@ export const useAppStore = create<AppState>((set) => ({
   walletAddress: null,
   isUnlocked: false,
   mnemonic: null,
-  isStorageLoaded: false, // ✅ BARU: awalnya false, jadi routing guard tahu harus tunggu dulu
+  isStorageLoaded: false,
 
   setWalletAddress: (address) => set({ walletAddress: address }),
   setUnlocked: (value) => set({ isUnlocked: value }),
   setMnemonic: (mnemonic) => set({ mnemonic }),
 
   // ✅ FIX: Load wallet dari SecureStore saat app dibuka
-  // Dipanggil SEKALI di _layout.tsx, sebelum routing guard aktif
+  // Karena sekarang kita pakai enkripsi password, kita TIDAK load mnemonic mentah di sini.
+  // Kita hanya load alamat publik untuk identifikasi cepat.
   loadWalletFromStorage: async () => {
     try {
-      const savedAddress = await SecureStore.getItemAsync("walletAddress");
-      const savedMnemonic = await SecureStore.getItemAsync("mnemonic");
+      // Cek apakah wallet terenkripsi ada menggunakan key baru
+      const encryptedWallet = await SecureStore.getItemAsync(
+        "laca_encrypted_wallet_v1",
+      );
+      const savedAddress = await SecureStore.getItemAsync(
+        "laca_wallet_address_v1",
+      );
 
       if (savedAddress) {
         set({
           walletAddress: savedAddress,
-          mnemonic: savedMnemonic,
-          isStorageLoaded: true, // ✅ tandai selesai
+          mnemonic: null, // PENTING: Jangan load mnemonic mentah demi keamanan
+          isStorageLoaded: true,
         });
       } else {
-        set({ isStorageLoaded: true }); // ✅ tetap tandai selesai meski tidak ada wallet
+        set({ isStorageLoaded: true });
       }
     } catch (e) {
       console.error("Gagal load wallet dari storage", e);
-      set({ isStorageLoaded: true }); // ✅ tetap lanjut agar app tidak hang
+      set({ isStorageLoaded: true });
     }
   },
 
-  // ✅ FIX: Sekarang benar-benar async dan di-await dengan benar
+  // ✅ FIX: Reset wallet menggunakan method wipe dari Repository
   resetWallet: async () => {
     try {
-      await SecureStore.deleteItemAsync("walletAddress");
-      await SecureStore.deleteItemAsync("mnemonic");
+      // Gunakan method wipe dari Repository agar konsisten dan menghapus semua key (lama & baru)
+      await WalletRepository.wipeWallet();
     } catch (e) {
       console.error("Gagal reset wallet dari storage", e);
     }
