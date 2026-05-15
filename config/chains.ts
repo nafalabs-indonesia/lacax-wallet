@@ -1,4 +1,5 @@
 // config/chains.ts
+import { ALCHEMY_API_KEY } from "@env";
 
 export interface TokenConfig {
   name: string;
@@ -21,12 +22,20 @@ export interface ChainConfig {
   tokens?: TokenConfig[]; // Tambahkan field opsional untuk daftar token
 }
 
+// Helper untuk membangun URL RPC Alchemy dengan aman
+const getAlchemyRpc = (network: string) => {
+  // Fallback ke string kosong atau default key jika env tidak terload,
+  // tapi idealnya .env harus ada.
+  const key = ALCHEMY_API_KEY || "";
+  return `https://${network}.g.alchemy.com/v2/${key}`;
+};
+
 export const SUPPORTED_CHAINS: ChainConfig[] = [
   {
     id: "ethereum-mainnet",
     name: "Ethereum Mainnet",
     chainId: 1,
-    rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/LzPrMia5J5E5I0DfVqylx",
+    rpcUrl: getAlchemyRpc("eth-mainnet"),
     explorerUrl: "https://etherscan.io",
     icon: "/assets/chains/eth.png",
     symbol: "ETH",
@@ -63,7 +72,7 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     id: "ethereum-sepolia",
     name: "Ethereum Sepolia",
     chainId: 11155111,
-    rpcUrl: "https://eth-sepolia.g.alchemy.com/v2/LzPrMia5J5E5I0DfVqylx",
+    rpcUrl: getAlchemyRpc("eth-sepolia"),
     explorerUrl: "https://sepolia.etherscan.io",
     icon: "/assets/chains/eth-sepolia.png",
     symbol: "SepoliaETH",

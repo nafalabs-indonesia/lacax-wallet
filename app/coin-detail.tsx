@@ -1,24 +1,25 @@
+// app/coin-detail.tsx
 import { router, useLocalSearchParams } from "expo-router";
 import {
-    AlertTriangle,
-    ArrowLeft,
-    BarChart3,
-    Globe,
-    Info,
-    TrendingDown,
-    TrendingUp,
+  AlertTriangle,
+  ArrowLeft,
+  BarChart3,
+  Globe,
+  Info,
+  TrendingDown,
+  TrendingUp,
 } from "lucide-react-native";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Dimensions,
-    Image,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Dimensions,
+  Image,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import * as Svg from "react-native-svg";
 
@@ -30,15 +31,25 @@ import { Colors } from "../theme/colors";
 // ─────────────────────────────────────────────
 const { width } = Dimensions.get("window");
 
+// Mapping Icon Lokal
+// Pastikan file ini ada di folder assets Anda:
+// - assets/chains/eth.png
+// - assets/chains/bdag.png
+// - assets/coins/usdt.png
+// - assets/coins/usdc.png
 const LOCAL_ICON_MAP: Record<string, any> = {
   ethereum: require("../assets/chains/eth.png"),
   blockdag: require("../assets/chains/bdag.png"),
+  usdt: require("../assets/coins/usdt.png"),
+  usdc: require("../assets/coins/usdc.png"),
 };
 
 // Mapping dari coinId internal ke CoinGecko ID
 const COINGECKO_ID_MAP: Record<string, string> = {
   ethereum: "ethereum",
-  blockdag: "blockdag", // Mungkin tidak tersedia di CoinGecko, akan pakai fallback
+  blockdag: "blockdag", // Mock/Fallback likely needed
+  usdt: "tether",
+  usdc: "usd-coin",
 };
 
 interface CoinData {
@@ -152,36 +163,56 @@ export default function CoinDetailScreen() {
   const chartColor = isPositive ? "#22C55E" : "#EF4444";
 
   // Generate mock chart data untuk fallback
-  const generateMockChartData = useCallback((basePrice: number) => {
-    const data: number[] = [];
-    let current = basePrice;
-    for (let i = 0; i < 50; i++) {
-      const change = (Math.random() - 0.5) * (basePrice * 0.05);
-      current += change;
-      data.push(Math.max(current, basePrice * 0.5));
-    }
-    return data;
-  }, []);
+  const generateMockChartData = useCallback(
+    (basePrice: number) => {
+      const data: number[] = [];
+      let current = basePrice;
+      for (let i = 0; i < 50; i++) {
+        // Stablecoins punya volatilitas sangat rendah
+        const volatility = id === "usdt" || id === "usdc" ? 0.001 : 0.05;
+        const change = (Math.random() - 0.5) * (basePrice * volatility);
+        current += change;
+        data.push(Math.max(current, basePrice * 0.5));
+      }
+      return data;
+    },
+    [id],
+  );
 
   // Generate mock coin data untuk BlockDAG atau coin yang tidak ada di CoinGecko
   const generateMockCoinData = useCallback((): CoinData => {
-    const basePrice = id === "blockdag" ? 0.15 : 100;
+    let basePrice = 100;
+    let symbol = "UNK";
+    let name = "Unknown";
+
+    if (id === "blockdag") {
+      basePrice = 0.15;
+      symbol = "BDAG";
+      name = "BlockDAG";
+    } else if (id === "usdt") {
+      basePrice = 1.0;
+      symbol = "USDT";
+      name = "Tether";
+    } else if (id === "usdc") {
+      basePrice = 1.0;
+      symbol = "USDC";
+      name = "USD Coin";
+    }
+
     return {
       id: id,
-      symbol: id === "blockdag" ? "BDAG" : id.toUpperCase().slice(0, 4),
-      name:
-        id === "blockdag"
-          ? "BlockDAG"
-          : id.charAt(0).toUpperCase() + id.slice(1),
-      image: "",
+      symbol: symbol,
+      name: name,
+      image: "", // Kosong agar trigger fallback icon
       current_price: basePrice,
       market_cap: basePrice * 1000000000,
       market_cap_rank: 999,
       total_volume: basePrice * 50000000,
-      high_24h: basePrice * 1.05,
-      low_24h: basePrice * 0.95,
-      price_change_percentage_24h: (Math.random() - 0.5) * 10,
-      description: `${id === "blockdag" ? "BlockDAG" : id} adalah aset kripto yang saat ini belum tersedia di database CoinGecko. Data yang ditampilkan adalah simulasi untuk keperluan demo aplikasi.`,
+      high_24h: basePrice * 1.01,
+      low_24h: basePrice * 0.99,
+      price_change_percentage_24h:
+        (Math.random() - 0.5) * (id.includes("usd") ? 0.1 : 5),
+      description: `Data simulasi untuk ${name}. Coin ini mungkin belum tersedia atau sedang dalam mode demo.`,
       isMockData: true,
     };
   }, [id]);
@@ -285,7 +316,7 @@ export default function CoinDetailScreen() {
   };
 
   const formatCurrency = (val: number) => {
-    if (!val || val === 0) return "$0.00";
+    if (!val && val !== 0) return "$0.00";
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
@@ -294,7 +325,7 @@ export default function CoinDetailScreen() {
   };
 
   const formatCompactNumber = (number: number) => {
-    if (!number || number === 0) return "0";
+    if (!number && number !== 0) return "0";
     return Intl.NumberFormat("en-US", {
       notation: "compact",
       maximumFractionDigits: 1,
@@ -401,15 +432,18 @@ export default function CoinDetailScreen() {
         {/* Top Section: Icon, Name, Price */}
         <View style={styles.topSection}>
           <View style={styles.coinHeader}>
+            {/* ✅ FIX: Logic Render Image yang Aman */}
             {localIconSource ? (
               <Image source={localIconSource} style={styles.coinIcon} />
+            ) : coinData.image ? (
+              <Image source={{ uri: coinData.image }} style={styles.coinIcon} />
             ) : (
               <Image
-                source={{ uri: coinData.image }}
+                source={require("../assets/chains/eth.png")}
                 style={styles.coinIcon}
-                defaultSource={require("../assets/chains/eth.png")}
               />
             )}
+
             <View style={styles.coinInfo}>
               <Text style={[styles.coinName, { color: theme.text }]}>
                 {coinData.name}

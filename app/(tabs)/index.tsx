@@ -13,6 +13,8 @@ import {
   ArrowUpRight,
   Check,
   Copy,
+  Eye,
+  EyeOff,
   Repeat2,
 } from "lucide-react-native";
 import React, { useCallback, useEffect, useState } from "react";
@@ -301,6 +303,9 @@ export default function HomeScreen() {
   // State untuk Modal Peringatan Testnet
   const [showTestnetAlert, setShowTestnetAlert] = useState(false);
 
+  // ✅ State untuk Hide/Show Balance
+  const [isBalanceHidden, setIsBalanceHidden] = useState(false);
+
   // State untuk menyimpan network mana yang ON/OFF
   const [enabledNetworks, setEnabledNetworks] = useState<
     Record<string, boolean>
@@ -328,6 +333,7 @@ export default function HomeScreen() {
     }).format(val);
 
   const formatIDRCompact = (val: number) => {
+    if (isBalanceHidden) return "IDR ****";
     const formatted = new Intl.NumberFormat("id-ID", {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
@@ -542,7 +548,22 @@ export default function HomeScreen() {
             <View style={styles.cardOverlay} />
 
             <View style={styles.cardContent}>
-              <WalletAddressBar address={walletAddress} />
+              {/* Header: Address & Toggle Eye */}
+              <View style={styles.cardHeaderRow}>
+                <WalletAddressBar address={walletAddress} />
+
+                {/* ✅ Toggle Hide Balance Button */}
+                <TouchableOpacity
+                  onPress={() => setIsBalanceHidden(!isBalanceHidden)}
+                  style={styles.eyeButton}
+                >
+                  {isBalanceHidden ? (
+                    <EyeOff size={20} color="rgba(255,255,255,0.8)" />
+                  ) : (
+                    <Eye size={20} color="rgba(255,255,255,0.8)" />
+                  )}
+                </TouchableOpacity>
+              </View>
 
               <View style={styles.chartArea}>
                 {chartData.length > 1 ? (
@@ -563,11 +584,17 @@ export default function HomeScreen() {
                     { color: "rgba(255,255,255,0.85)" },
                   ]}
                 >
-                  {isPortfolioUp ? "+" : ""}
-                  {new Intl.NumberFormat("id-ID", {
-                    minimumFractionDigits: 0,
-                    maximumFractionDigits: 0,
-                  }).format(totalFiatChange)}
+                  {isBalanceHidden ? (
+                    "****"
+                  ) : (
+                    <>
+                      {isPortfolioUp ? "+" : ""}
+                      {new Intl.NumberFormat("id-ID", {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 0,
+                      }).format(totalFiatChange)}
+                    </>
+                  )}
                 </Text>
                 <View
                   style={[
@@ -691,12 +718,9 @@ export default function HomeScreen() {
                 : true;
               const clr = isUp ? COLOR_UP : COLOR_DOWN;
 
-              // Sparkline Logic:
-              // 1. Jika ini adalah Active Native Chain -> Gunakan chartData lengkap (dari state global)
-              // 2. Jika ini Aset Mainnet lain (Token/Native lain) -> Kita bisa tampilkan placeholder atau
-              //    jika punya data historis sendiri, tampilkan itu.
-              //    Di sini kita tampilkan sparkline JIKA ada harga (menandakan mainnet valid).
-
+              // ✅ Sparkline Logic Updated:
+              // Tampilkan sparkline untuk SEMUA mainnet assets (USDT, USDC, BDAG, dll)
+              // dengan generate dummy data berdasarkan trend 24h agar visual tetap hidup.
               let sparkData: number[] = [];
 
               if (!isTest) {
@@ -704,12 +728,23 @@ export default function HomeScreen() {
                   // Gunakan data chart lengkap untuk active chain
                   sparkData = chartData;
                 } else {
-                  // Untuk token atau native chain lain yang tidak aktif,
-                  // kita bisa generate dummy random walk berdasarkan change24h agar UI tidak kosong
-                  // Atau biarkan kosong jika ingin strict.
-                  // Di sini saya biarkan kosong agar performa tetap ringan,
-                  // tapi Anda bisa mengisinya jika punya data historis per token.
-                  sparkData = [];
+                  // Generate mini sparkline dummy berdasarkan % change 24h
+                  // Agar USDT/USDC/BDAG punya grafik kecil yang relevan dengan tren
+                  const base = 100;
+                  const changePercent = displayPriceData
+                    ? displayPriceData.change24h
+                    : 0;
+                  const endVal = base * (1 + changePercent / 100);
+
+                  // Buat 10 titik data sederhana dari base ke endVal dengan sedikit noise
+                  const points = 10;
+                  for (let i = 0; i <= points; i++) {
+                    const progress = i / points;
+                    const linearVal = base + (endVal - base) * progress;
+                    // Tambah noise acak kecil
+                    const noise = (Math.random() - 0.5) * (base * 0.02);
+                    sparkData.push(linearVal + noise);
+                  }
                 }
               }
 
@@ -763,7 +798,9 @@ export default function HomeScreen() {
                       </Text>
                     )}
                     <Text style={[styles.assetFiat, { color: theme.text }]}>
-                      {formatIDRCompact(assetFiatVal)}
+                      {isBalanceHidden
+                        ? "****"
+                        : formatIDRCompact(assetFiatVal)}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -960,6 +997,20 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 20,
     paddingHorizontal: 20,
+  },
+
+  // ✅ New Style for Header Row (Address + Eye)
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 10,
+  },
+  eyeButton: {
+    padding: 8,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 20,
   },
 
   // ── Wallet Address Bar ──
