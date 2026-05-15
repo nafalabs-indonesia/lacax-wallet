@@ -1,5 +1,5 @@
 // app/(tabs)/index.tsx
-import { SUPPORTED_CHAINS } from "@/config/chains";
+import { SUPPORTED_CHAINS, TokenConfig } from "@/config/chains";
 import {
   BlockchainService,
   ChainId,
@@ -8,15 +8,15 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import {
-  ArrowDownToLine,
+  AlertTriangle,
+  ArrowDownLeft,
   ArrowUpRight,
   Check,
   Copy,
-  Repeat2
+  Repeat2,
 } from "lucide-react-native";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Dimensions,
   Image,
   ImageBackground,
@@ -24,6 +24,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -33,25 +34,48 @@ import { HomeHeader } from "../../components/HomeHeader";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
-const { width: W } = Dimensions.get("window");
+const { width: W, height: H } = Dimensions.get("window");
 
 const COLOR_UP = "#7ed957";
 const COLOR_DOWN = "#ff3131";
 
 // ─────────────────────────────────────────────
-// Helper: Mapping Icon Lokal
+// Helper: Detect Testnet
 // ─────────────────────────────────────────────
-const LOCAL_ICON_MAP: Record<string, any> = {
-  "ethereum-mainnet": require("../../assets/chains/eth.png"),
-  "blockdag-mainnet": require("../../assets/chains/bdag.png"),
+const isTestnet = (id: string) => {
+  return id.includes("testnet") || id.includes("sepolia");
 };
 
 // ─────────────────────────────────────────────
-// CoinGecko ID Mapping
+// Helper: Mapping Icon Lokal (Chains & Tokens)
+// ─────────────────────────────────────────────
+const LOCAL_ICON_MAP: Record<string, any> = {
+  // Chains
+  "ethereum-mainnet": require("../../assets/chains/eth.png"),
+  "ethereum-sepolia": require("../../assets/chains/eth-sepolia.png"),
+  "blockdag-mainnet": require("../../assets/chains/bdag.png"),
+  "blockdag-testnet": require("../../assets/chains/bdag.png"),
+
+  // Tokens
+  USDT: require("../../assets/coins/usdt.png"),
+  USDC: require("../../assets/coins/usdc.png"),
+};
+
+// Icon Kecil untuk Badge Network
+const NETWORK_BADGE_ICON: Record<string, any> = {
+  "ethereum-mainnet": require("../../assets/chains/eth-symbol.webp"),
+  "ethereum-sepolia": require("../../assets/chains/eth-symbol.webp"),
+  // Fallback jika badge lain belum ada
+};
+
+// ─────────────────────────────────────────────
+// CoinGecko ID Mapping (Chains & Tokens)
 // ─────────────────────────────────────────────
 const COINGECKO_IDS: Record<string, string> = {
   "ethereum-mainnet": "ethereum",
   "blockdag-mainnet": "blockdag",
+  USDT: "tether",
+  USDC: "usd-coin",
 };
 
 // ─────────────────────────────────────────────
@@ -64,38 +88,77 @@ interface PriceData {
 }
 
 // ─────────────────────────────────────────────
-// Komponen Icon Chain
+// Asset Display Interface
 // ─────────────────────────────────────────────
-function ChainIcon({ chainId, symbol }: { chainId: string; symbol: string }) {
-  const source = LOCAL_ICON_MAP[chainId];
-  if (source) {
-    return (
-      <View style={styles.assetIcon}>
-        <Image
-          source={source}
-          style={{
-            width: 40,
-            height: 40,
-            resizeMode: "contain",
-            borderRadius: 20,
-          }}
-        />
-      </View>
-    );
+interface DisplayAsset {
+  id: string; // Unique ID
+  chainId: string;
+  name: string;
+  symbol: string;
+  balance: string;
+  isNative: boolean;
+  tokenConfig?: TokenConfig;
+}
+
+// ─────────────────────────────────────────────
+// Komponen Icon dengan Network Badge
+// ─────────────────────────────────────────────
+function AssetIcon({
+  symbol,
+  chainId,
+  isNative,
+}: {
+  symbol: string;
+  chainId: string;
+  isNative: boolean;
+}) {
+  // Tentukan source icon utama
+  let mainSource = LOCAL_ICON_MAP[symbol]; // Coba cari berdasarkan symbol (untuk token)
+  if (!mainSource) {
+    mainSource = LOCAL_ICON_MAP[chainId]; // Fallback ke icon chain (untuk native)
   }
-  let bgColor = "#627EEA18";
-  let textColor = "#627EEA";
-  let initial = symbol.charAt(0);
-  if (symbol.includes("BDAG")) {
-    bgColor = "#F59E0B18";
-    textColor = "#F59E0B";
-    initial = "BD";
-  }
+
+  // Tentukan source badge network
+  const showBadge = !isNative;
+  const badgeSource = NETWORK_BADGE_ICON[chainId];
+
   return (
-    <View style={[styles.assetIcon, { backgroundColor: bgColor }]}>
-      <Text style={{ fontSize: 12, fontWeight: "800", color: textColor }}>
-        {initial}
-      </Text>
+    <View style={styles.assetIconContainer}>
+      {/* Main Icon */}
+      <View style={styles.assetIcon}>
+        {mainSource ? (
+          <Image
+            source={mainSource}
+            style={{
+              width: 40,
+              height: 40,
+              resizeMode: "contain",
+              borderRadius: 20,
+            }}
+          />
+        ) : (
+          <View style={[styles.fallbackIcon, { backgroundColor: "#627EEA18" }]}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#627EEA" }}>
+              {symbol.charAt(0)}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* Network Badge (Small Icon at Bottom Right) */}
+      {showBadge && badgeSource && (
+        <View style={styles.networkBadge}>
+          <Image
+            source={badgeSource}
+            style={{
+              width: 16,
+              height: 16,
+              resizeMode: "contain",
+              borderRadius: 8,
+            }}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -105,20 +168,20 @@ function ChainIcon({ chainId, symbol }: { chainId: string; symbol: string }) {
 // ─────────────────────────────────────────────
 function MiniSparkline({ data, color }: { data: number[]; color: string }) {
   if (!data || data.length < 2) return null;
-  const W = 56;
-  const H = 26;
+  const W_CHART = 56;
+  const H_CHART = 26;
   const min = Math.min(...data);
   const max = Math.max(...data);
   const range = max - min || 1;
   const points = data
     .map((v, i) => {
-      const x = (i / (data.length - 1)) * W;
-      const y = H - ((v - min) / range) * H;
+      const x = (i / (data.length - 1)) * W_CHART;
+      const y = H_CHART - ((v - min) / range) * H_CHART;
       return `${x},${y}`;
     })
     .join(" ");
   return (
-    <Svg width={W} height={H} style={{ overflow: "visible" }}>
+    <Svg width={W_CHART} height={H_CHART} style={{ overflow: "visible" }}>
       <Polyline
         fill="none"
         stroke={color}
@@ -223,19 +286,36 @@ export default function HomeScreen() {
   const { walletAddress, isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  const [balances, setBalances] = useState<Record<string, string>>({});
+  const [displayAssets, setDisplayAssets] = useState<DisplayAsset[]>([]);
   const [prices, setPrices] = useState<Record<string, PriceData>>({});
   const [chartData, setChartData] = useState<number[]>([]);
   const [activeChainId, setActiveChainId] =
     useState<ChainId>("ethereum-mainnet");
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [showNetworkModal, setShowNetworkModal] = useState(false);
+
+  // State baru untuk Tab dan Network Management
+  const [activeTab, setActiveTab] = useState<"crypto" | "network">("crypto");
+  const [showNetworkSheet, setShowNetworkSheet] = useState(false);
+
+  // State untuk Modal Peringatan Testnet
+  const [showTestnetAlert, setShowTestnetAlert] = useState(false);
+
+  // State untuk menyimpan network mana yang ON/OFF
+  const [enabledNetworks, setEnabledNetworks] = useState<
+    Record<string, boolean>
+  >(
+    SUPPORTED_CHAINS.reduce((acc, chain) => ({ ...acc, [chain.id]: true }), {}),
+  );
 
   const activeChainConfig =
     SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
 
-  const currentBalanceRaw = parseFloat(balances[activeChainId] || "0");
+  // Hitung Total Balance Fiat (Hanya dari Native Active Chain untuk simplifikasi UI saat ini)
+  const currentAsset = displayAssets.find(
+    (a) => a.chainId === activeChainId && a.isNative,
+  );
+  const currentBalanceRaw = parseFloat(currentAsset?.balance || "0");
   const currentPrice = prices[activeChainId]?.price || 0;
   const totalFiat = currentBalanceRaw * currentPrice;
 
@@ -263,9 +343,11 @@ export default function HomeScreen() {
       );
       const data = await response.json();
       const newPrices: Record<string, PriceData> = {};
-      Object.entries(COINGECKO_IDS).forEach(([chainId, cgId]) => {
+
+      // Map harga ke Key yang kita gunakan (Chain ID atau Symbol Token)
+      Object.entries(COINGECKO_IDS).forEach(([key, cgId]) => {
         if (data[cgId]) {
-          newPrices[chainId] = {
+          newPrices[key] = {
             price: data[cgId].usd,
             change24h: data[cgId].usd_24h_change || 0,
             lastUpdated: Date.now(),
@@ -302,22 +384,60 @@ export default function HomeScreen() {
   const fetchAllBalances = useCallback(async () => {
     if (!walletAddress) return;
     setIsLoading(true);
-    const newBalances: Record<string, string> = { ...balances };
+
+    const newAssets: DisplayAsset[] = [];
+
     try {
       await Promise.all(
         SUPPORTED_CHAINS.map(async (chain) => {
+          // 1. Fetch Native Balance
           try {
             const bal = await BlockchainService.getBalance(
               chain.id as ChainId,
               walletAddress,
             );
-            newBalances[chain.id] = bal;
-          } catch {
-            if (!newBalances[chain.id]) newBalances[chain.id] = "0.0000";
+            newAssets.push({
+              id: `${chain.id}-native`,
+              chainId: chain.id,
+              name: chain.name.split(" ")[0],
+              symbol: chain.symbol,
+              balance: bal,
+              isNative: true,
+            });
+          } catch (e) {
+            console.error(`Error fetching native balance for ${chain.id}`, e);
+          }
+
+          // 2. Fetch Token Balances (Jika ada)
+          if (chain.tokens && chain.tokens.length > 0) {
+            await Promise.all(
+              chain.tokens.map(async (token) => {
+                try {
+                  const tokenBal = await BlockchainService.getTokenBalance(
+                    chain.id as ChainId,
+                    walletAddress,
+                    token.address,
+                    token.decimals,
+                  );
+
+                  newAssets.push({
+                    id: `${chain.id}-${token.symbol}`,
+                    chainId: chain.id,
+                    name: token.name,
+                    symbol: token.symbol,
+                    balance: tokenBal,
+                    isNative: false,
+                    tokenConfig: token,
+                  });
+                } catch (e) {
+                  console.error(`Error fetching token ${token.symbol}`, e);
+                }
+              }),
+            );
           }
         }),
       );
-      setBalances(newBalances);
+      setDisplayAssets(newAssets);
     } catch (error) {
       console.error("Failed to fetch balances:", error);
     } finally {
@@ -350,11 +470,38 @@ export default function HomeScreen() {
     fetchAllData();
   };
 
+  const toggleNetwork = (chainId: string) => {
+    setEnabledNetworks((prev) => ({
+      ...prev,
+      [chainId]: !prev[chainId],
+    }));
+  };
+
+  // Handler klik pada list aset
+  const handleAssetPress = (asset: DisplayAsset) => {
+    if (isTestnet(asset.chainId)) {
+      setShowTestnetAlert(true);
+    } else {
+      // Logic navigasi untuk Mainnet
+      const cgId = COINGECKO_IDS[asset.isNative ? asset.chainId : asset.symbol];
+
+      if (cgId) {
+        router.push({
+          pathname: "/coin-detail",
+          params: { coinId: cgId, symbol: asset.symbol, name: asset.name },
+        });
+      } else {
+        // Fallback jika tidak ada ID coingecko (misal BDAG detail custom)
+        setActiveChainId(asset.chainId as ChainId);
+      }
+    }
+  };
+
   if (!walletAddress) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
         <Text style={{ color: theme.textSecondary }}>
-          Wallet belum di-setup.
+          Wallet not setup yet.
         </Text>
       </View>
     );
@@ -362,9 +509,7 @@ export default function HomeScreen() {
 
   const portfolioChange = prices[activeChainId]?.change24h || 0;
   const isPortfolioUp = portfolioChange >= 0;
-  const chartColor = isPortfolioUp ? COLOR_UP : COLOR_DOWN;
 
-  // Formatted change values for display under balance
   const totalFiatChange = totalFiat * (portfolioChange / 100);
 
   return (
@@ -394,14 +539,11 @@ export default function HomeScreen() {
             resizeMode="cover"
             imageStyle={{ borderRadius: 24 }}
           >
-            {/* Soft dark overlay */}
             <View style={styles.cardOverlay} />
 
             <View style={styles.cardContent}>
-              {/* Wallet Address Bar — top center (REPLACED Network Selector) */}
               <WalletAddressBar address={walletAddress} />
 
-              {/* Chart */}
               <View style={styles.chartArea}>
                 {chartData.length > 1 ? (
                   <BalanceChart data={chartData} color="#fff" />
@@ -410,12 +552,10 @@ export default function HomeScreen() {
                 )}
               </View>
 
-              {/* Balance Amount */}
               <Text style={styles.balanceAmount}>
                 {isLoading && !refreshing ? "..." : formatIDRCompact(totalFiat)}
               </Text>
 
-              {/* Change Row */}
               <View style={styles.changeRow}>
                 <Text
                   style={[
@@ -452,7 +592,6 @@ export default function HomeScreen() {
                 </View>
               </View>
 
-              {/* Quick Actions Row — bottom of card */}
               <View style={styles.actionsRow}>
                 <QuickActionCard
                   Icon={ArrowUpRight}
@@ -464,151 +603,321 @@ export default function HomeScreen() {
                   }
                 />
                 <QuickActionCard
-                  Icon={ArrowDownToLine}
+                  Icon={ArrowDownLeft}
                   onPress={() => router.push("/receive")}
                 />
-                <QuickActionCard Icon={Repeat2} onPress={() => {}} />
+                <QuickActionCard
+                  Icon={Repeat2}
+                  onPress={() => router.push("/swap")}
+                />
               </View>
             </View>
           </ImageBackground>
         </View>
 
-        {/* ── Assets Section Header ── */}
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Assets
-          </Text>
-          <TouchableOpacity style={styles.manageBtn}>
-            <Text style={[styles.manageBtnText, { color: theme.text }]}>
-              Manage
+        {/* ── TABS: Crypto & Network ── */}
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[
+              styles.tabButton,
+              activeTab === "crypto" && styles.tabButtonActive,
+            ]}
+            onPress={() => setActiveTab("crypto")}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === "crypto"
+                  ? styles.tabTextActive
+                  : { color: theme.textSecondary },
+              ]}
+            >
+              Crypto
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.tabButton,
+              activeTab === "network" && styles.tabButtonActive,
+            ]}
+            onPress={() => setActiveTab("network")}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === "network"
+                  ? styles.tabTextActive
+                  : { color: theme.textSecondary },
+              ]}
+            >
+              Network
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* ── Token List ── */}
-        {SUPPORTED_CHAINS.map((chain) => {
-          const bal = balances[chain.id] || "0.0000";
-          const isActive = chain.id === activeChainId;
-          const priceData = prices[chain.id];
-          const isUp = priceData ? priceData.change24h >= 0 : true;
-          const clr = isUp ? COLOR_UP : COLOR_DOWN;
-          const assetFiatVal = parseFloat(bal) * (priceData?.price || 0);
+        {/* ── Content Based on Active Tab ── */}
 
-          // Sparkline data (reuse chartData only for active chain, else empty placeholder)
-          const sparkData = chain.id === activeChainId ? chartData : [];
+        {activeTab === "crypto" ? (
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                Assets
+              </Text>
+              <TouchableOpacity style={styles.manageBtn}>
+                <Text style={[styles.manageBtnText, { color: theme.text }]}>
+                  Manage
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-          return (
-            <TouchableOpacity
-              key={chain.id}
-              activeOpacity={0.7}
-              onPress={() => {
-                const cgId = COINGECKO_IDS[chain.id];
-                if (cgId) {
-                  router.push({
-                    pathname: "/coin-detail",
-                    params: { coinId: cgId },
-                  });
+            {displayAssets.map((asset) => {
+              // Filter jika network dimatikan
+              if (!enabledNetworks[asset.chainId]) return null;
+
+              // Ambil harga: Key nya adalah ChainID (untuk native) atau Symbol (untuk token)
+              const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+              const priceData = prices[priceKey];
+
+              const isTest = isTestnet(asset.chainId);
+              const displayPriceData = isTest ? null : priceData;
+
+              const assetFiatVal = isTest
+                ? 0
+                : parseFloat(asset.balance) * (displayPriceData?.price || 0);
+
+              const isUp = displayPriceData
+                ? displayPriceData.change24h >= 0
+                : true;
+              const clr = isUp ? COLOR_UP : COLOR_DOWN;
+
+              // Sparkline Logic:
+              // 1. Jika ini adalah Active Native Chain -> Gunakan chartData lengkap (dari state global)
+              // 2. Jika ini Aset Mainnet lain (Token/Native lain) -> Kita bisa tampilkan placeholder atau
+              //    jika punya data historis sendiri, tampilkan itu.
+              //    Di sini kita tampilkan sparkline JIKA ada harga (menandakan mainnet valid).
+
+              let sparkData: number[] = [];
+
+              if (!isTest) {
+                if (asset.isNative && asset.chainId === activeChainId) {
+                  // Gunakan data chart lengkap untuk active chain
+                  sparkData = chartData;
                 } else {
-                  setActiveChainId(chain.id as ChainId);
+                  // Untuk token atau native chain lain yang tidak aktif,
+                  // kita bisa generate dummy random walk berdasarkan change24h agar UI tidak kosong
+                  // Atau biarkan kosong jika ingin strict.
+                  // Di sini saya biarkan kosong agar performa tetap ringan,
+                  // tapi Anda bisa mengisinya jika punya data historis per token.
+                  sparkData = [];
                 }
-              }}
-              style={[styles.assetRow]}
+              }
+
+              return (
+                <TouchableOpacity
+                  key={asset.id}
+                  activeOpacity={0.7}
+                  onPress={() => handleAssetPress(asset)}
+                  style={[styles.assetRow]}
+                >
+                  <AssetIcon
+                    symbol={asset.symbol}
+                    chainId={asset.chainId}
+                    isNative={asset.isNative}
+                  />
+
+                  <View style={styles.assetInfo}>
+                    <Text style={[styles.assetName, { color: theme.text }]}>
+                      {asset.name}
+                    </Text>
+                    <Text
+                      style={[styles.assetSub, { color: theme.textSecondary }]}
+                    >
+                      {parseFloat(asset.balance).toFixed(4)} {asset.symbol}
+                    </Text>
+                  </View>
+
+                  <View style={styles.sparklineArea}>
+                    {sparkData.length > 1 ? (
+                      <MiniSparkline data={sparkData} color={clr} />
+                    ) : (
+                      // Placeholder space agar layout rata
+                      <View style={{ width: 56, height: 26 }} />
+                    )}
+                  </View>
+
+                  <View style={styles.assetRight}>
+                    {displayPriceData ? (
+                      <Text style={[styles.assetChangeText, { color: clr }]}>
+                        {isUp ? "+" : ""}
+                        {displayPriceData.change24h.toFixed(2)}%
+                      </Text>
+                    ) : (
+                      <Text
+                        style={[
+                          styles.assetChangeText,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        -
+                      </Text>
+                    )}
+                    <Text style={[styles.assetFiat, { color: theme.text }]}>
+                      {formatIDRCompact(assetFiatVal)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+
+            {displayAssets.length === 0 && !isLoading && (
+              <View style={{ alignItems: "center", marginTop: 40 }}>
+                <Text style={{ color: theme.textSecondary }}>
+                  No assets found.
+                </Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <View style={styles.networkPreviewContainer}>
+            <Text
+              style={[
+                styles.sectionTitle,
+                { color: theme.text, marginBottom: 12 },
+              ]}
             >
-              {/* Icon */}
-              <ChainIcon chainId={chain.id} symbol={chain.symbol} />
+              Manage Networks
+            </Text>
+            <Text
+              style={{
+                color: theme.textSecondary,
+                marginBottom: 20,
+                fontSize: 13,
+                textAlign: "center",
+              }}
+            >
+              Enable or disable networks you want to see in your wallet.
+            </Text>
 
-              {/* Name & Balance */}
-              <View style={styles.assetInfo}>
-                <Text style={[styles.assetName, { color: theme.text }]}>
-                  {chain.name.split(" ")[0]}
-                </Text>
-                <Text style={[styles.assetSub, { color: theme.textSecondary }]}>
-                  {bal} {chain.symbol}
-                </Text>
-              </View>
-
-              {/* Sparkline */}
-              <View style={styles.sparklineArea}>
-                {sparkData.length > 1 ? (
-                  <MiniSparkline data={sparkData} color={clr} />
-                ) : (
-                  <View style={{ width: 56, height: 26 }} />
-                )}
-              </View>
-
-              {/* Price & Change */}
-              <View style={styles.assetRight}>
-                {priceData ? (
-                  <Text style={[styles.assetChangeText, { color: clr }]}>
-                    {isUp ? "+" : ""}
-                    {priceData.change24h.toFixed(0)}%
-                  </Text>
-                ) : (
-                  <ActivityIndicator size="small" color={theme.primary} />
-                )}
-                <Text style={[styles.assetFiat, { color: theme.text }]}>
-                  {formatIDRCompact(assetFiatVal)}
-                </Text>
-              </View>
+            <TouchableOpacity
+              style={styles.openNetworkSheetBtn}
+              onPress={() => setShowNetworkSheet(true)}
+            >
+              <Text
+                style={[styles.openNetworkSheetText, { color: theme.text }]}
+              >
+                Open Network Settings
+              </Text>
             </TouchableOpacity>
-          );
-        })}
+          </View>
+        )}
 
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ── Network Selection Modal ── */}
+      {/* ── Network Bottom Sheet ── */}
       <Modal
-        visible={showNetworkModal}
+        visible={showNetworkSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowNetworkSheet(false)}
+      >
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity
+            style={styles.sheetBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowNetworkSheet(false)}
+          />
+          <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
+            <View style={styles.sheetHandle} />
+
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>
+              Network Settings
+            </Text>
+
+            <ScrollView style={styles.sheetList}>
+              {SUPPORTED_CHAINS.map((chain) => {
+                const isEnabled = enabledNetworks[chain.id];
+                return (
+                  <View key={chain.id} style={styles.networkRow}>
+                    <View style={styles.networkRowLeft}>
+                      <AssetIcon
+                        symbol={chain.symbol}
+                        chainId={chain.id}
+                        isNative={true}
+                      />
+                      <View style={styles.networkInfo}>
+                        <Text
+                          style={[styles.networkName, { color: theme.text }]}
+                        >
+                          {chain.name}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.networkSymbol,
+                            { color: theme.textSecondary },
+                          ]}
+                        >
+                          {chain.symbol}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Switch
+                      value={isEnabled}
+                      onValueChange={() => toggleNetwork(chain.id)}
+                      trackColor={{
+                        false: "#767577",
+                        true: theme.primary + "80",
+                      }}
+                      thumbColor={isEnabled ? theme.primary : "#f4f3f4"}
+                      ios_backgroundColor="#3e3e3e"
+                    />
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.closeSheetBtn]}
+              onPress={() => setShowNetworkSheet(false)}
+            >
+              <Text style={[styles.closeSheetText]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Testnet Alert Modal ── */}
+      <Modal
+        visible={showTestnetAlert}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowNetworkModal(false)}
+        onRequestClose={() => setShowTestnetAlert(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowNetworkModal(false)}
-        >
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>
-              Pilih Jaringan
+        <View style={styles.alertOverlay}>
+          <View style={[styles.alertBox, { backgroundColor: theme.card }]}>
+            <View style={styles.alertIconContainer}>
+              <AlertTriangle size={32} color="#F59E0B" strokeWidth={2} />
+            </View>
+
+            <Text style={[styles.alertTitle, { color: theme.text }]}>
+              Testnet Asset
             </Text>
-            {SUPPORTED_CHAINS.map((chain) => {
-              const isSelected = chain.id === activeChainId;
-              return (
-                <TouchableOpacity
-                  key={chain.id}
-                  style={[
-                    styles.networkOption,
-                    isSelected && { backgroundColor: theme.primary + "10" },
-                  ]}
-                  onPress={() => {
-                    setActiveChainId(chain.id as ChainId);
-                    setShowNetworkModal(false);
-                  }}
-                >
-                  <ChainIcon chainId={chain.id} symbol={chain.symbol} />
-                  <View style={styles.networkInfo}>
-                    <Text style={[styles.networkName, { color: theme.text }]}>
-                      {chain.name}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.networkSymbol,
-                        { color: theme.textSecondary },
-                      ]}
-                    >
-                      {chain.symbol}
-                    </Text>
-                  </View>
-                  {isSelected && (
-                    <Check size={20} color={theme.primary} strokeWidth={2.5} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+
+            <Text style={[styles.alertMessage, { color: theme.textSecondary }]}>
+              This token is on a test network. It has no real-world value and
+              market charts are not available.
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.alertButton, { backgroundColor: theme.primary }]}
+              onPress={() => setShowTestnetAlert(false)}
+            >
+              <Text style={styles.alertButtonText}>Understood</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </View>
   );
@@ -643,8 +952,6 @@ const styles = StyleSheet.create({
   },
   cardOverlay: {
     // ...StyleSheet.absoluteFillObject,
-    // backgroundColor: "rgba(0,0,0,0.25)",
-    // borderRadius: 24,
   },
   cardContent: {
     flex: 1,
@@ -655,7 +962,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
 
-  // ── Wallet Address Bar (REPLACES networkSelector) ──
+  // ── Wallet Address Bar ──
   walletAddressBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -732,6 +1039,53 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.08)",
   },
 
+  // ── Tabs ──
+  tabContainer: {
+    flexDirection: "row",
+    backgroundColor: "rgba(128,128,128,0.1)",
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 16,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 8,
+  },
+  tabButtonActive: {
+    backgroundColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  tabTextActive: {
+    color: "#000",
+  },
+
+  // ── Network Preview ──
+  networkPreviewContainer: {
+    padding: 16,
+    alignItems: "center",
+  },
+  openNetworkSheetBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderWidth: 1,
+    borderColor: "rgba(128,128,128,0.3)",
+    borderRadius: 999,
+  },
+  openNetworkSheetText: {
+    fontWeight: "600",
+    fontSize: 14,
+  },
+
   // ── Section Header ──
   sectionHeader: {
     flexDirection: "row",
@@ -764,15 +1118,42 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginBottom: 4,
   },
+
+  // Updated Styles for Icon with Badge
+  assetIconContainer: {
+    marginRight: 10,
+    position: "relative",
+  },
   assetIcon: {
     width: 44,
     height: 44,
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
     overflow: "hidden",
   },
+  fallbackIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  networkBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#fff", // Border putih
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#fff",
+    zIndex: 10,
+  },
+
   assetInfo: {
     flex: 1,
   },
@@ -806,40 +1187,59 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // ── Modal ──
-  modalOverlay: {
+  // ── Bottom Sheet Styles ──
+  sheetOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: "flex-end",
   },
-  modalContent: {
-    width: W * 0.85,
-    borderRadius: 24,
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  sheetContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 20,
+    maxHeight: "80%",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowOffset: { width: 0, height: -5 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 20,
   },
-  modalTitle: {
-    fontSize: 18,
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: "rgba(128,128,128,0.3)",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 20,
+  },
+  sheetTitle: {
+    fontSize: 20,
     fontWeight: "700",
     marginBottom: 16,
     textAlign: "center",
   },
-  networkOption: {
+  sheetList: {
+    marginBottom: 20,
+  },
+  networkRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(128,128,128,0.1)",
+  },
+  networkRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
   },
   networkInfo: {
-    flex: 1,
     marginLeft: 12,
+    flex: 1,
   },
   networkName: {
     fontSize: 15,
@@ -848,5 +1248,64 @@ const styles = StyleSheet.create({
   networkSymbol: {
     fontSize: 13,
     marginTop: 2,
+  },
+  closeSheetBtn: {
+    paddingVertical: 14,
+    borderRadius: 999,
+    alignItems: "center",
+    backgroundColor: "#5573ef",
+  },
+  closeSheetText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+
+  // ── Alert Modal Styles ──
+  alertOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  alertBox: {
+    width: "100%",
+    maxWidth: 320,
+    borderRadius: 24,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  alertIconContainer: {
+    marginBottom: 16,
+  },
+  alertTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  alertMessage: {
+    fontSize: 14,
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  alertButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 999,
+    width: "100%",
+    alignItems: "center",
+  },
+  alertButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
   },
 });

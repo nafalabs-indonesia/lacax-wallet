@@ -2,6 +2,7 @@
 import {
   Check,
   ChevronDown,
+  ChevronUp, // ← Ditambahkan
   Grip,
   PlusCircle,
   ScanLine,
@@ -89,11 +90,21 @@ export function HomeHeader({ onSettingsPress, onScanPress }: HomeHeaderProps) {
             <Text style={[styles.accountLabel, { color: theme.text }]}>
               Account 1
             </Text>
-            <ChevronDown
-              size={16}
-              color={theme.textSecondary}
-              style={{ marginLeft: 4 }}
-            />
+
+            {/* Chevron berubah sesuai state */}
+            {showAccountMenu ? (
+              <ChevronUp
+                size={16}
+                color={theme.textSecondary}
+                style={{ marginLeft: 4 }}
+              />
+            ) : (
+              <ChevronDown
+                size={16}
+                color={theme.textSecondary}
+                style={{ marginLeft: 4 }}
+              />
+            )}
           </View>
         </TouchableOpacity>
 
@@ -217,10 +228,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === "ios" ? 60 : 50, // Sedikit lebih naik agar pas
+    paddingTop: Platform.OS === "ios" ? 60 : 50,
     paddingBottom: 10,
-    position: "relative", // Penting untuk positioning absolute child
-    zIndex: 10, // Pastikan header di atas konten scroll
+    position: "relative",
+    zIndex: 10,
   },
   leftSectionWrapper: {
     position: "relative",
@@ -254,7 +265,7 @@ const styles = StyleSheet.create({
   // Floating Dropdown Style
   dropdownContainer: {
     position: "absolute",
-    top: 50, // Jarak dari atas tombol account
+    top: 50,
     left: -10,
     width: 260,
     borderRadius: 16,
@@ -312,6 +323,5 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: "center",
     justifyContent: "center",
-    // Background dan border dihapus sesuai permintaan
   },
 });

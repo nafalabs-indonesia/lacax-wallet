@@ -115,9 +115,12 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={navTheme}>
       <Stack screenOptions={{ headerShown: false }}>
+        {/* Public & Auth Screens */}
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="get-started" options={{ headerShown: false }} />
         <Stack.Screen name="welcome" options={{ headerShown: false }} />
+
+        {/* Auth Group */}
         <Stack.Screen
           name="(auth)/backup-intro"
           options={{ headerShown: false }}
@@ -130,7 +133,33 @@ export default function RootLayout() {
           name="(auth)/wallet-ready"
           options={{ headerShown: false }}
         />
+
+        {/* Main Tabs */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+
+        {/* Feature Screens (Registered Here) */}
+
+        {/* Swap Screen */}
+        <Stack.Screen
+          name="swap"
+          options={{
+            presentation: "card", // Atau "modal" jika ingin efek slide up
+            headerShown: false, // Kita handle header di dalam swap.tsx
+            animation: "slide_from_right",
+          }}
+        />
+
+        {/* Coin Detail Screen */}
+        <Stack.Screen
+          name="coin-detail"
+          options={{
+            presentation: "card",
+            headerShown: false,
+            animation: "slide_from_right",
+          }}
+        />
+
+        {/* Other Modals */}
         <Stack.Screen
           name="send"
           options={{ presentation: "modal", headerShown: false }}
