@@ -1,19 +1,34 @@
 // app/send.tsx
-import { SUPPORTED_CHAINS } from "@/config/chains";
+import { ChainConfig, SUPPORTED_CHAINS } from "@/config/chains";
 import {
   BlockchainService,
   ChainId,
 } from "@/services/blockchain/BlockchainService";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useAppStore } from "@/store/appStore";
+import { Colors } from "@/theme/colors";
+import { ZEROEX_API_KEY } from "@env";
+import axios from "axios";
 import {
-  ArrowLeft,
-  QrCode,
-  SendHorizonal
+  BarcodeScanningResult,
+  CameraView,
+  useCameraPermissions,
+} from "expo-camera";
+import { router, useLocalSearchParams } from "expo-router";
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  Info,
+  ScanLine,
+  X,
 } from "lucide-react-native";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -23,530 +38,1023 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useAppStore } from "../store/appStore";
-import { Colors } from "../theme/colors";
 
-// Opsi Gas (Dummy untuk UI, karena estimasi gas real butuh logic kompleks)
-const GAS_OPTIONS = [
-  { label: "Lambat", time: "~2 min", gwei: "12", usd: "$0.50" },
-  { label: "Standar", time: "~30 det", gwei: "18", usd: "$1.20" },
-  { label: "Cepat", time: "~15 det", gwei: "25", usd: "$2.50" },
-];
+const { width } = Dimensions.get("window");
+
+// Mapping Icon Lokal
+const LOCAL_ICON_MAP: Record<string, any> = {
+  ETH: require("../assets/chains/eth.png"),
+  USDT: require("../assets/coins/usdt.png"),
+  USDC: require("../assets/coins/usdc.png"),
+  BDAG: require("../assets/chains/bdag.png"),
+};
+
+// Mapping icon chain lokal (untuk dropdown network)
+const LOCAL_CHAIN_ICON_MAP: Record<string, any> = {
+  "ethereum-mainnet": require("../assets/chains/eth.png"),
+  "blockdag-mainnet": require("../assets/chains/bdag.png"),
+};
+
+// Filter hanya Mainnet
+const MAINNET_CHAINS = SUPPORTED_CHAINS.filter(
+  (c) => !c.id.includes("testnet") && !c.id.includes("sepolia"),
+);
+
+// Public RPC endpoints sebagai fallback untuk gas estimation
+// Beberapa alternatif per chain — dicoba satu per satu sampai berhasil
+const PUBLIC_RPC_MAP: Record<string, string[]> = {
+  "ethereum-mainnet": [
+    "https://cloudflare-eth.com", // Cloudflare, sangat reliable
+    "https://rpc.ankr.com/eth", // Ankr public
+    "https://ethereum.publicnode.com", // PublicNode
+    "https://eth.llamarpc.com", // LlamaRPC
+  ],
+  "blockdag-mainnet": ["https://rpc.primordial.bdagscan.com"],
+};
+
+// Default fallback gas price (wei) jika semua metode gagal
+const HARDCODED_GAS_FALLBACK: Record<string, string> = {
+  "ethereum-mainnet": "20000000000", // 20 gwei
+  "blockdag-mainnet": "1000000000", // 1 gwei
+};
+
+// Gas limit konstanta — dipakai konsisten di seluruh file
+const NATIVE_DECIMALS = 18; // gas selalu dalam ETH/native, bukan decimals token
+const GAS_LIMIT_NATIVE = 21000; // transfer ETH biasa
+const GAS_LIMIT_TOKEN = 65000; // transfer ERC-20
+
+interface AssetOption {
+  symbol: string;
+  name: string;
+  address: string;
+  decimals: number;
+  balance: string;
+  chainId: string;
+  isNative: boolean;
+}
 
 export default function SendScreen() {
-  const router = useRouter();
-  const { to, chainId } = useLocalSearchParams<{
-    to?: string;
-    chainId?: string;
-  }>();
-
-  const { isDarkMode, walletAddress } = useAppStore();
+  const { walletAddress, isDarkMode, mnemonic } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  // Default ke Ethereum jika tidak ada chainId yang dikirim
-  const activeChainId = (chainId as ChainId) || "ethereum-mainnet";
-  const activeChainConfig =
-    SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
+  const params = useLocalSearchParams();
+  const initialChainId = (params.chainId as string) || "ethereum-mainnet";
+  const initialSymbol = (params.symbol as string) || "ETH";
 
-  // State
-  const [balance, setBalance] = useState<string>("0.0000");
-  const [recipient, setRecipient] = useState(to || "");
+  // State Selection
+  const [selectedChain, setSelectedChain] = useState<ChainConfig>(
+    MAINNET_CHAINS.find((c) => c.id === initialChainId) || MAINNET_CHAINS[0],
+  );
+  const [selectedAsset, setSelectedAsset] = useState<AssetOption | null>(null);
+  const [availableAssets, setAvailableAssets] = useState<AssetOption[]>([]);
+
+  // State Input
+  const [recipientAddress, setRecipientAddress] = useState("");
   const [amount, setAmount] = useState("");
-  const [selectedGas, setSelectedGas] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isFetchingBalance, setIsFetchingBalance] = useState(true);
 
-  // Fetch Balance Real-time saat screen dibuka
-  const fetchBalance = useCallback(async () => {
-    if (!walletAddress) return;
-    setIsFetchingBalance(true);
-    try {
-      const bal = await BlockchainService.getBalance(
-        activeChainId,
-        walletAddress,
-      );
-      setBalance(bal);
-    } catch (error) {
-      console.error("Gagal ambil saldo di send screen:", error);
-      setBalance("0.0000");
-    } finally {
-      setIsFetchingBalance(false);
-    }
-  }, [walletAddress, activeChainId]);
+  // State UI Dropdowns
+  const [isNetworkDropdownOpen, setIsNetworkDropdownOpen] = useState(false);
+  const [isAssetDropdownOpen, setIsAssetDropdownOpen] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchBalance();
-    }, [fetchBalance]),
+  // Camera Permission Hook
+  const [permission, requestPermission] = useCameraPermissions();
+  const [isScanning, setIsScanning] = useState(false);
+
+  // State Data & Loading
+  const [isLoadingBalance, setIsLoadingBalance] = useState(true);
+  const [gasPriceWei, setGasPriceWei] = useState<string>("0");
+  const [isSending, setIsSending] = useState(false);
+
+  // Constants
+  const SERVICE_FEE_PERCENT = 0.0001; // 0.01%
+
+  // ─── Fallback: estimasi gas via public RPC (eth_gasPrice JSON-RPC) ──────────
+  // Pakai native fetch (bukan axios) agar tidak kena network proxy restriction.
+  // Coba setiap URL dalam daftar secara berurutan sampai salah satu berhasil.
+  const fetchGasFromPublicRpc = useCallback(
+    async (chainId: string): Promise<string | null> => {
+      const rpcUrls = PUBLIC_RPC_MAP[chainId];
+      if (!rpcUrls?.length) return null;
+
+      const body = JSON.stringify({
+        jsonrpc: "2.0",
+        method: "eth_gasPrice",
+        params: [],
+        id: 1,
+      });
+
+      for (const rpcUrl of rpcUrls) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+
+        try {
+          const response = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+            signal: controller.signal,
+          });
+
+          clearTimeout(timer);
+
+          if (!response.ok) {
+            console.warn(
+              `[GasFallback] ${rpcUrl} HTTP ${response.status}, trying next...`,
+            );
+            continue;
+          }
+
+          const json = await response.json();
+          const hexPrice: string | undefined = json?.result;
+
+          if (hexPrice && hexPrice.startsWith("0x")) {
+            const parsed = parseInt(hexPrice, 16);
+            if (!isNaN(parsed) && parsed > 0) {
+              console.log(`[GasFallback] OK via ${rpcUrl}: ${parsed} wei`);
+              return parsed.toString();
+            }
+          }
+        } catch (err: any) {
+          clearTimeout(timer);
+          const reason =
+            err?.name === "AbortError"
+              ? "timeout"
+              : (err?.message ?? "unknown");
+          console.warn(
+            `[GasFallback] ${rpcUrl} failed (${reason}), trying next...`,
+          );
+        }
+      }
+
+      console.warn(`[GasFallback] All RPC URLs exhausted for ${chainId}`);
+      return null;
+    },
+    [],
   );
 
-  // Validasi Alamat EVM Sederhana
-  const isValidAddress = (addr: string) => /^0x[a-fA-F0-9]{40}$/.test(addr);
+  // 1. Fetch Gas Price: coba 0x API → public RPC → hardcoded fallback
+  const fetchGasPrice = useCallback(async () => {
+    const chainIdMap: Record<string, number> = {
+      "ethereum-mainnet": 1,
+      "blockdag-mainnet": 1404,
+    };
+    const cid = chainIdMap[selectedChain.id];
 
-  const maxAmount = parseFloat(balance);
+    // --- Attempt 1: 0x API ---
+    if (ZEROEX_API_KEY && cid) {
+      try {
+        const response = await axios.get(`https://api.0x.org/swap/v1/price`, {
+          params: {
+            sellToken: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            buyToken: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+            sellAmount: "1000000000000000000",
+            takerAddress:
+              walletAddress || "0x0000000000000000000000000000000000000000",
+          },
+          headers: { "0x-api-key": ZEROEX_API_KEY },
+          timeout: 6000,
+        });
 
+        if (response.data?.gasPrice) {
+          console.log("[Gas] 0x API success:", response.data.gasPrice);
+          setGasPriceWei(response.data.gasPrice);
+          return;
+        }
+      } catch (error) {
+        console.warn("[Gas] 0x API failed, trying public RPC fallback...");
+      }
+    }
+
+    // --- Attempt 2: Public RPC ---
+    const rpcPrice = await fetchGasFromPublicRpc(selectedChain.id);
+    if (rpcPrice) {
+      setGasPriceWei(rpcPrice);
+      return;
+    }
+
+    // --- Attempt 3: Hardcoded fallback ---
+    const fallback = HARDCODED_GAS_FALLBACK[selectedChain.id] ?? "5000000000";
+    console.warn(
+      `[Gas] All methods failed, using hardcoded fallback: ${fallback} wei`,
+    );
+    setGasPriceWei(fallback);
+  }, [selectedChain.id, walletAddress, fetchGasFromPublicRpc]);
+
+  // 2. Fetch Balances & Populate Assets
+  const fetchBalances = useCallback(async () => {
+    if (!walletAddress) return;
+    setIsLoadingBalance(true);
+
+    try {
+      const nativeBal = await BlockchainService.getBalance(
+        selectedChain.id as ChainId,
+        walletAddress,
+      );
+
+      let assets: AssetOption[] = [];
+
+      // Add Native
+      assets.push({
+        symbol: selectedChain.symbol,
+        name: selectedChain.name.split(" ")[0],
+        address: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        decimals: selectedChain.decimals,
+        balance: nativeBal,
+        chainId: selectedChain.id,
+        isNative: true,
+      });
+
+      // Add Tokens
+      if (selectedChain.tokens) {
+        for (const token of selectedChain.tokens) {
+          try {
+            const tokBal = await BlockchainService.getTokenBalance(
+              selectedChain.id as ChainId,
+              walletAddress,
+              token.address,
+              token.decimals,
+            );
+            assets.push({
+              symbol: token.symbol,
+              name: token.name,
+              address: token.address,
+              decimals: token.decimals,
+              balance: tokBal,
+              chainId: selectedChain.id,
+              isNative: false,
+            });
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+
+      setAvailableAssets(assets);
+
+      // Set Default Selected
+      const defaultAsset =
+        assets.find((a) => a.symbol === initialSymbol) || assets[0];
+      setSelectedAsset(defaultAsset);
+    } catch (error) {
+      console.error("Error fetching balances:", error);
+    } finally {
+      setIsLoadingBalance(false);
+    }
+  }, [walletAddress, selectedChain.id, initialSymbol]);
+
+  useEffect(() => {
+    fetchGasPrice();
+    fetchBalances();
+    setIsNetworkDropdownOpen(false);
+    setIsAssetDropdownOpen(false);
+  }, [fetchGasPrice, fetchBalances]);
+
+  // Handlers
   const handleMax = () => {
-    // Kurangi sedikit untuk biaya gas (estimasi kasar)
-    const maxVal = Math.max(0, maxAmount - 0.005);
-    setAmount(maxVal.toFixed(6));
+    if (!selectedAsset) return;
+    let maxVal = parseFloat(selectedAsset.balance);
+
+    if (selectedAsset.isNative) {
+      // Gas selalu 18 decimals (ETH), buffer 10%
+      const gasCostEth =
+        (GAS_LIMIT_NATIVE * parseInt(gasPriceWei)) /
+        Math.pow(10, NATIVE_DECIMALS);
+      maxVal = Math.max(0, maxVal - gasCostEth * 1.1);
+    }
+    setAmount(maxVal.toString());
   };
 
-  const handleSend = useCallback(async () => {
-    if (!isValidAddress(recipient)) {
-      Alert.alert("Error", "Alamat tujuan tidak valid (Format EVM 0x...)");
-      return;
-    }
-    if (!amount || parseFloat(amount) <= 0) {
-      Alert.alert("Error", "Jumlah harus lebih dari 0");
-      return;
-    }
-    if (parseFloat(amount) > maxAmount) {
-      Alert.alert("Error", "Saldo tidak cukup");
-      return;
+  const handleScanPress = async () => {
+    if (!permission) return;
+
+    if (!permission.granted) {
+      const { granted } = await requestPermission();
+      if (!granted) {
+        Alert.alert(
+          "Permission Denied",
+          "We need camera permission to scan QR codes.",
+        );
+        return;
+      }
     }
 
-    setIsLoading(true);
+    setIsScanning(true);
+  };
 
-    // SIMULASI PROSES KIRIM
-    // Di implementasi nyata, di sini panggil BlockchainService.sendTransaction(...)
-    setTimeout(() => {
-      setIsLoading(false);
+  const handleBarCodeScanned = ({ data }: BarcodeScanningResult) => {
+    setIsScanning(false);
+    if (data.startsWith("0x") && data.length === 42) {
+      setRecipientAddress(data);
+      Alert.alert("Success", "Address scanned successfully!");
+    } else {
       Alert.alert(
-        "Transaksi Berhasil!",
-        `Berhasil mengirim ${amount} ${activeChainConfig.symbol} ke:\n${recipient.slice(0, 6)}...${recipient.slice(-4)}`,
-        [
-          {
-            text: "Lihat Riwayat",
-            onPress: () => router.replace("/(tabs)"), // Kembali ke home
-          },
-        ],
+        "Invalid QR",
+        "The scanned code does not appear to be a valid wallet address.",
       );
-    }, 2500);
-  }, [recipient, amount, maxAmount, activeChainConfig, router]);
+    }
+  };
 
-  // Hitung estimasi USD (Dummy rate untuk contoh)
-  const pricePerToken = activeChainConfig.symbol === "ETH" ? 2400 : 0.05; // Harga dummy
-  const usdAmount = amount
-    ? `$${(parseFloat(amount) * pricePerToken).toFixed(2)}`
-    : "$0.00";
+  const handleSend = async () => {
+    if (!selectedAsset || !mnemonic) {
+      Alert.alert("Error", "Wallet not initialized.");
+      return;
+    }
+    if (!recipientAddress) {
+      Alert.alert("Invalid Address", "Please enter a recipient address.");
+      return;
+    }
+    const sendAmount = parseFloat(amount);
+    if (isNaN(sendAmount) || sendAmount <= 0) {
+      Alert.alert("Invalid Amount", "Please enter a valid amount.");
+      return;
+    }
+    if (sendAmount > parseFloat(selectedAsset.balance)) {
+      Alert.alert("Insufficient Balance", "You do not have enough funds.");
+      return;
+    }
+
+    const serviceFee = sendAmount * SERVICE_FEE_PERCENT;
+    // ✅ Gas selalu dalam ETH (NATIVE_DECIMALS = 18), bukan decimals token
+    const txGasLimit = selectedAsset.isNative
+      ? GAS_LIMIT_NATIVE
+      : GAS_LIMIT_TOKEN;
+    const gasCostEth =
+      (txGasLimit * parseInt(gasPriceWei)) / Math.pow(10, NATIVE_DECIMALS);
+
+    let totalRequired = sendAmount;
+    if (selectedAsset.isNative) {
+      // Cek total ETH = amount + serviceFee + gas
+      totalRequired += serviceFee + gasCostEth;
+    }
+
+    if (
+      selectedAsset.isNative &&
+      totalRequired > parseFloat(selectedAsset.balance)
+    ) {
+      Alert.alert(
+        "Insufficient Balance",
+        "Not enough balance to cover amount, fees, and gas.",
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Confirm Transfer",
+      // ✅ Gas ditampilkan dalam nativeSymbol (ETH), bukan token
+      `Send ${sendAmount} ${selectedAsset.symbol}?\n\nTo: ${recipientAddress.slice(0, 6)}...${recipientAddress.slice(-4)}\nService Fee: ${serviceFee.toFixed(6)} ${selectedAsset.symbol}\nEst. Gas: ~${gasCostEth.toFixed(6)} ${nativeSymbol}`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Confirm",
+          onPress: async () => {
+            setIsSending(true);
+            try {
+              // TODO: Implement actual transaction signing
+              setTimeout(() => {
+                Alert.alert("Success", "Transaction submitted!");
+                router.back();
+              }, 2000);
+            } catch (error: any) {
+              Alert.alert("Failed", error.message);
+            } finally {
+              setIsSending(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // Helpers
+  const formatCurrency = (val: string) => parseFloat(val).toFixed(4);
+
+  // ✅ nativeSymbol & estimatedGasEth pakai NATIVE_DECIMALS (18), bukan selectedAsset.decimals
+  const nativeSymbol =
+    availableAssets.find((a) => a.isNative)?.symbol ?? selectedChain.symbol;
+  const gasLimit = selectedAsset?.isNative ? GAS_LIMIT_NATIVE : GAS_LIMIT_TOKEN;
+  const estimatedGasEth =
+    (gasLimit * parseInt(gasPriceWei || "0")) / Math.pow(10, NATIVE_DECIMALS);
+
+  if (isLoadingBalance && !selectedAsset) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: theme.background }]}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1, backgroundColor: theme.background }}
     >
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <ArrowLeft size={24} color={theme.text} />
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+          <ChevronLeft size={28} color={theme.text} strokeWidth={2.5} />
         </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Kirim</Text>
-          <View style={styles.chainBadge}>
-            <Text style={styles.chainBadgeText}>{activeChainConfig.name}</Text>
-          </View>
-        </View>
-        <View style={{ width: 24 }} />
+        <Text style={[styles.headerTitle, { color: theme.text }]}>
+          Send Crypto
+        </Text>
+        <TouchableOpacity onPress={handleScanPress} style={styles.iconBtn}>
+          <ScanLine size={24} color={theme.text} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
+        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        onScrollBeginDrag={() => {
+          setIsAssetDropdownOpen(false);
+          setIsNetworkDropdownOpen(false);
+        }}
       >
-        {/* Saldo Tersedia */}
-        <View style={styles.balanceContainer}>
-          <Text style={[styles.balanceLabel, { color: theme.textSecondary }]}>
-            Saldo Tersedia
+        {/* Disclaimer */}
+        <View style={[styles.alertBox, { backgroundColor: theme.card }]}>
+          <AlertTriangle
+            size={18}
+            color="#F59E0B"
+            style={{ marginRight: 10, marginTop: 2 }}
+          />
+          <Text style={[styles.alertText, { color: theme.textSecondary }]}>
+            Double-check address & network. Transactions cannot be reversed.
           </Text>
-          <View style={styles.balanceRow}>
-            {isFetchingBalance ? (
-              <ActivityIndicator size="small" color={theme.primary} />
-            ) : (
-              <>
-                <Text style={[styles.balanceValue, { color: theme.text }]}>
-                  {balance}
-                </Text>
-                <Text
-                  style={[styles.balanceSymbol, { color: theme.textSecondary }]}
-                >
-                  {activeChainConfig.symbol}
-                </Text>
-              </>
-            )}
-          </View>
         </View>
 
-        {/* Recipient Address */}
-        <View style={styles.section}>
-          <Text style={[styles.label, { color: theme.textSecondary }]}>
-            Alamat Tujuan
+        {/* ── Dropdown Asset ───────────────────────────────────────────────── */}
+        <View
+          style={[
+            styles.dropdownContainer,
+            { zIndex: isAssetDropdownOpen ? 200 : 100 },
+          ]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>
+            Select Asset
           </Text>
-          <View
-            style={[
-              styles.inputWrap,
-              {
-                backgroundColor: theme.card,
-                borderColor:
-                  recipient && !isValidAddress(recipient)
-                    ? "#EF4444"
-                    : theme.border,
-              },
-            ]}
+          <TouchableOpacity
+            style={[styles.selectorRow, { backgroundColor: theme.card }]}
+            onPress={() => {
+              setIsAssetDropdownOpen(!isAssetDropdownOpen);
+              setIsNetworkDropdownOpen(false);
+            }}
+            activeOpacity={0.8}
           >
-            <TextInput
-              style={[styles.input, { color: theme.text }]}
-              placeholder="0x..."
-              placeholderTextColor={theme.textSecondary}
-              value={recipient}
-              onChangeText={setRecipient}
-              autoCapitalize="none"
-              autoCorrect={false}
+            <View style={styles.assetIconWrapper}>
+              {LOCAL_ICON_MAP[selectedAsset?.symbol || ""] ? (
+                <Image
+                  source={LOCAL_ICON_MAP[selectedAsset?.symbol || ""]}
+                  style={styles.assetIcon}
+                />
+              ) : (
+                <View
+                  style={[styles.fallbackIcon, { backgroundColor: "#555" }]}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "bold" }}>
+                    {selectedAsset?.symbol.charAt(0)}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.assetDetails}>
+              <Text style={[styles.assetName, { color: theme.text }]}>
+                {selectedAsset?.name}
+              </Text>
+              <Text
+                style={[styles.assetBalance, { color: theme.textSecondary }]}
+              >
+                Balance: {formatCurrency(selectedAsset?.balance || "0")}{" "}
+                {selectedAsset?.symbol}
+              </Text>
+            </View>
+
+            <ChevronDown
+              size={20}
+              color={theme.textSecondary}
+              style={{
+                transform: [
+                  { rotate: isAssetDropdownOpen ? "180deg" : "0deg" },
+                ],
+              }}
             />
-            <TouchableOpacity
-              onPress={() => router.push("/scan")}
-              style={styles.inputIcon}
+          </TouchableOpacity>
+
+          {isAssetDropdownOpen && (
+            <View
+              style={[styles.dropdownList, { backgroundColor: theme.card }]}
             >
-              <QrCode size={20} color={theme.primary} />
-            </TouchableOpacity>
-          </View>
-          {recipient && !isValidAddress(recipient) && (
-            <Text style={styles.errorText}>Format alamat EVM tidak valid</Text>
+              {availableAssets.map((asset) => (
+                <TouchableOpacity
+                  key={asset.address}
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedAsset(asset);
+                    setIsAssetDropdownOpen(false);
+                    setAmount("");
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    {LOCAL_ICON_MAP[asset.symbol] ? (
+                      <Image
+                        source={LOCAL_ICON_MAP[asset.symbol]}
+                        style={styles.ddAssetIcon}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.ddFallbackIcon,
+                          { backgroundColor: "#555" },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: "#fff",
+                            fontSize: 11,
+                            fontWeight: "bold",
+                          }}
+                        >
+                          {asset.symbol.charAt(0)}
+                        </Text>
+                      </View>
+                    )}
+                    <View>
+                      <Text style={[styles.ddItemTitle, { color: theme.text }]}>
+                        {asset.symbol}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.ddItemSub,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        {parseFloat(asset.balance).toFixed(4)}
+                      </Text>
+                    </View>
+                  </View>
+                  {selectedAsset?.address === asset.address && (
+                    <Check size={16} color={theme.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
           )}
         </View>
 
-        {/* Amount Input */}
-        <View style={styles.section}>
-          <View style={styles.amountHeader}>
-            <Text style={[styles.label, { color: theme.textSecondary }]}>
-              Jumlah
+        {/* ── Recipient Address ─────────────────────────────────────────────── */}
+        <View style={[styles.inputGroup, { zIndex: 50 }]}>
+          <Text style={[styles.label, { color: theme.text }]}>
+            Recipient Address
+          </Text>
+          <TextInput
+            style={[
+              styles.input,
+              { backgroundColor: theme.card, color: theme.text },
+            ]}
+            placeholder="0x..."
+            placeholderTextColor={theme.textSecondary}
+            value={recipientAddress}
+            onChangeText={setRecipientAddress}
+            autoCapitalize="none"
+            spellCheck={false}
+          />
+        </View>
+
+        {/* ── Dropdown Network ──────────────────────────────────────────────── */}
+        <View
+          style={[
+            styles.dropdownContainer,
+            { zIndex: isNetworkDropdownOpen ? 200 : 90 },
+          ]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>Network</Text>
+          <TouchableOpacity
+            style={[styles.networkSelector, { backgroundColor: theme.card }]}
+            onPress={() => {
+              setIsNetworkDropdownOpen(!isNetworkDropdownOpen);
+              setIsAssetDropdownOpen(false);
+            }}
+            activeOpacity={0.8}
+          >
+            {LOCAL_CHAIN_ICON_MAP[selectedChain.id] ? (
+              <Image
+                source={LOCAL_CHAIN_ICON_MAP[selectedChain.id]}
+                style={styles.chainIcon}
+              />
+            ) : (
+              <View
+                style={[
+                  styles.ddFallbackIcon,
+                  { backgroundColor: "#3B82F6", marginRight: 10 },
+                ]}
+              >
+                <Text
+                  style={{ color: "#fff", fontSize: 11, fontWeight: "bold" }}
+                >
+                  {selectedChain.symbol?.charAt(0) ?? "?"}
+                </Text>
+              </View>
+            )}
+
+            <Text style={[styles.networkText, { color: theme.text, flex: 1 }]}>
+              {selectedChain.name}
             </Text>
-            <TouchableOpacity onPress={handleMax} disabled={isFetchingBalance}>
-              <Text style={[styles.maxBtn, { color: theme.primary }]}>MAX</Text>
+
+            <ChevronDown
+              size={16}
+              color={theme.textSecondary}
+              style={{
+                transform: [
+                  { rotate: isNetworkDropdownOpen ? "180deg" : "0deg" },
+                ],
+              }}
+            />
+          </TouchableOpacity>
+
+          {isNetworkDropdownOpen && (
+            <View
+              style={[styles.dropdownList, { backgroundColor: theme.card }]}
+            >
+              {MAINNET_CHAINS.map((chain) => (
+                <TouchableOpacity
+                  key={chain.id}
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedChain(chain);
+                    setIsNetworkDropdownOpen(false);
+                    setRecipientAddress("");
+                    setAmount("");
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    {LOCAL_CHAIN_ICON_MAP[chain.id] ? (
+                      <Image
+                        source={LOCAL_CHAIN_ICON_MAP[chain.id]}
+                        style={styles.ddAssetIcon}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.ddFallbackIcon,
+                          { backgroundColor: "#3B82F6" },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: "#fff",
+                            fontSize: 11,
+                            fontWeight: "bold",
+                          }}
+                        >
+                          {chain.symbol?.charAt(0) ?? "?"}
+                        </Text>
+                      </View>
+                    )}
+                    <Text style={[styles.ddItemTitle, { color: theme.text }]}>
+                      {chain.name}
+                    </Text>
+                  </View>
+                  {selectedChain.id === chain.id && (
+                    <Check size={16} color={theme.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* ── Enter Amount ──────────────────────────────────────────────────── */}
+        <View style={[styles.inputGroup, { zIndex: 50 }]}>
+          <View style={styles.amountHeader}>
+            <Text style={[styles.label, { color: theme.text }]}>
+              Enter Amount
+            </Text>
+            <TouchableOpacity onPress={handleMax}>
+              <Text style={[styles.maxText, { color: theme.primary }]}>
+                MAX
+              </Text>
             </TouchableOpacity>
           </View>
           <View
             style={[
-              styles.inputWrap,
-              { backgroundColor: theme.card, borderColor: theme.border },
+              styles.amountInputContainer,
+              { backgroundColor: theme.card },
             ]}
           >
             <TextInput
               style={[styles.amountInput, { color: theme.text }]}
               placeholder="0.00"
               placeholderTextColor={theme.textSecondary}
+              keyboardType="decimal-pad"
               value={amount}
               onChangeText={setAmount}
-              keyboardType="decimal-pad"
             />
-            <Text style={[styles.amountSymbol, { color: theme.textSecondary }]}>
-              {activeChainConfig.symbol}
+            <Text
+              style={[styles.currencySymbol, { color: theme.textSecondary }]}
+            >
+              {selectedAsset?.symbol}
             </Text>
           </View>
-          <Text style={[styles.usdAmount, { color: theme.textSecondary }]}>
-            ≈ {usdAmount}
-          </Text>
         </View>
 
-        {/* Gas Fee Selection */}
-        <View style={styles.section}>
-          <Text style={[styles.label, { color: theme.textSecondary }]}>
-            Prioritas Gas
-          </Text>
-          <View style={styles.gasOptions}>
-            {GAS_OPTIONS.map((gas, idx) => (
-              <TouchableOpacity
-                key={idx}
-                style={[
-                  styles.gasOption,
-                  {
-                    backgroundColor:
-                      selectedGas === idx ? theme.primary + "15" : theme.card,
-                    borderColor:
-                      selectedGas === idx ? theme.primary : theme.border,
-                  },
-                ]}
-                onPress={() => setSelectedGas(idx)}
-              >
-                <Text
-                  style={[
-                    styles.gasLabel,
-                    { color: selectedGas === idx ? theme.primary : theme.text },
-                  ]}
-                >
-                  {gas.label}
-                </Text>
-                <Text style={[styles.gasTime, { color: theme.textSecondary }]}>
-                  {gas.time}
-                </Text>
-                <Text style={[styles.gasPrice, { color: theme.text }]}>
-                  {gas.usd}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Summary Transaction */}
+        {/* ── Fees Section ──────────────────────────────────────────────────── */}
         <View
           style={[
-            styles.summary,
-            { backgroundColor: theme.card, borderColor: theme.border },
+            styles.feeSection,
+            { backgroundColor: theme.card, zIndex: 50 },
           ]}
         >
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>
-              Jaringan
+          {/* ✅ Network fee selalu dalam native token (ETH/BDAG), bukan token yg dikirim */}
+          <View style={styles.feeRow}>
+            <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
+              Network Fee (Est.)
             </Text>
-            <Text style={[styles.summaryValue, { color: theme.text }]}>
-              {activeChainConfig.name}
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>
-              Pengirim
-            </Text>
-            <Text style={[styles.summaryValue, { color: theme.text }]}>
-              {walletAddress
-                ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
-                : "-"}
+            <Text style={[styles.feeValue, { color: theme.text }]}>
+              ~{estimatedGasEth.toFixed(6)} {nativeSymbol}
             </Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>
-              Estimasi Gas
+          {/* Service fee dalam token yang dikirim */}
+          <View style={styles.feeRow}>
+            <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
+              Service Fee (0.01%)
             </Text>
-            <Text style={[styles.summaryValue, { color: theme.text }]}>
-              {GAS_OPTIONS[selectedGas].usd}
-            </Text>
-          </View>
-          <View style={[styles.summaryRow, styles.totalRow]}>
-            <Text style={[styles.totalLabel, { color: theme.text }]}>
-              Total Dikirim
-            </Text>
-            <Text style={[styles.totalValue, { color: theme.text }]}>
-              {amount ? `${amount} ${activeChainConfig.symbol}` : "-"}
+            <Text style={[styles.feeValue, { color: theme.text }]}>
+              {((parseFloat(amount) || 0) * SERVICE_FEE_PERCENT).toFixed(6)}{" "}
+              {selectedAsset?.symbol}
             </Text>
           </View>
+          {/* Info jika kirim token ERC-20: gas tetap dibayar ETH */}
+          {selectedAsset && !selectedAsset.isNative && (
+            <View
+              style={[
+                styles.feeRow,
+                {
+                  borderTopWidth: 1,
+                  borderTopColor: "rgba(128,128,128,0.15)",
+                  marginTop: 4,
+                  paddingTop: 12,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.feeLabel,
+                  { color: theme.textSecondary, fontStyle: "italic", flex: 1 },
+                ]}
+              >
+                Gas fees are paid in {nativeSymbol}. Ensure your {nativeSymbol}{" "}
+                balance is sufficient.
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View style={[styles.infoRow, { zIndex: 50 }]}>
+          <Info size={14} color={theme.textSecondary} />
+          <Text style={[styles.infoText, { color: theme.textSecondary }]}>
+            Service fee helps maintain wallet infrastructure.
+          </Text>
         </View>
       </ScrollView>
 
-      {/* Send Button */}
-      <View style={[styles.footer, { borderTopColor: theme.border }]}>
+      {/* ── Footer Button ─────────────────────────────────────────────────── */}
+      <View style={styles.footerWrapper}>
         <TouchableOpacity
           style={[
-            styles.sendBtn,
+            styles.sendButton,
             {
-              backgroundColor:
-                isValidAddress(recipient) &&
-                amount &&
-                parseFloat(amount) > 0 &&
-                !isLoading
-                  ? theme.primary
-                  : theme.border,
+              backgroundColor: theme.primary,
+              opacity: isSending || !amount || !recipientAddress ? 0.5 : 1,
             },
           ]}
           onPress={handleSend}
-          disabled={!isValidAddress(recipient) || !amount || isLoading}
+          disabled={isSending || !amount || !recipientAddress}
         >
-          {isLoading ? (
-            <ActivityIndicator color="#fff" />
+          {isSending ? (
+            <ActivityIndicator color="#FFF" />
           ) : (
-            <>
-              <SendHorizonal size={18} color="#fff" />
-              <Text style={styles.sendBtnText}>Konfirmasi Kirim</Text>
-            </>
+            <Text style={styles.sendButtonText}>Review Transfer</Text>
           )}
         </TouchableOpacity>
       </View>
+
+      {/* ── Camera Scanner Overlay ────────────────────────────────────────── */}
+      {isScanning && permission?.granted && (
+        <View style={styles.cameraOverlay}>
+          <CameraView
+            style={StyleSheet.absoluteFillObject}
+            facing="back"
+            onBarcodeScanned={handleBarCodeScanned}
+          />
+          <View style={styles.cameraControls}>
+            <TouchableOpacity
+              style={styles.closeCameraBtn}
+              onPress={() => setIsScanning(false)}
+            >
+              <X size={24} color="#FFF" />
+            </TouchableOpacity>
+            <View style={styles.scanFrame} />
+            <Text style={styles.scanInstruction}>
+              Align QR Code within frame
+            </Text>
+          </View>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === "ios" ? 56 : 40,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
+    paddingTop: 60,
+    paddingBottom: 20,
   },
-  backBtn: {
-    padding: 4,
-  },
-  headerCenter: {
-    alignItems: "center",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  chainBadge: {
-    marginTop: 4,
-    backgroundColor: "rgba(128,128,128,0.1)",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  chainBadgeText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#888",
-  },
-  scrollContent: {
-    padding: 20,
-    gap: 24,
-  },
-  balanceContainer: {
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  balanceLabel: {
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  balanceRow: {
+  headerTitle: { fontSize: 15, fontWeight: "700" },
+  iconBtn: { padding: 8 },
+  content: { padding: 20, paddingBottom: 40 },
+
+  alertBox: {
     flexDirection: "row",
-    alignItems: "baseline",
-    gap: 6,
-  },
-  balanceValue: {
-    fontSize: 32,
-    fontWeight: "800",
-  },
-  balanceSymbol: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  section: {
-    gap: 8,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  inputWrap: {
-    flexDirection: "row",
-    alignItems: "center",
+    padding: 12,
     borderRadius: 12,
+    marginBottom: 20,
     borderWidth: 1,
-    paddingHorizontal: 16,
-    height: 52,
+    borderColor: "rgba(245, 158, 11, 0.3)",
   },
-  input: {
-    flex: 1,
-    fontSize: 15,
-    height: "100%",
+  alertText: { fontSize: 13, lineHeight: 18, flex: 1 },
+
+  dropdownContainer: {
+    marginBottom: 20,
   },
-  inputIcon: {
-    padding: 4,
+  selectorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  errorText: {
-    color: "#EF4444",
-    fontSize: 12,
+  assetIconWrapper: { marginRight: 12 },
+  assetIcon: { width: 40, height: 40, borderRadius: 20 },
+  fallbackIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  assetDetails: { flex: 1 },
+  assetName: { fontSize: 16, fontWeight: "700" },
+  assetBalance: { fontSize: 13, marginTop: 2 },
+
+  ddAssetIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginRight: 10,
+  },
+  ddFallbackIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginRight: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  dropdownList: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    borderRadius: 12,
     marginTop: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 20,
+    zIndex: 9999,
+    overflow: "hidden",
   },
+  dropdownItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(128,128,128,0.1)",
+  },
+  ddItemTitle: { fontSize: 15, fontWeight: "600" },
+  ddItemSub: { fontSize: 12 },
+
+  networkSelector: {
+    height: 52,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  chainIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginRight: 10,
+  },
+  networkText: { fontSize: 16 },
+
+  inputGroup: { marginBottom: 20 },
+  label: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
+  input: { height: 50, borderRadius: 12, paddingHorizontal: 16, fontSize: 16 },
+
   amountHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginBottom: 8,
   },
-  maxBtn: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  amountInput: {
-    flex: 1,
-    fontSize: 24,
-    fontWeight: "700",
-    height: "100%",
-  },
-  amountSymbol: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  usdAmount: {
-    fontSize: 14,
-    marginTop: 4,
-  },
-  gasOptions: {
+  maxText: { fontSize: 13, fontWeight: "700" },
+  amountInputContainer: {
     flexDirection: "row",
-    gap: 10,
-  },
-  gasOption: {
-    flex: 1,
     alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 8,
     borderRadius: 12,
-    borderWidth: 1,
-    gap: 4,
+    paddingHorizontal: 16,
+    height: 60,
   },
-  gasLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  gasTime: {
-    fontSize: 11,
-  },
-  gasPrice: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginTop: 2,
-  },
-  summary: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    gap: 12,
-  },
-  summaryRow: {
+  amountInput: { flex: 1, fontSize: 20, fontWeight: "600" },
+  currencySymbol: { fontSize: 15, fontWeight: "600" },
+
+  feeSection: { borderRadius: 16, padding: 16, marginBottom: 16 },
+  feeRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    paddingVertical: 8,
   },
-  summaryLabel: {
-    fontSize: 14,
-  },
-  summaryValue: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  totalRow: {
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(128,128,128,0.2)",
-  },
-  totalLabel: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  totalValue: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  footer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-  },
-  sendBtn: {
+  feeLabel: { fontSize: 12 },
+  feeValue: { fontSize: 12, fontWeight: "600" },
+
+  infoRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 16,
-    borderRadius: 16,
+    gap: 6,
+    marginBottom: 20,
   },
-  sendBtnText: {
-    color: "#fff",
+  infoText: { fontSize: 11, flex: 1 },
+
+  footerWrapper: { padding: 20, paddingTop: 10 },
+  sendButton: {
+    height: 56,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+    marginTop: 10,
+  },
+  sendButtonText: { color: "#FFF", fontSize: 18, fontWeight: "700" },
+
+  cameraOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "black",
+    zIndex: 9999,
+  },
+  cameraControls: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  closeCameraBtn: {
+    position: "absolute",
+    top: 60,
+    right: 20,
+    padding: 10,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 20,
+  },
+  scanFrame: {
+    width: 250,
+    height: 250,
+    borderWidth: 2,
+    borderColor: "#FFF",
+    borderRadius: 20,
+  },
+  scanInstruction: {
+    color: "#FFF",
+    marginTop: 20,
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "600",
   },
 });

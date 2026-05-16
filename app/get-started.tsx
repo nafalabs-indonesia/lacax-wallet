@@ -47,7 +47,7 @@ export default function GetStartedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#303030",
+    backgroundColor: "#101010",
     alignItems: "center",
     justifyContent: "space-between", // Menyebar elemen vertikal
     paddingVertical: 50, // Sedikit dikurangi agar tidak terlalu mepet tepi
