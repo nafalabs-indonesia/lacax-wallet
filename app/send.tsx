@@ -451,7 +451,7 @@ export default function SendScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-          <ChevronLeft size={28} color={theme.text} strokeWidth={2.5} />
+          <ChevronLeft size={24} color={theme.text} strokeWidth={2.5} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.text }]}>
           Send Crypto
@@ -869,10 +869,10 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: Platform.OS === "ios" ? 60 : 50,
     paddingBottom: 20,
   },
   headerTitle: { fontSize: 15, fontWeight: "700" },

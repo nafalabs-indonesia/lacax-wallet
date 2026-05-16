@@ -9,8 +9,12 @@ interface AppState {
 
   walletAddress: string | null;
   isUnlocked: boolean;
-  mnemonic: string | null; // Hanya digunakan sementara saat create/unlock, tidak disimpan persisten sebagai plain text
-  isStorageLoaded: boolean; // Flag bahwa SecureStore sudah selesai dibaca
+  mnemonic: string | null;
+  isStorageLoaded: boolean;
+
+  // ✅ TAMBAHKAN INI
+  activeChainId: string;
+  setActiveChainId: (id: string) => void;
 
   setWalletAddress: (address: string | null) => void;
   setUnlocked: (value: boolean) => void;
@@ -29,16 +33,16 @@ export const useAppStore = create<AppState>((set) => ({
   mnemonic: null,
   isStorageLoaded: false,
 
+  // ✅ DEFAULT VALUE: Ethereum Mainnet
+  activeChainId: "ethereum-mainnet",
+  setActiveChainId: (id) => set({ activeChainId: id }),
+
   setWalletAddress: (address) => set({ walletAddress: address }),
   setUnlocked: (value) => set({ isUnlocked: value }),
   setMnemonic: (mnemonic) => set({ mnemonic }),
 
-  // ✅ FIX: Load wallet dari SecureStore saat app dibuka
-  // Karena sekarang kita pakai enkripsi password, kita TIDAK load mnemonic mentah di sini.
-  // Kita hanya load alamat publik untuk identifikasi cepat.
   loadWalletFromStorage: async () => {
     try {
-      // Cek apakah wallet terenkripsi ada menggunakan key baru
       const encryptedWallet = await SecureStore.getItemAsync(
         "laca_encrypted_wallet_v1",
       );
@@ -49,7 +53,7 @@ export const useAppStore = create<AppState>((set) => ({
       if (savedAddress) {
         set({
           walletAddress: savedAddress,
-          mnemonic: null, // PENTING: Jangan load mnemonic mentah demi keamanan
+          mnemonic: null,
           isStorageLoaded: true,
         });
       } else {
@@ -61,10 +65,8 @@ export const useAppStore = create<AppState>((set) => ({
     }
   },
 
-  // ✅ FIX: Reset wallet menggunakan method wipe dari Repository
   resetWallet: async () => {
     try {
-      // Gunakan method wipe dari Repository agar konsisten dan menghapus semua key (lama & baru)
       await WalletRepository.wipeWallet();
     } catch (e) {
       console.error("Gagal reset wallet dari storage", e);
@@ -74,6 +76,7 @@ export const useAppStore = create<AppState>((set) => ({
       mnemonic: null,
       isUnlocked: false,
       isStorageLoaded: true,
+      activeChainId: "ethereum-mainnet", // Reset ke default
     });
   },
 }));

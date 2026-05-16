@@ -2,10 +2,10 @@
 import { router, useLocalSearchParams } from "expo-router";
 import {
   AlertTriangle,
+  ArrowDownLeft,
   ArrowLeft,
-  BarChart3,
-  Globe,
-  Info,
+  ArrowUpRight,
+  Repeat2,
   TrendingDown,
   TrendingUp,
 } from "lucide-react-native";
@@ -22,7 +22,7 @@ import {
   View,
 } from "react-native";
 import * as Svg from "react-native-svg";
-
+import { G } from "react-native-svg";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
@@ -30,13 +30,11 @@ import { Colors } from "../theme/colors";
 // Constants & Helpers
 // ─────────────────────────────────────────────
 const { width } = Dimensions.get("window");
+const CHART_HEIGHT = 250;
+const CANDLE_WIDTH = 6;
+const CANDLE_GAP = 4;
 
 // Mapping Icon Lokal
-// Pastikan file ini ada di folder assets Anda:
-// - assets/chains/eth.png
-// - assets/chains/bdag.png
-// - assets/coins/usdt.png
-// - assets/coins/usdc.png
 const LOCAL_ICON_MAP: Record<string, any> = {
   ethereum: require("../assets/chains/eth.png"),
   blockdag: require("../assets/chains/bdag.png"),
@@ -44,10 +42,9 @@ const LOCAL_ICON_MAP: Record<string, any> = {
   usdc: require("../assets/coins/usdc.png"),
 };
 
-// Mapping dari coinId internal ke CoinGecko ID
 const COINGECKO_ID_MAP: Record<string, string> = {
   ethereum: "ethereum",
-  blockdag: "blockdag", // Mock/Fallback likely needed
+  blockdag: "blockdag",
   usdt: "tether",
   usdc: "usd-coin",
 };
@@ -68,75 +65,118 @@ interface CoinData {
   isMockData?: boolean;
 }
 
+type TabType = "chart" | "info" | "market";
+
 // ─────────────────────────────────────────────
 // Components
 // ─────────────────────────────────────────────
 
-// 1. Simple SVG Sparkline Chart
-function SparklineChart({ data, color }: { data: number[]; color: string }) {
-  if (!data || data.length === 0) return null;
+// 1. Candlestick Chart Component
+function CandleChart({ data, color }: { data: number[]; color: string }) {
+  if (!data || data.length < 2) return null;
 
-  const height = 120;
-  const graphWidth = width - 72; // Padding horizontal (16*2 + 20*2)
+  // Simulasi data OHLC dari data harga linear (karena CoinGecko free tier hanya kasih 'prices')
+  // Dalam produksi nyata, gunakan endpoint 'ohlc' jika tersedia atau library charting khusus
+  const candles = [];
+  for (let i = 0; i < data.length - 1; i++) {
+    const open = data[i];
+    const close = data[i + 1];
+    const high = Math.max(open, close) * 1.002; // Simulasi high sedikit lebih tinggi
+    const low = Math.min(open, close) * 0.998; // Simulasi low sedikit lebih rendah
+    candles.push({ open, close, high, low });
+  }
 
-  const min = Math.min(...data);
-  const max = Math.max(...data);
+  const allValues = candles.flatMap((c) => [c.high, c.low]);
+  const min = Math.min(...allValues);
+  const max = Math.max(...allValues);
   const range = max - min || 1;
 
-  // Normalize data to fit SVG viewbox
-  const points = data
-    .map((val, index) => {
-      const x = (index / (data.length - 1)) * graphWidth;
-      const y = height - ((val - min) / range) * height;
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const chartWidth = width - 40; // Padding horizontal container
+  const totalCandleWidth = CANDLE_WIDTH + CANDLE_GAP;
+  const numCandles = Math.floor(chartWidth / totalCandleWidth);
 
-  // Create area fill path
-  const fillPath = `M0,${height} L${points.replace(/ /g, " L")} L${graphWidth},${height} Z`;
+  // Ambil subset data terakhir agar pas di layar
+  const visibleCandles = candles.slice(-numCandles);
 
   return (
-    <Svg.Svg width={graphWidth} height={height} style={{ marginTop: 10 }}>
-      {/* Gradient Defs */}
-      <Svg.Defs>
-        <Svg.LinearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
-          <Svg.Stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <Svg.Stop offset="100%" stopColor={color} stopOpacity="0" />
-        </Svg.LinearGradient>
-      </Svg.Defs>
+    <Svg.Svg width={chartWidth} height={CHART_HEIGHT}>
+      {/* Grid Lines (Optional) */}
+      {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
+        <Svg.Line
+          key={i}
+          x1="0"
+          y1={CHART_HEIGHT * ratio}
+          x2={chartWidth}
+          y2={CHART_HEIGHT * ratio}
+          stroke="rgba(128,128,128,0.1)"
+          strokeWidth="1"
+        />
+      ))}
 
-      {/* Area Fill */}
-      <Svg.Path d={fillPath} fill="url(#grad)" stroke="none" />
+      {visibleCandles.map((candle, index) => {
+        const x = index * totalCandleWidth + CANDLE_GAP / 2;
 
-      {/* Line Stroke */}
-      <Svg.Polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+        // Normalize Y coordinates (SVG Y starts from top)
+        const yHigh =
+          CHART_HEIGHT - ((candle.high - min) / range) * CHART_HEIGHT;
+        const yLow = CHART_HEIGHT - ((candle.low - min) / range) * CHART_HEIGHT;
+        const yOpen =
+          CHART_HEIGHT - ((candle.open - min) / range) * CHART_HEIGHT;
+        const yClose =
+          CHART_HEIGHT - ((candle.close - min) / range) * CHART_HEIGHT;
+
+        const isGreen = candle.close >= candle.open;
+        const candleColor = isGreen ? "#22C55E" : "#EF4444";
+
+        return (
+          <G key={index}>
+            {/* Wick (Garis High-Low) */}
+            <Svg.Line
+              x1={x + CANDLE_WIDTH / 2}
+              y1={yHigh}
+              x2={x + CANDLE_WIDTH / 2}
+              y2={yLow}
+              stroke={candleColor}
+              strokeWidth="1.5"
+            />
+            {/* Body (Kotak Open-Close) */}
+            <Svg.Rect
+              x={x}
+              y={Math.min(yOpen, yClose)}
+              width={CANDLE_WIDTH}
+              height={Math.abs(yClose - yOpen) || 1} // Min height 1px
+              fill={candleColor}
+              rx="1"
+            />
+          </G>
+        );
+      })}
     </Svg.Svg>
   );
 }
 
-// 2. Stat Card Component
-function StatCard({ label, value, subValue, icon: Icon, theme }: any) {
+// 2. Action Button Component
+function ActionButton({ icon: Icon, label, onPress, theme }: any) {
   return (
-    <View style={[styles.statCard, { backgroundColor: theme.card }]}>
-      <View style={styles.statHeader}>
-        <Icon size={16} color={theme.textSecondary} />
-        <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
-          {label}
-        </Text>
+    <TouchableOpacity style={styles.actionBtn} onPress={onPress}>
+      <View
+        style={[styles.actionIconBg, { backgroundColor: theme.primary + "20" }]}
+      >
+        <Icon size={20} color={theme.primary} />
       </View>
+      <Text style={[styles.actionLabel, { color: theme.text }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+// 3. Stat Row Component
+function StatRow({ label, value, theme }: any) {
+  return (
+    <View style={styles.statRow}>
+      <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
+        {label}
+      </Text>
       <Text style={[styles.statValue, { color: theme.text }]}>{value}</Text>
-      {subValue && (
-        <Text style={[styles.statSub, { color: theme.textSecondary }]}>
-          {subValue}
-        </Text>
-      )}
     </View>
   );
 }
@@ -146,7 +186,7 @@ function StatCard({ label, value, subValue, icon: Icon, theme }: any) {
 // ─────────────────────────────────────────────
 export default function CoinDetailScreen() {
   const { coinId } = useLocalSearchParams();
-  const { isDarkMode } = useAppStore();
+  const { isDarkMode, activeChainId } = useAppStore(); // Gunakan activeChainId untuk navigasi send/receive
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
   const [loading, setLoading] = useState(true);
@@ -154,22 +194,21 @@ export default function CoinDetailScreen() {
   const [coinData, setCoinData] = useState<CoinData | null>(null);
   const [chartData, setChartData] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabType>("chart");
 
   const id = typeof coinId === "string" ? coinId : "ethereum";
   const geckoId = COINGECKO_ID_MAP[id] || id;
 
   const change24h = coinData?.price_change_percentage_24h ?? 0;
   const isPositive = change24h >= 0;
-  const chartColor = isPositive ? "#22C55E" : "#EF4444";
 
-  // Generate mock chart data untuk fallback
+  // Generate mock chart data
   const generateMockChartData = useCallback(
     (basePrice: number) => {
       const data: number[] = [];
       let current = basePrice;
-      for (let i = 0; i < 50; i++) {
-        // Stablecoins punya volatilitas sangat rendah
-        const volatility = id === "usdt" || id === "usdc" ? 0.001 : 0.05;
+      for (let i = 0; i < 100; i++) {
+        const volatility = id.includes("usd") ? 0.0005 : 0.02;
         const change = (Math.random() - 0.5) * (basePrice * volatility);
         current += change;
         data.push(Math.max(current, basePrice * 0.5));
@@ -179,7 +218,6 @@ export default function CoinDetailScreen() {
     [id],
   );
 
-  // Generate mock coin data untuk BlockDAG atau coin yang tidak ada di CoinGecko
   const generateMockCoinData = useCallback((): CoinData => {
     let basePrice = 100;
     let symbol = "UNK";
@@ -200,19 +238,19 @@ export default function CoinDetailScreen() {
     }
 
     return {
-      id: id,
-      symbol: symbol,
-      name: name,
-      image: "", // Kosong agar trigger fallback icon
+      id,
+      symbol,
+      name,
+      image: "",
       current_price: basePrice,
-      market_cap: basePrice * 1000000000,
+      market_cap: basePrice * 1e9,
       market_cap_rank: 999,
-      total_volume: basePrice * 50000000,
+      total_volume: basePrice * 5e7,
       high_24h: basePrice * 1.01,
       low_24h: basePrice * 0.99,
       price_change_percentage_24h:
         (Math.random() - 0.5) * (id.includes("usd") ? 0.1 : 5),
-      description: `Data simulasi untuk ${name}. Coin ini mungkin belum tersedia atau sedang dalam mode demo.`,
+      description: `Simulated data for ${name}.`,
       isMockData: true,
     };
   }, [id]);
@@ -220,59 +258,36 @@ export default function CoinDetailScreen() {
   const fetchCoinData = useCallback(async () => {
     try {
       setError(null);
-
-      // 1. Fetch Current Data dari CoinGecko
       const res = await fetch(
         `https://api.coingecko.com/api/v3/coins/${geckoId}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false`,
-        {
-          headers: {
-            Accept: "application/json",
-          },
-        },
       );
 
-      // Jika coin tidak ditemukan di CoinGecko (404), gunakan mock data
       if (res.status === 404) {
-        console.warn(
-          `Coin ${geckoId} tidak ditemukan di CoinGecko, menggunakan mock data`,
-        );
         const mockData = generateMockCoinData();
         setCoinData(mockData);
         setChartData(generateMockChartData(mockData.current_price));
         return;
       }
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
-      // 2. Fetch Chart Data (7 hari)
+      // Fetch OHLC or Prices for Chart
       const chartRes = await fetch(
         `https://api.coingecko.com/api/v3/coins/${geckoId}/market_chart?vs_currency=usd&days=7`,
-        {
-          headers: {
-            Accept: "application/json",
-          },
-        },
       );
 
       let sampledPrices: number[] = [];
-
       if (chartRes.ok) {
         const chartJson = await chartRes.json();
-        const prices = chartJson.prices.map((p: any[]) => p[1]);
-        // Sample setiap 6th point untuk density yang pas (7 hari = ~168 data points)
-        sampledPrices = prices.filter((_: any, i: number) => i % 6 === 0);
+        sampledPrices = chartJson.prices.map((p: any[]) => p[1]);
       } else {
-        // Fallback chart data
         sampledPrices = generateMockChartData(
           data.market_data?.current_price?.usd || 100,
         );
       }
 
-      const formattedData: CoinData = {
+      setCoinData({
         id: data.id,
         symbol: data.symbol?.toUpperCase() || id.toUpperCase(),
         name: data.name || id,
@@ -287,19 +302,15 @@ export default function CoinDetailScreen() {
           data.market_data?.price_change_percentage_24h ?? 0,
         description: data.description?.en
           ? data.description.en.split(". ").slice(0, 3).join(". ") + "."
-          : `Tidak ada deskripsi tersedia untuk ${data.name || id}.`,
-      };
-
-      setCoinData(formattedData);
+          : "No description.",
+      });
       setChartData(sampledPrices);
-    } catch (error) {
-      console.error("Error fetching coin detail:", error);
-      setError("Gagal memuat data. Silakan coba lagi.");
-
-      // Fallback ke mock data jika error
-      const mockData = generateMockCoinData();
-      setCoinData(mockData);
-      setChartData(generateMockChartData(mockData.current_price));
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load data.");
+      const mock = generateMockCoinData();
+      setCoinData(mock);
+      setChartData(generateMockChartData(mock.current_price));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -315,47 +326,28 @@ export default function CoinDetailScreen() {
     fetchCoinData();
   };
 
-  const formatCurrency = (val: number) => {
-    if (!val && val !== 0) return "$0.00";
-    return new Intl.NumberFormat("en-US", {
+  const formatCurrency = (val: number) =>
+    new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
       maximumFractionDigits: val < 1 ? 6 : 2,
     }).format(val);
-  };
 
-  const formatCompactNumber = (number: number) => {
-    if (!number && number !== 0) return "0";
-    return Intl.NumberFormat("en-US", {
+  const formatCompact = (num: number) =>
+    Intl.NumberFormat("en-US", {
       notation: "compact",
       maximumFractionDigits: 1,
-    }).format(number);
-  };
+    }).format(num);
 
   if (loading && !refreshing) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.primary} />
-        <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
-          Memuat data market...
-        </Text>
       </View>
     );
   }
 
-  if (!coinData) {
-    return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <Text style={{ color: theme.text }}>Data tidak ditemukan</Text>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={{ marginTop: 20 }}
-        >
-          <Text style={{ color: theme.primary }}>Kembali</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  if (!coinData) return null;
 
   const localIconSource = LOCAL_ICON_MAP[id];
 
@@ -367,7 +359,7 @@ export default function CoinDetailScreen() {
           <ArrowLeft size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.text }]}>
-          Detail Aset
+          Asset Detail
         </Text>
         <View style={{ width: 40 }} />
       </View>
@@ -379,60 +371,12 @@ export default function CoinDetailScreen() {
             refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor={theme.primary}
-            colors={[theme.primary]}
           />
         }
       >
-        {/* Warning Banner untuk Mock Data */}
-        {coinData.isMockData && (
-          <View
-            style={[
-              styles.warningBanner,
-              { backgroundColor: isDarkMode ? "#451a03" : "#fef3c7" },
-            ]}
-          >
-            <AlertTriangle
-              size={16}
-              color={isDarkMode ? "#fbbf24" : "#d97706"}
-            />
-            <Text
-              style={[
-                styles.warningText,
-                { color: isDarkMode ? "#fbbf24" : "#92400e" },
-              ]}
-            >
-              Data simulasi - Coin belum terdaftar di CoinGecko
-            </Text>
-          </View>
-        )}
-
-        {/* Error Banner */}
-        {error && !coinData.isMockData && (
-          <View
-            style={[
-              styles.warningBanner,
-              { backgroundColor: isDarkMode ? "#450a0a" : "#fee2e2" },
-            ]}
-          >
-            <AlertTriangle
-              size={16}
-              color={isDarkMode ? "#f87171" : "#dc2626"}
-            />
-            <Text
-              style={[
-                styles.warningText,
-                { color: isDarkMode ? "#f87171" : "#991b1b" },
-              ]}
-            >
-              {error}
-            </Text>
-          </View>
-        )}
-
         {/* Top Section: Icon, Name, Price */}
         <View style={styles.topSection}>
           <View style={styles.coinHeader}>
-            {/* ✅ FIX: Logic Render Image yang Aman */}
             {localIconSource ? (
               <Image source={localIconSource} style={styles.coinIcon} />
             ) : coinData.image ? (
@@ -443,7 +387,6 @@ export default function CoinDetailScreen() {
                 style={styles.coinIcon}
               />
             )}
-
             <View style={styles.coinInfo}>
               <Text style={[styles.coinName, { color: theme.text }]}>
                 {coinData.name}
@@ -475,95 +418,188 @@ export default function CoinDetailScreen() {
                   { color: isPositive ? "#22C55E" : "#EF4444" },
                 ]}
               >
-                {Math.abs(change24h).toFixed(2)}% (24h)
+                {Math.abs(change24h).toFixed(2)}%
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Chart Section */}
-        <View style={[styles.chartContainer, { backgroundColor: theme.card }]}>
-          <View style={styles.chartHeader}>
-            <Text style={[styles.chartTitle, { color: theme.text }]}>
-              Grafik Harga (7 Hari)
-            </Text>
-            <BarChart3 size={20} color={theme.primary} />
-          </View>
-          <SparklineChart data={chartData} color={chartColor} />
-          <View style={styles.chartFooter}>
-            <Text
-              style={[styles.chartFooterText, { color: theme.textSecondary }]}
-            >
-              {chartData.length > 0
-                ? `${chartData.length} data points`
-                : "No data"}
-            </Text>
-          </View>
-        </View>
-
-        {/* Market Stats Grid */}
-        <View style={styles.statsGrid}>
-          <StatCard
+        {/* ✅ Action Buttons: Send, Receive, Swap */}
+        <View style={styles.actionsContainer}>
+          <ActionButton
+            icon={ArrowUpRight}
+            label="Send"
             theme={theme}
-            icon={Globe}
-            label="Kapitalisasi Pasar"
-            value={`$${formatCompactNumber(coinData.market_cap)}`}
-            subValue={
-              coinData.market_cap_rank
-                ? `Rank #${coinData.market_cap_rank}`
-                : "Unranked"
+            onPress={() =>
+              router.push({
+                pathname: "/send",
+                params: { chainId: activeChainId, symbol: coinData.symbol },
+              })
             }
           />
-          <StatCard
+          <ActionButton
+            icon={ArrowDownLeft}
+            label="Receive"
             theme={theme}
-            icon={BarChart3}
-            label="Volume (24h)"
-            value={`$${formatCompactNumber(coinData.total_volume)}`}
+            onPress={() => router.push("/receive")}
           />
-          <StatCard
+          <ActionButton
+            icon={Repeat2}
+            label="Swap"
             theme={theme}
-            icon={TrendingUp}
-            label="Tertinggi (24h)"
-            value={formatCurrency(coinData.high_24h)}
-          />
-          <StatCard
-            theme={theme}
-            icon={TrendingDown}
-            label="Terendah (24h)"
-            value={formatCurrency(coinData.low_24h)}
+            onPress={() =>
+              router.push({
+                pathname: "/swap",
+                params: { chainId: activeChainId, symbol: coinData.symbol },
+              })
+            }
           />
         </View>
 
-        {/* About Section */}
-        <View style={[styles.aboutCard, { backgroundColor: theme.card }]}>
-          <View style={styles.aboutHeader}>
-            <Info size={20} color={theme.primary} />
-            <Text style={[styles.aboutTitle, { color: theme.text }]}>
-              Tentang {coinData.name}
+        {/* ✅ Tabs: Chart, Info, Market */}
+        <View style={styles.tabContainer}>
+          {(["chart", "info", "market"] as TabType[]).map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              style={[
+                styles.tabButton,
+                activeTab === tab && styles.tabButtonActive,
+              ]}
+              onPress={() => setActiveTab(tab)}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  activeTab === tab
+                    ? styles.tabTextActive
+                    : { color: theme.textSecondary },
+                ]}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* ✅ Tab Content */}
+        <View style={[styles.tabContent, { backgroundColor: theme.card }]}>
+          {/* TAB: CHART */}
+          {activeTab === "chart" && (
+            <View style={styles.chartWrapper}>
+              <CandleChart data={chartData} color={theme.primary} />
+              <View style={styles.chartLegend}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
+                  <View
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: "#22C55E",
+                    }}
+                  />
+                  <Text style={{ fontSize: 12, color: theme.textSecondary }}>
+                    Bullish
+                  </Text>
+                </View>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
+                  <View
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: "#EF4444",
+                    }}
+                  />
+                  <Text style={{ fontSize: 12, color: theme.textSecondary }}>
+                    Bearish
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* TAB: INFO */}
+          {activeTab === "info" && (
+            <View style={styles.infoWrapper}>
+              <Text style={[styles.aboutTitle, { color: theme.text }]}>
+                About {coinData.name}
+              </Text>
+              <Text style={[styles.aboutText, { color: theme.textSecondary }]}>
+                {coinData.description || "No description available."}
+              </Text>
+              <View style={{ height: 20 }} />
+              <StatRow
+                label="Official Site"
+                value="Check Explorer"
+                theme={theme}
+              />
+              <StatRow
+                label="Blockchain"
+                value={id.includes("eth") ? "Ethereum" : "BlockDAG"}
+                theme={theme}
+              />
+            </View>
+          )}
+
+          {/* TAB: MARKET CAP */}
+          {activeTab === "market" && (
+            <View style={styles.marketWrapper}>
+              <StatRow
+                label="Market Cap"
+                value={`$${formatCompact(coinData.market_cap)}`}
+                theme={theme}
+              />
+              <StatRow
+                label="Market Cap Rank"
+                value={`#${coinData.market_cap_rank}`}
+                theme={theme}
+              />
+              <StatRow
+                label="Total Volume (24h)"
+                value={`$${formatCompact(coinData.total_volume)}`}
+                theme={theme}
+              />
+              <StatRow
+                label="High 24h"
+                value={formatCurrency(coinData.high_24h)}
+                theme={theme}
+              />
+              <StatRow
+                label="Low 24h"
+                value={formatCurrency(coinData.low_24h)}
+                theme={theme}
+              />
+              <StatRow label="Circulating Supply" value="N/A" theme={theme} />
+            </View>
+          )}
+        </View>
+
+        {/* Warning Banner */}
+        {coinData.isMockData && (
+          <View
+            style={[
+              styles.warningBanner,
+              { backgroundColor: "#F59E0B15", borderColor: "#F59E0B30" },
+            ]}
+          >
+            <AlertTriangle size={16} color="#F59E0B" />
+            <Text style={[styles.warningText, { color: "#F59E0B" }]}>
+              Simulated Data: This asset is not fully supported on CoinGecko
+              yet.
             </Text>
           </View>
-          <Text style={[styles.aboutText, { color: theme.textSecondary }]}>
-            {coinData.description || "Tidak ada deskripsi tersedia."}
-          </Text>
-        </View>
-
-        <View style={{ height: 40 }} />
+        )}
       </ScrollView>
     </View>
   );
 }
 
-// ─────────────────────────────────────────────
 const styles = StyleSheet.create({
-  centered: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-  },
+  centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -571,70 +607,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 20,
-    backgroundColor: "transparent",
   },
-  backBtn: {
-    padding: 8,
-    borderRadius: 20,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  scrollContent: {
-    padding: 20,
-    paddingTop: 10,
-  },
-  warningBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  warningText: {
-    fontSize: 13,
-    fontWeight: "500",
-    flex: 1,
-  },
-  topSection: {
-    marginBottom: 24,
-  },
-  coinHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
+  backBtn: { padding: 8 },
+  headerTitle: { fontSize: 18, fontWeight: "700" },
+  scrollContent: { padding: 20, paddingTop: 10 },
+
+  topSection: { marginBottom: 24 },
+  coinHeader: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
   coinIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 12,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    marginRight: 16,
     backgroundColor: "#fff",
   },
-  coinInfo: {
-    justifyContent: "center",
-  },
-  coinName: {
-    fontSize: 24,
-    fontWeight: "700",
-  },
+  coinInfo: { justifyContent: "center" },
+  coinName: { fontSize: 24, fontWeight: "700" },
   coinSymbol: {
     fontSize: 16,
     fontWeight: "500",
     textTransform: "uppercase",
+    color: "#888",
   },
+
   priceContainer: {
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
   },
-  priceText: {
-    fontSize: 32,
-    fontWeight: "700",
-  },
+  priceText: { fontSize: 36, fontWeight: "700" },
   changeBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -643,88 +644,107 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
   },
-  changeText: {
-    fontSize: 14,
+  changeText: { fontSize: 14, fontWeight: "600" },
+
+  // Actions
+  actionsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: 24,
+    paddingVertical: 10,
+  },
+  actionBtn: {
+    alignItems: "center",
+    gap: 8,
+  },
+  actionIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionLabel: {
+    fontSize: 13,
     fontWeight: "600",
   },
-  chartContainer: {
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
+
+  // Tabs
+  tabContainer: {
+    flexDirection: "row",
+    marginBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(128,128,128,0.2)",
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  tabButtonActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: "#5573ef", // Primary Color
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  tabTextActive: {
+    color: "#5573ef",
+  },
+
+  // Tab Content Container
+  tabContent: {
+    borderRadius: 20,
+    padding: 20,
+    minHeight: 300,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
   },
-  chartHeader: {
+
+  // Chart Specific
+  chartWrapper: {
+    alignItems: "center",
+    justifyContent: "center",
+    height: CHART_HEIGHT + 40,
+  },
+  chartLegend: {
+    flexDirection: "row",
+    gap: 20,
+    marginTop: 10,
+  },
+
+  // Info & Market Specific
+  infoWrapper: {},
+  marketWrapper: {},
+  aboutTitle: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
+  aboutText: { fontSize: 14, lineHeight: 22 },
+
+  statRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(128,128,128,0.1)",
   },
-  chartTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  chartFooter: {
-    marginTop: 8,
-    alignItems: "flex-end",
-  },
-  chartFooterText: {
-    fontSize: 11,
-  },
-  statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  statCard: {
-    width: "48%",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  statHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
-  },
-  statLabel: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 2,
-  },
-  statSub: {
-    fontSize: 11,
-  },
-  aboutCard: {
-    borderRadius: 16,
-    padding: 16,
-  },
-  aboutHeader: {
+  statLabel: { fontSize: 14, fontWeight: "500" },
+  statValue: { fontSize: 14, fontWeight: "600" },
+
+  warningBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 20,
   },
-  aboutTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  aboutText: {
-    fontSize: 14,
-    lineHeight: 22,
+  warningText: {
+    fontSize: 12,
+    fontWeight: "500",
+    flex: 1,
   },
 });
