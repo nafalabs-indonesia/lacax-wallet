@@ -1,40 +1,46 @@
 // app/coin-detail.tsx
 import { router, useLocalSearchParams } from "expo-router";
 import {
-  AlertTriangle,
   ArrowDownLeft,
-  ArrowLeft,
   ArrowUpRight,
+  ChevronLeft,
+  Info,
+  RefreshCw,
   Repeat2,
-  TrendingDown,
-  TrendingUp,
+  X,
 } from "lucide-react-native";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Dimensions,
   Image,
+  Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import * as Svg from "react-native-svg";
-import { G } from "react-native-svg";
+import { Path } from "react-native-svg";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
 // ─────────────────────────────────────────────
-// Constants & Helpers
+// Constants
 // ─────────────────────────────────────────────
 const { width } = Dimensions.get("window");
 const CHART_HEIGHT = 250;
-const CANDLE_WIDTH = 6;
-const CANDLE_GAP = 4;
+const PRICE_LABEL_WIDTH = 55;
+const CHART_LEFT_PADDING = 20; // ← geser chart ke kanan
+const COLOR_BLUE = "#3b82f6";
+const COLOR_GREEN = "#7ed957";
+const COLOR_RED = "#ff3131";
 
-// Mapping Icon Lokal
 const LOCAL_ICON_MAP: Record<string, any> = {
   ethereum: require("../assets/chains/eth.png"),
   blockdag: require("../assets/chains/bdag.png"),
@@ -47,6 +53,20 @@ const COINGECKO_ID_MAP: Record<string, string> = {
   blockdag: "blockdag",
   usdt: "tether",
   usdc: "usd-coin",
+};
+
+const TF_DAYS: Record<string, string> = {
+  "15m": "1",
+  "30m": "1",
+  "1h": "1",
+  "1d": "7",
+};
+
+const TF_SAMPLE: Record<string, number> = {
+  "15m": 24,
+  "30m": 36,
+  "1h": 48,
+  "1d": 60,
 };
 
 interface CoinData {
@@ -65,119 +85,307 @@ interface CoinData {
   isMockData?: boolean;
 }
 
+interface ChartPoint {
+  timestamp: number;
+  price: number;
+}
+
 type TabType = "chart" | "info" | "market";
 
 // ─────────────────────────────────────────────
-// Components
+// Price Labels
 // ─────────────────────────────────────────────
-
-// 1. Candlestick Chart Component
-function CandleChart({ data, color }: { data: number[]; color: string }) {
+function PriceLabels({ data, theme }: { data: number[]; theme: any }) {
   if (!data || data.length < 2) return null;
 
-  // Simulasi data OHLC dari data harga linear (karena CoinGecko free tier hanya kasih 'prices')
-  // Dalam produksi nyata, gunakan endpoint 'ohlc' jika tersedia atau library charting khusus
-  const candles = [];
-  for (let i = 0; i < data.length - 1; i++) {
-    const open = data[i];
-    const close = data[i + 1];
-    const high = Math.max(open, close) * 1.002; // Simulasi high sedikit lebih tinggi
-    const low = Math.min(open, close) * 0.998; // Simulasi low sedikit lebih rendah
-    candles.push({ open, close, high, low });
-  }
-
-  const allValues = candles.flatMap((c) => [c.high, c.low]);
-  const min = Math.min(...allValues);
-  const max = Math.max(...allValues);
+  const min = Math.min(...data);
+  const max = Math.max(...data);
   const range = max - min || 1;
+  const levels = 5;
 
-  const chartWidth = width - 40; // Padding horizontal container
-  const totalCandleWidth = CANDLE_WIDTH + CANDLE_GAP;
-  const numCandles = Math.floor(chartWidth / totalCandleWidth);
-
-  // Ambil subset data terakhir agar pas di layar
-  const visibleCandles = candles.slice(-numCandles);
+  const formatPrice = (val: number) => {
+    if (val >= 1000) return `$${(val / 1000).toFixed(1)}k`;
+    if (val >= 1) return `$${val.toFixed(2)}`;
+    return `$${val.toFixed(4)}`;
+  };
 
   return (
-    <Svg.Svg width={chartWidth} height={CHART_HEIGHT}>
-      {/* Grid Lines (Optional) */}
-      {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
-        <Svg.Line
-          key={i}
-          x1="0"
-          y1={CHART_HEIGHT * ratio}
-          x2={chartWidth}
-          y2={CHART_HEIGHT * ratio}
-          stroke="rgba(128,128,128,0.1)"
-          strokeWidth="1"
-        />
-      ))}
-
-      {visibleCandles.map((candle, index) => {
-        const x = index * totalCandleWidth + CANDLE_GAP / 2;
-
-        // Normalize Y coordinates (SVG Y starts from top)
-        const yHigh =
-          CHART_HEIGHT - ((candle.high - min) / range) * CHART_HEIGHT;
-        const yLow = CHART_HEIGHT - ((candle.low - min) / range) * CHART_HEIGHT;
-        const yOpen =
-          CHART_HEIGHT - ((candle.open - min) / range) * CHART_HEIGHT;
-        const yClose =
-          CHART_HEIGHT - ((candle.close - min) / range) * CHART_HEIGHT;
-
-        const isGreen = candle.close >= candle.open;
-        const candleColor = isGreen ? "#22C55E" : "#EF4444";
-
+    <View
+      style={{
+        width: PRICE_LABEL_WIDTH,
+        height: CHART_HEIGHT,
+        position: "relative",
+      }}
+    >
+      {Array.from({ length: levels }).map((_, i) => {
+        const ratio = i / (levels - 1);
+        const price = max - ratio * range;
+        const y = ratio * CHART_HEIGHT - 8;
         return (
-          <G key={index}>
-            {/* Wick (Garis High-Low) */}
-            <Svg.Line
-              x1={x + CANDLE_WIDTH / 2}
-              y1={yHigh}
-              x2={x + CANDLE_WIDTH / 2}
-              y2={yLow}
-              stroke={candleColor}
-              strokeWidth="1.5"
-            />
-            {/* Body (Kotak Open-Close) */}
-            <Svg.Rect
-              x={x}
-              y={Math.min(yOpen, yClose)}
-              width={CANDLE_WIDTH}
-              height={Math.abs(yClose - yOpen) || 1} // Min height 1px
-              fill={candleColor}
-              rx="1"
-            />
-          </G>
+          <Text
+            key={i}
+            style={{
+              position: "absolute",
+              top: y,
+              right: 0,
+              fontSize: 9,
+              color: theme.textSecondary,
+              textAlign: "left",
+              width: PRICE_LABEL_WIDTH - 5,
+            }}
+          >
+            {formatPrice(price)}
+          </Text>
         );
       })}
-    </Svg.Svg>
-  );
-}
-
-// 2. Action Button Component
-function ActionButton({ icon: Icon, label, onPress, theme }: any) {
-  return (
-    <TouchableOpacity style={styles.actionBtn} onPress={onPress}>
-      <View
-        style={[styles.actionIconBg, { backgroundColor: theme.primary + "20" }]}
-      >
-        <Icon size={20} color={theme.primary} />
-      </View>
-      <Text style={[styles.actionLabel, { color: theme.text }]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
-// 3. Stat Row Component
-function StatRow({ label, value, theme }: any) {
-  return (
-    <View style={styles.statRow}>
-      <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
-        {label}
-      </Text>
-      <Text style={[styles.statValue, { color: theme.text }]}>{value}</Text>
     </View>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Date Labels
+// ─────────────────────────────────────────────
+function DateLabels({ points, theme }: { points: ChartPoint[]; theme: any }) {
+  if (!points || points.length < 2) return null;
+
+  const chartWidth = width - 40 - PRICE_LABEL_WIDTH - 8 - CHART_LEFT_PADDING;
+  const count = 5;
+
+  const formatLabel = (ts: number) => {
+    const d = new Date(ts);
+    const day = d.getDate();
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const month = months[d.getMonth()];
+    const year = d.getFullYear().toString().slice(2);
+    const h = d.getHours().toString().padStart(2, "0");
+    const m = d.getMinutes().toString().padStart(2, "0");
+
+    const spanMs = points[points.length - 1].timestamp - points[0].timestamp;
+    if (spanMs < 2 * 24 * 60 * 60 * 1000) {
+      return `${h}:${m}`;
+    }
+    return `${day} ${month} '${year}`;
+  };
+
+  return (
+    <View
+      style={{
+        width: chartWidth,
+        flexDirection: "row",
+        marginTop: 20,
+        position: "relative",
+        height: 16,
+      }}
+    >
+      {Array.from({ length: count }).map((_, i) => {
+        const ratio = i / (count - 1);
+        const idx = Math.round(ratio * (points.length - 1));
+        const point = points[idx];
+        const x = ratio * chartWidth;
+        return (
+          <Text
+            key={i}
+            style={{
+              position: "absolute",
+              left: x,
+              transform: [
+                { translateX: i === count - 1 ? -30 : i === 0 ? 0 : -15 },
+              ],
+              fontSize: 9,
+              color: theme.textSecondary,
+            }}
+          >
+            {formatLabel(point.timestamp)}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Line Chart Component
+// ─────────────────────────────────────────────
+function SimpleLineChart({ data, theme }: { data: ChartPoint[]; theme: any }) {
+  if (!data || data.length < 2) return null;
+
+  const prices = data.map((d) => d.price);
+  const chartWidth = width - 40 - PRICE_LABEL_WIDTH - 8 - CHART_LEFT_PADDING;
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+
+  let pathD = "";
+  const stepX = chartWidth / (prices.length - 1);
+
+  prices.forEach((val, index) => {
+    const x = index * stepX;
+    const y = CHART_HEIGHT - ((val - min) / range) * CHART_HEIGHT;
+    pathD += index === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
+  });
+
+  const lastY =
+    CHART_HEIGHT - ((prices[prices.length - 1] - min) / range) * CHART_HEIGHT;
+  const fillPath = `${pathD} L ${chartWidth} ${CHART_HEIGHT} L 0 ${CHART_HEIGHT} Z`;
+
+  return (
+    <View style={{ flexDirection: "row", paddingLeft: CHART_LEFT_PADDING }}>
+      <View>
+        <Svg.Svg width={chartWidth} height={CHART_HEIGHT}>
+          <Svg.Defs>
+            <Svg.LinearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+              <Svg.Stop offset="0" stopColor={COLOR_BLUE} stopOpacity="0.25" />
+              <Svg.Stop offset="1" stopColor={COLOR_BLUE} stopOpacity="0.01" />
+            </Svg.LinearGradient>
+          </Svg.Defs>
+
+          {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
+            <Svg.Line
+              key={i}
+              x1="0"
+              y1={CHART_HEIGHT * ratio}
+              x2={chartWidth}
+              y2={CHART_HEIGHT * ratio}
+              stroke="rgba(128,128,128,0.12)"
+              strokeWidth="1"
+              strokeDasharray="4,4"
+            />
+          ))}
+
+          <Path d={fillPath} fill="url(#chartGrad)" />
+
+          <Path
+            d={pathD}
+            fill="none"
+            stroke={COLOR_BLUE}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          <Svg.Circle
+            cx={chartWidth}
+            cy={lastY}
+            r="4"
+            fill={COLOR_BLUE}
+            stroke="#fff"
+            strokeWidth="1.5"
+          />
+        </Svg.Svg>
+        <DateLabels points={data} theme={theme} />
+      </View>
+      <View style={{ marginLeft: 8 }}>
+        <PriceLabels data={prices} theme={theme} />
+      </View>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Disclaimer Bottom Sheet
+// ─────────────────────────────────────────────
+function DisclaimerSheet({
+  visible,
+  onClose,
+  theme,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  theme: any;
+}) {
+  const slideAnim = useRef(new Animated.Value(300)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 20,
+          stiffness: 200,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 300,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="none"
+      onRequestClose={onClose}
+    >
+      <TouchableWithoutFeedback onPress={onClose}>
+        <Animated.View style={[styles.sheetOverlay, { opacity: fadeAnim }]} />
+      </TouchableWithoutFeedback>
+      <Animated.View
+        style={[
+          styles.sheetContainer,
+          {
+            backgroundColor: theme.background,
+            transform: [{ translateY: slideAnim }],
+          },
+        ]}
+      >
+        <View style={[styles.sheetHandle, { backgroundColor: theme.border }]} />
+
+        <View style={styles.sheetHeader}>
+          <Text style={[styles.sheetTitle, { color: theme.text }]}>
+            ⚠️ Investment Disclaimer
+          </Text>
+          <TouchableOpacity onPress={onClose} style={styles.sheetClose}>
+            <X size={20} color={theme.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.sheetBody, { color: theme.textSecondary }]}>
+          {`Cryptocurrency is a highly volatile and speculative asset class. Prices can rise and fall dramatically within short periods of time.\n\n⚠️  You may lose all of your invested capital. Past performance is not indicative of future results.\n\nDYOR — Do Your Own Research before making any investment decisions. This application does not constitute financial advice. Always consult with a qualified financial advisor before investing.\n\nNever invest more than you can afford to lose.`}
+        </Text>
+
+        <TouchableOpacity
+          style={[styles.sheetBtn, { backgroundColor: theme.primary }]}
+          onPress={onClose}
+        >
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
+            I Understand
+          </Text>
+        </TouchableOpacity>
+      </Animated.View>
+    </Modal>
   );
 }
 
@@ -186,15 +394,17 @@ function StatRow({ label, value, theme }: any) {
 // ─────────────────────────────────────────────
 export default function CoinDetailScreen() {
   const { coinId } = useLocalSearchParams();
-  const { isDarkMode, activeChainId } = useAppStore(); // Gunakan activeChainId untuk navigasi send/receive
+  const { isDarkMode, activeChainId } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [coinData, setCoinData] = useState<CoinData | null>(null);
-  const [chartData, setChartData] = useState<number[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [chartPoints, setChartPoints] = useState<ChartPoint[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>("chart");
+  const [timeFrame, setTimeFrame] = useState("1h");
+  const [chartLoading, setChartLoading] = useState(false);
+  const [disclaimerVisible, setDisclaimerVisible] = useState(false);
 
   const id = typeof coinId === "string" ? coinId : "ethereum";
   const geckoId = COINGECKO_ID_MAP[id] || id;
@@ -202,97 +412,58 @@ export default function CoinDetailScreen() {
   const change24h = coinData?.price_change_percentage_24h ?? 0;
   const isPositive = change24h >= 0;
 
-  // Generate mock chart data
-  const generateMockChartData = useCallback(
-    (basePrice: number) => {
-      const data: number[] = [];
-      let current = basePrice;
-      for (let i = 0; i < 100; i++) {
-        const volatility = id.includes("usd") ? 0.0005 : 0.02;
-        const change = (Math.random() - 0.5) * (basePrice * volatility);
-        current += change;
-        data.push(Math.max(current, basePrice * 0.5));
+  const fetchChartForTimeframe = useCallback(
+    async (tf: string, isMock: boolean, basePrice: number) => {
+      setChartLoading(true);
+      try {
+        const days = TF_DAYS[tf] || "1";
+        const chartRes = await fetch(
+          `https://api.coingecko.com/api/v3/coins/${geckoId}/market_chart?vs_currency=usd&days=${days}`,
+        );
+        if (!chartRes.ok) throw new Error("chart fetch failed");
+        const chartJson = await chartRes.json();
+        const allPoints: ChartPoint[] = chartJson.prices.map((p: any[]) => ({
+          timestamp: p[0],
+          price: p[1],
+        }));
+
+        const sampleSize = TF_SAMPLE[tf] || 48;
+        const step = Math.max(1, Math.floor(allPoints.length / sampleSize));
+        const sampled = allPoints.filter((_, i) => i % step === 0);
+        setChartPoints(sampled);
+      } catch {
+        const now = Date.now();
+        const spanMs =
+          tf === "1d" ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+        const count = TF_SAMPLE[tf] || 48;
+        const mock = Array.from({ length: count }, (_, i) => ({
+          timestamp: now - spanMs + (i / count) * spanMs,
+          price: basePrice + (Math.random() - 0.5) * basePrice * 0.08,
+        }));
+        setChartPoints(mock);
+      } finally {
+        setChartLoading(false);
       }
-      return data;
     },
-    [id],
+    [geckoId],
   );
-
-  const generateMockCoinData = useCallback((): CoinData => {
-    let basePrice = 100;
-    let symbol = "UNK";
-    let name = "Unknown";
-
-    if (id === "blockdag") {
-      basePrice = 0.15;
-      symbol = "BDAG";
-      name = "BlockDAG";
-    } else if (id === "usdt") {
-      basePrice = 1.0;
-      symbol = "USDT";
-      name = "Tether";
-    } else if (id === "usdc") {
-      basePrice = 1.0;
-      symbol = "USDC";
-      name = "USD Coin";
-    }
-
-    return {
-      id,
-      symbol,
-      name,
-      image: "",
-      current_price: basePrice,
-      market_cap: basePrice * 1e9,
-      market_cap_rank: 999,
-      total_volume: basePrice * 5e7,
-      high_24h: basePrice * 1.01,
-      low_24h: basePrice * 0.99,
-      price_change_percentage_24h:
-        (Math.random() - 0.5) * (id.includes("usd") ? 0.1 : 5),
-      description: `Simulated data for ${name}.`,
-      isMockData: true,
-    };
-  }, [id]);
 
   const fetchCoinData = useCallback(async () => {
     try {
-      setError(null);
       const res = await fetch(
         `https://api.coingecko.com/api/v3/coins/${geckoId}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false`,
       );
+      if (res.status === 404 || !res.ok) throw new Error("API Error");
 
-      if (res.status === 404) {
-        const mockData = generateMockCoinData();
-        setCoinData(mockData);
-        setChartData(generateMockChartData(mockData.current_price));
-        return;
-      }
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-
-      // Fetch OHLC or Prices for Chart
-      const chartRes = await fetch(
-        `https://api.coingecko.com/api/v3/coins/${geckoId}/market_chart?vs_currency=usd&days=7`,
-      );
-
-      let sampledPrices: number[] = [];
-      if (chartRes.ok) {
-        const chartJson = await chartRes.json();
-        sampledPrices = chartJson.prices.map((p: any[]) => p[1]);
-      } else {
-        sampledPrices = generateMockChartData(
-          data.market_data?.current_price?.usd || 100,
-        );
-      }
+      const basePrice = data.market_data?.current_price?.usd || 100;
 
       setCoinData({
         id: data.id,
         symbol: data.symbol?.toUpperCase() || id.toUpperCase(),
         name: data.name || id,
         image: data.image?.large || "",
-        current_price: data.market_data?.current_price?.usd || 0,
+        current_price: basePrice,
         market_cap: data.market_data?.market_cap?.usd || 0,
         market_cap_rank: data.market_cap_rank || 0,
         total_volume: data.market_data?.total_volume?.usd || 0,
@@ -304,22 +475,45 @@ export default function CoinDetailScreen() {
           ? data.description.en.split(". ").slice(0, 3).join(". ") + "."
           : "No description.",
       });
-      setChartData(sampledPrices);
+
+      await fetchChartForTimeframe(timeFrame, false, basePrice);
     } catch (err) {
-      console.error(err);
-      setError("Failed to load data.");
-      const mock = generateMockCoinData();
-      setCoinData(mock);
-      setChartData(generateMockChartData(mock.current_price));
+      let basePrice = 100;
+      if (id === "usdt") basePrice = 1.0;
+      if (id === "blockdag") basePrice = 0.15;
+
+      setCoinData({
+        id,
+        symbol: id.toUpperCase(),
+        name: id,
+        image: "",
+        current_price: basePrice,
+        market_cap: basePrice * 1e9,
+        market_cap_rank: 999,
+        total_volume: basePrice * 5e7,
+        high_24h: basePrice * 1.01,
+        low_24h: basePrice * 0.99,
+        price_change_percentage_24h: (Math.random() - 0.5) * 5,
+        description: "Simulated data.",
+        isMockData: true,
+      });
+
+      await fetchChartForTimeframe(timeFrame, true, basePrice);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [geckoId, id, generateMockCoinData, generateMockChartData]);
+  }, [geckoId, id, timeFrame, fetchChartForTimeframe]);
 
   useEffect(() => {
     fetchCoinData();
   }, [fetchCoinData]);
+
+  const handleTimeFrameChange = (tf: string) => {
+    setTimeFrame(tf);
+    const basePrice = coinData?.current_price || 100;
+    fetchChartForTimeframe(tf, coinData?.isMockData ?? false, basePrice);
+  };
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -353,15 +547,63 @@ export default function CoinDetailScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <ArrowLeft size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>
-          Asset Detail
-        </Text>
-        <View style={{ width: 40 }} />
+      <DisclaimerSheet
+        visible={disclaimerVisible}
+        onClose={() => setDisclaimerVisible(false)}
+        theme={theme}
+      />
+
+      {/* 1. HEADER & TABS */}
+      <View style={styles.topHeaderContainer}>
+        <View style={styles.navHeader}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backBtn}
+          >
+            <ChevronLeft size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>
+            Asset Detail
+          </Text>
+          <TouchableOpacity
+            style={styles.infoBtn}
+            onPress={() => setDisclaimerVisible(true)}
+          >
+            <Info size={24} color={theme.text} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.tabContainer}>
+          {(["chart", "info", "market"] as TabType[]).map((tab) => {
+            const isActive = activeTab === tab;
+            return (
+              <TouchableOpacity
+                key={tab}
+                style={styles.tabButton}
+                onPress={() => setActiveTab(tab)}
+              >
+                <Text
+                  style={[
+                    styles.tabText,
+                    isActive
+                      ? { color: theme.text, fontWeight: "700" }
+                      : { color: theme.textSecondary, fontWeight: "500" },
+                  ]}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </Text>
+                {isActive && (
+                  <View
+                    style={[
+                      styles.activeTabIndicator,
+                      { backgroundColor: theme.text },
+                    ]}
+                  />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       <ScrollView
@@ -374,355 +616,288 @@ export default function CoinDetailScreen() {
           />
         }
       >
-        {/* Top Section: Icon, Name, Price */}
-        <View style={styles.topSection}>
-          <View style={styles.coinHeader}>
+        {/* 2. PRICE CARD */}
+        <View style={[styles.priceCard, { borderColor: theme.border }]}>
+          <View style={styles.priceInfo}>
+            <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>
+              Current Price
+            </Text>
+            <Text style={[styles.priceValue, { color: theme.text }]}>
+              IDR{" "}
+              {(coinData.current_price * 15000).toLocaleString("id-ID", {
+                maximumFractionDigits: 0,
+              })}
+            </Text>
+            <View style={styles.changeRow}>
+              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                USD {formatCurrency(coinData.current_price)}
+              </Text>
+              <View
+                style={[
+                  styles.badge,
+                  {
+                    backgroundColor: isPositive
+                      ? `${COLOR_GREEN}20`
+                      : `${COLOR_RED}20`,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: isPositive ? COLOR_GREEN : COLOR_RED,
+                    fontSize: 12,
+                    fontWeight: "600",
+                  }}
+                >
+                  {isPositive ? "+" : ""}
+                  {change24h.toFixed(2)}%
+                </Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.logoContainer}>
             {localIconSource ? (
-              <Image source={localIconSource} style={styles.coinIcon} />
+              <Image source={localIconSource} style={styles.coinLogo} />
             ) : coinData.image ? (
-              <Image source={{ uri: coinData.image }} style={styles.coinIcon} />
+              <Image source={{ uri: coinData.image }} style={styles.coinLogo} />
             ) : (
               <Image
                 source={require("../assets/chains/eth.png")}
-                style={styles.coinIcon}
+                style={styles.coinLogo}
               />
             )}
-            <View style={styles.coinInfo}>
-              <Text style={[styles.coinName, { color: theme.text }]}>
+          </View>
+        </View>
+
+        {/* 3. CONTENT */}
+
+        {/* TAB: CHART */}
+        {activeTab === "chart" && (
+          <View style={[styles.chartCard, { borderColor: theme.border }]}>
+            <View style={styles.chartHeader}>
+              <View style={styles.timeframeSelector}>
+                {["15m", "30m", "1h", "1d"].map((tf) => (
+                  <TouchableOpacity
+                    key={tf}
+                    onPress={() => handleTimeFrameChange(tf)}
+                    style={{ marginRight: 12 }}
+                  >
+                    <Text
+                      style={{
+                        color:
+                          timeFrame === tf ? theme.text : theme.textSecondary,
+                        fontWeight: timeFrame === tf ? "700" : "500",
+                        fontSize: 13,
+                      }}
+                    >
+                      {tf}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text
+                style={{ color: theme.text, fontWeight: "600", fontSize: 14 }}
+              >
                 {coinData.name}
               </Text>
-              <Text style={[styles.coinSymbol, { color: theme.textSecondary }]}>
-                {coinData.symbol}
-              </Text>
+              <TouchableOpacity onPress={onRefresh}>
+                <RefreshCw size={16} color={theme.textSecondary} />
+              </TouchableOpacity>
             </View>
-          </View>
 
-          <View style={styles.priceContainer}>
-            <Text style={[styles.priceText, { color: theme.text }]}>
-              {formatCurrency(coinData.current_price)}
-            </Text>
-            <View
-              style={[
-                styles.changeBadge,
-                { backgroundColor: isPositive ? "#22C55E20" : "#EF444420" },
-              ]}
-            >
-              {isPositive ? (
-                <TrendingUp size={16} color="#22C55E" />
+            <View style={styles.chartGraphArea}>
+              {chartLoading ? (
+                <ActivityIndicator size="small" color={COLOR_BLUE} />
               ) : (
-                <TrendingDown size={16} color="#EF4444" />
+                <SimpleLineChart data={chartPoints} theme={theme} />
               )}
-              <Text
-                style={[
-                  styles.changeText,
-                  { color: isPositive ? "#22C55E" : "#EF4444" },
-                ]}
-              >
-                {Math.abs(change24h).toFixed(2)}%
-              </Text>
             </View>
           </View>
-        </View>
+        )}
 
-        {/* ✅ Action Buttons: Send, Receive, Swap */}
-        <View style={styles.actionsContainer}>
-          <ActionButton
-            icon={ArrowUpRight}
-            label="Send"
-            theme={theme}
-            onPress={() =>
-              router.push({
-                pathname: "/send",
-                params: { chainId: activeChainId, symbol: coinData.symbol },
-              })
-            }
-          />
-          <ActionButton
-            icon={ArrowDownLeft}
-            label="Receive"
-            theme={theme}
-            onPress={() => router.push("/receive")}
-          />
-          <ActionButton
-            icon={Repeat2}
-            label="Swap"
-            theme={theme}
-            onPress={() =>
-              router.push({
-                pathname: "/swap",
-                params: { chainId: activeChainId, symbol: coinData.symbol },
-              })
-            }
-          />
-        </View>
-
-        {/* ✅ Tabs: Chart, Info, Market */}
-        <View style={styles.tabContainer}>
-          {(["chart", "info", "market"] as TabType[]).map((tab) => (
-            <TouchableOpacity
-              key={tab}
-              style={[
-                styles.tabButton,
-                activeTab === tab && styles.tabButtonActive,
-              ]}
-              onPress={() => setActiveTab(tab)}
+        {/* TAB: INFO */}
+        {activeTab === "info" && (
+          <View style={[styles.genericCard, { borderColor: theme.border }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              About {coinData.name}
+            </Text>
+            <Text
+              style={[styles.descriptionText, { color: theme.textSecondary }]}
             >
-              <Text
-                style={[
-                  styles.tabText,
-                  activeTab === tab
-                    ? styles.tabTextActive
-                    : { color: theme.textSecondary },
-                ]}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* ✅ Tab Content */}
-        <View style={[styles.tabContent, { backgroundColor: theme.card }]}>
-          {/* TAB: CHART */}
-          {activeTab === "chart" && (
-            <View style={styles.chartWrapper}>
-              <CandleChart data={chartData} color={theme.primary} />
-              <View style={styles.chartLegend}>
-                <View
-                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-                >
-                  <View
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 4,
-                      backgroundColor: "#22C55E",
-                    }}
-                  />
-                  <Text style={{ fontSize: 12, color: theme.textSecondary }}>
-                    Bullish
-                  </Text>
-                </View>
-                <View
-                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-                >
-                  <View
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 4,
-                      backgroundColor: "#EF4444",
-                    }}
-                  />
-                  <Text style={{ fontSize: 12, color: theme.textSecondary }}>
-                    Bearish
-                  </Text>
-                </View>
-              </View>
-            </View>
-          )}
-
-          {/* TAB: INFO */}
-          {activeTab === "info" && (
-            <View style={styles.infoWrapper}>
-              <Text style={[styles.aboutTitle, { color: theme.text }]}>
-                About {coinData.name}
-              </Text>
-              <Text style={[styles.aboutText, { color: theme.textSecondary }]}>
-                {coinData.description || "No description available."}
-              </Text>
-              <View style={{ height: 20 }} />
-              <StatRow
-                label="Official Site"
-                value="Check Explorer"
-                theme={theme}
-              />
-              <StatRow
-                label="Blockchain"
-                value={id.includes("eth") ? "Ethereum" : "BlockDAG"}
-                theme={theme}
-              />
-            </View>
-          )}
-
-          {/* TAB: MARKET CAP */}
-          {activeTab === "market" && (
-            <View style={styles.marketWrapper}>
-              <StatRow
-                label="Market Cap"
-                value={`$${formatCompact(coinData.market_cap)}`}
-                theme={theme}
-              />
-              <StatRow
-                label="Market Cap Rank"
-                value={`#${coinData.market_cap_rank}`}
-                theme={theme}
-              />
-              <StatRow
-                label="Total Volume (24h)"
-                value={`$${formatCompact(coinData.total_volume)}`}
-                theme={theme}
-              />
-              <StatRow
-                label="High 24h"
-                value={formatCurrency(coinData.high_24h)}
-                theme={theme}
-              />
-              <StatRow
-                label="Low 24h"
-                value={formatCurrency(coinData.low_24h)}
-                theme={theme}
-              />
-              <StatRow label="Circulating Supply" value="N/A" theme={theme} />
-            </View>
-          )}
-        </View>
-
-        {/* Warning Banner */}
-        {coinData.isMockData && (
-          <View
-            style={[
-              styles.warningBanner,
-              { backgroundColor: "#F59E0B15", borderColor: "#F59E0B30" },
-            ]}
-          >
-            <AlertTriangle size={16} color="#F59E0B" />
-            <Text style={[styles.warningText, { color: "#F59E0B" }]}>
-              Simulated Data: This asset is not fully supported on CoinGecko
-              yet.
+              {coinData.description || "No description available."}
             </Text>
           </View>
         )}
+
+        {/* TAB: MARKET */}
+        {activeTab === "market" && (
+          <View style={[styles.genericCard, { borderColor: theme.border }]}>
+            <StatRow
+              label="Market Cap"
+              value={`$${formatCompact(coinData.market_cap)}`}
+              theme={theme}
+            />
+            <StatRow
+              label="Rank"
+              value={`#${coinData.market_cap_rank}`}
+              theme={theme}
+            />
+            <StatRow
+              label="Volume (24h)"
+              value={`$${formatCompact(coinData.total_volume)}`}
+              theme={theme}
+            />
+          </View>
+        )}
+
+        <View style={{ height: 120 }} />
       </ScrollView>
+
+      {/* 4. FOOTER */}
+      <View style={[styles.footer, { backgroundColor: theme.background }]}>
+        <TouchableOpacity
+          style={styles.swapBtnContainer}
+          onPress={() =>
+            router.push({
+              pathname: "/swap",
+              params: { symbol: coinData.symbol },
+            })
+          }
+        >
+          <View style={[styles.swapCircle, { borderColor: theme.border }]}>
+            <Repeat2 size={24} color={theme.text} />
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionBtnPrimary, { backgroundColor: theme.primary }]}
+          onPress={() => router.push("/receive")}
+        >
+          <ArrowDownLeft size={20} color="#FFF" />
+          <Text style={{ color: "#FFF", fontWeight: "700", marginLeft: 8 }}>
+            Receive
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.actionBtnPrimary,
+            { backgroundColor: theme.primary, marginLeft: 10 },
+          ]}
+          onPress={() =>
+            router.push({
+              pathname: "/send",
+              params: { symbol: coinData.symbol },
+            })
+          }
+        >
+          <ArrowUpRight size={20} color="#FFF" />
+          <Text style={{ color: "#FFF", fontWeight: "700", marginLeft: 8 }}>
+            Send
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function StatRow({ label, value, theme }: any) {
+  return (
+    <View style={styles.statRow}>
+      <Text style={{ color: theme.textSecondary, fontSize: 14 }}>{label}</Text>
+      <Text style={{ color: theme.text, fontSize: 14, fontWeight: "600" }}>
+        {value}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
-  header: {
+
+  topHeaderContainer: {
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === "ios" ? 50 : 40,
+    paddingBottom: 0,
+  },
+  navHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
+    marginBottom: 8,
   },
   backBtn: { padding: 8 },
-  headerTitle: { fontSize: 18, fontWeight: "700" },
-  scrollContent: { padding: 20, paddingTop: 10 },
+  headerTitle: { fontSize: 15, fontWeight: "700" },
+  infoBtn: { padding: 8 },
 
-  topSection: { marginBottom: 24 },
-  coinHeader: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
-  coinIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    marginRight: 16,
-    backgroundColor: "#fff",
-  },
-  coinInfo: { justifyContent: "center" },
-  coinName: { fontSize: 24, fontWeight: "700" },
-  coinSymbol: {
-    fontSize: 16,
-    fontWeight: "500",
-    textTransform: "uppercase",
-    color: "#888",
-  },
-
-  priceContainer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-  },
-  priceText: { fontSize: 36, fontWeight: "700" },
-  changeBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  changeText: { fontSize: 14, fontWeight: "600" },
-
-  // Actions
-  actionsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginBottom: 24,
-    paddingVertical: 10,
-  },
-  actionBtn: {
-    alignItems: "center",
-    gap: 8,
-  },
-  actionIconBg: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-
-  // Tabs
   tabContainer: {
     flexDirection: "row",
-    marginBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(128,128,128,0.2)",
+    gap: 20,
   },
   tabButton: {
-    flex: 1,
-    paddingVertical: 12,
+    paddingBottom: 0,
+  },
+  tabText: { fontSize: 14 },
+  activeTabIndicator: {},
+
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+
+  priceCard: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 10,
+  },
+  priceInfo: { flex: 1 },
+  priceLabel: { fontSize: 12, marginBottom: 4 },
+  priceValue: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
+  changeRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  logoContainer: {
+    width: 60,
+    height: 60,
+    justifyContent: "center",
     alignItems: "center",
   },
-  tabButtonActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: "#5573ef", // Primary Color
-  },
-  tabText: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  tabTextActive: {
-    color: "#5573ef",
-  },
+  coinLogo: { width: 50, height: 50, borderRadius: 28 },
 
-  // Tab Content Container
-  tabContent: {
-    borderRadius: 20,
+  chartCard: {
+    borderWidth: 1,
+    borderRadius: 24,
     padding: 20,
-    minHeight: 300,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    marginBottom: 20,
   },
-
-  // Chart Specific
-  chartWrapper: {
+  chartHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  timeframeSelector: { flexDirection: "row", alignItems: "center" },
+  chartGraphArea: {
     alignItems: "center",
     justifyContent: "center",
-    height: CHART_HEIGHT + 40,
-  },
-  chartLegend: {
-    flexDirection: "row",
-    gap: 20,
-    marginTop: 10,
+    height: CHART_HEIGHT + 75,
   },
 
-  // Info & Market Specific
-  infoWrapper: {},
-  marketWrapper: {},
-  aboutTitle: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
-  aboutText: { fontSize: 14, lineHeight: 22 },
-
+  genericCard: {
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 20,
+  },
+  sectionTitle: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
+  descriptionText: { fontSize: 14, lineHeight: 22 },
   statRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -730,21 +905,83 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "rgba(128,128,128,0.1)",
   },
-  statLabel: { fontSize: 14, fontWeight: "500" },
-  statValue: { fontSize: 14, fontWeight: "600" },
 
-  warningBanner: {
+  footer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    padding: 16,
+    paddingBottom: Platform.OS === "ios" ? 60 : 50,
+    alignItems: "center",
+  },
+  swapBtnContainer: {
+    flex: 0.2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  swapCircle: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionBtnPrimary: {
+    flex: 0.4,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginTop: 20,
+    justifyContent: "center",
+    height: 50,
+    borderRadius: 25,
   },
-  warningText: {
-    fontSize: 12,
-    fontWeight: "500",
-    flex: 1,
+
+  sheetOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  sheetContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: Platform.OS === "ios" ? 44 : 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 20,
+    opacity: 0.4,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  sheetTitle: { fontSize: 17, fontWeight: "700" },
+  sheetClose: { padding: 4 },
+  sheetBody: {
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  sheetBtn: {
+    height: 50,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
