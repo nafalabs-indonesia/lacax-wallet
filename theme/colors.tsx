@@ -8,6 +8,7 @@ export const Colors = {
     border: "#E0E0E0",
     primary: "#5170ff",
     error: "#FF3B30",
+    shadow: "rgba(0, 0, 0, 0.1)",
   },
   dark: {
     background: "#101010",
@@ -17,5 +18,6 @@ export const Colors = {
     border: "#38383A",
     primary: "#5170ff",
     error: "#FF453A",
+    shadow: "rgba(0, 0, 0, 0.5)",
   },
 };

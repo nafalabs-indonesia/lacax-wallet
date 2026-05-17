@@ -1,35 +1,35 @@
 // app/swap.tsx
 import { SUPPORTED_CHAINS, TokenConfig } from "@/config/chains";
 import {
-    BlockchainService,
-    ChainId,
+  BlockchainService,
+  ChainId,
 } from "@/services/blockchain/BlockchainService";
 import { ZeroExService } from "@/services/swap/ZeroExService";
 import { ethers } from "ethers";
 import { router, useLocalSearchParams } from "expo-router";
 import {
-    ArrowDown,
-    Check,
-    ChevronDown,
-    ChevronLeft,
-    SlidersHorizontal,
-    X,
+  ArrowDown,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  SlidersHorizontal,
+  X,
 } from "lucide-react-native";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
@@ -1341,7 +1341,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 0,
     borderRadius: 12,
     borderWidth: 1,
     gap: 4,

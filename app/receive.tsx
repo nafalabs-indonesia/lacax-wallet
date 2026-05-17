@@ -31,12 +31,74 @@ import { Colors } from "../theme/colors";
 
 const { width } = Dimensions.get("window");
 
-// Mapping Logo Chain untuk QR Code & UI
+// --- KONFIGURASI ASET & TOKEN ---
 const CHAIN_LOGO_MAP: Record<string, any> = {
   "ethereum-mainnet": require("../assets/chains/eth.png"),
   "ethereum-sepolia": require("../assets/chains/eth-sepolia.png"),
   "blockdag-mainnet": require("../assets/chains/bdag.png"),
   "blockdag-testnet": require("../assets/chains/bdag.png"),
+};
+
+// Definisi Token per Chain
+const TOKEN_CONFIG: Record<string, any[]> = {
+  "ethereum-mainnet": [
+    {
+      symbol: "ETH",
+      name: "Ethereum",
+      logo: require("../assets/chains/eth.png"),
+    },
+    {
+      symbol: "USDT",
+      name: "Tether USD",
+      logo: require("../assets/coins/usdt.png"),
+    },
+    {
+      symbol: "USDC",
+      name: "USD Coin",
+      logo: require("../assets/coins/usdc.png"),
+    },
+  ],
+  "ethereum-sepolia": [
+    {
+      symbol: "ETH",
+      name: "Sepolia ETH",
+      logo: require("../assets/chains/eth-sepolia.png"),
+    },
+    {
+      symbol: "USDT",
+      name: "Test USDT",
+      logo: require("../assets/coins/usdt.png"),
+    },
+    {
+      symbol: "USDC",
+      name: "Test USDC",
+      logo: require("../assets/coins/usdc.png"),
+    },
+  ],
+  "blockdag-mainnet": [
+    {
+      symbol: "BDAG",
+      name: "BlockDAG",
+      logo: require("../assets/chains/bdag.png"),
+    },
+    {
+      symbol: "USDT",
+      name: "Tether USD",
+      logo: require("../assets/coins/usdt.png"),
+    },
+  ],
+  "blockdag-testnet": [
+    {
+      symbol: "BDAG",
+      name: "BlockDAG Test",
+      logo: require("../assets/chains/bdag.png"),
+    },
+    {
+      symbol: "USDT",
+      name: "Test USDT",
+      logo: require("../assets/coins/usdt.png"),
+    },
+  ],
 };
 
 export default function ReceiveScreen() {
@@ -47,8 +109,12 @@ export default function ReceiveScreen() {
   // State
   const [copied, setCopied] = useState(false);
   const [showNetworkSheet, setShowNetworkSheet] = useState(false);
+  const [showTokenSheet, setShowTokenSheet] = useState(false); // State untuk modal token
   const [showInfoModal, setShowInfoModal] = useState(false);
-  const [qrHeight, setQrHeight] = useState(300); // default height
+  const [qrHeight, setQrHeight] = useState(300);
+
+  // State Token
+  const [selectedToken, setSelectedToken] = useState<any>(null);
 
   // Animation for Scan Line
   const scanAnim = useRef(new Animated.Value(0)).current;
@@ -56,10 +122,27 @@ export default function ReceiveScreen() {
   // Get Current Chain Config
   const currentChain =
     SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
-  const chainLogo =
-    CHAIN_LOGO_MAP[currentChain.id] || require("../assets/chains/eth.png");
 
-  // Start Scan Line Animation - Full movement
+  // Get Available Tokens for this Chain
+  const availableTokens = TOKEN_CONFIG[currentChain.id] || [
+    {
+      symbol: currentChain.symbol,
+      name: currentChain.name,
+      logo: CHAIN_LOGO_MAP[currentChain.id],
+    },
+  ];
+
+  // Set Default Token when Chain changes
+  useEffect(() => {
+    if (availableTokens.length > 0) {
+      const native = availableTokens.find(
+        (t) => t.symbol === currentChain.symbol,
+      );
+      setSelectedToken(native || availableTokens[0]);
+    }
+  }, [currentChain.id, availableTokens]);
+
+  // Start Scan Line Animation
   useEffect(() => {
     const startAnimation = () => {
       scanAnim.setValue(0);
@@ -91,7 +174,7 @@ export default function ReceiveScreen() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `My ${currentChain.symbol} Address:\n${walletAddress}`,
+        message: `My ${selectedToken?.symbol} Address (${currentChain.name}):\n${walletAddress}`,
       });
     } catch (error) {
       console.error(error);
@@ -102,6 +185,14 @@ export default function ReceiveScreen() {
     setActiveChainId(chain.id);
     setShowNetworkSheet(false);
   };
+
+  const handleTokenSelect = (token: any) => {
+    setSelectedToken(token);
+    setShowTokenSheet(false);
+  };
+
+  // Logo untuk QR Code
+  const qrLogo = selectedToken?.logo || CHAIN_LOGO_MAP[currentChain.id];
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -137,7 +228,7 @@ export default function ReceiveScreen() {
             },
           ]}
         >
-          {/* Network Selector Button */}
+          {/* Network Selector Button (Di dalam QR Card) */}
           <TouchableOpacity
             style={[styles.networkBtn, { borderColor: theme.border }]}
             onPress={() => setShowNetworkSheet(true)}
@@ -158,14 +249,14 @@ export default function ReceiveScreen() {
               size={width - 180}
               color="#000"
               backgroundColor="#FFFFFF"
-              logo={chainLogo}
+              logo={qrLogo}
               logoSize={50}
               logoBackgroundColor="#FFFFFF"
               logoBorderRadius={25}
               quietZone={10}
             />
 
-            {/* Animated Scan Line - Full movement */}
+            {/* Animated Scan Line */}
             <Animated.View
               style={[
                 styles.scanLine,
@@ -184,9 +275,25 @@ export default function ReceiveScreen() {
           </View>
 
           <Text style={[styles.qrHint, { color: theme.textSecondary }]}>
-            Receive {currentChain.symbol} from anyone, just scan
+            Receive {selectedToken?.symbol} on {currentChain.name}
           </Text>
         </View>
+
+        {/* --- COIN SELECTOR (DROPDOWN ROUNDED FULL) --- */}
+        {/* Ditempatkan di antara QR Card dan Address Card */}
+        <TouchableOpacity
+          style={[
+            styles.coinSelector,
+            { borderColor: theme.border, backgroundColor: theme.card },
+          ]}
+          onPress={() => setShowTokenSheet(true)}
+        >
+          <Image source={selectedToken?.logo} style={styles.coinIcon} />
+          <Text style={[styles.coinSelectorText, { color: theme.text }]}>
+            {selectedToken?.name} ({selectedToken?.symbol})
+          </Text>
+          <ChevronDown size={20} color={theme.textSecondary} />
+        </TouchableOpacity>
 
         {/* Wallet Address Section */}
         <View
@@ -246,21 +353,6 @@ export default function ReceiveScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Disclaimer */}
-        <View style={styles.disclaimerContainer}>
-          <AlertCircle
-            size={16}
-            color={theme.textSecondary}
-            style={{ marginRight: 8 }}
-          />
-          <Text style={[styles.disclaimerText, { color: theme.textSecondary }]}>
-            Only receive assets on the{" "}
-            <Text style={{ fontWeight: "bold" }}>{currentChain.name}</Text>{" "}
-            network. Sending funds via other networks may result in permanent
-            loss.
-          </Text>
         </View>
       </ScrollView>
 
@@ -336,6 +428,78 @@ export default function ReceiveScreen() {
         </View>
       </Modal>
 
+      {/* Token Bottom Sheet (Baru) */}
+      <Modal
+        visible={showTokenSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowTokenSheet(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.backdrop}
+            activeOpacity={1}
+            onPress={() => setShowTokenSheet(false)}
+          />
+          <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.sheetTitle, { color: theme.text }]}>
+                Select Token
+              </Text>
+              <TouchableOpacity onPress={() => setShowTokenSheet(false)}>
+                <X size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.sheetList}>
+              {availableTokens.map((token) => {
+                const isSelected = selectedToken?.symbol === token.symbol;
+                return (
+                  <TouchableOpacity
+                    key={token.symbol}
+                    style={styles.networkItem}
+                    onPress={() => handleTokenSelect(token)}
+                  >
+                    <View
+                      style={{ flexDirection: "row", alignItems: "center" }}
+                    >
+                      <Image
+                        source={token.logo}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 12,
+                          marginRight: 12,
+                        }}
+                      />
+                      <View>
+                        <Text
+                          style={[
+                            styles.networkItemName,
+                            { color: theme.text },
+                          ]}
+                        >
+                          {token.name}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.networkItemId,
+                            { color: theme.textSecondary },
+                          ]}
+                        >
+                          {token.symbol}
+                        </Text>
+                      </View>
+                    </View>
+                    {isSelected && <Check size={20} color={theme.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Info Modal */}
       <Modal
         visible={showInfoModal}
@@ -364,7 +528,7 @@ export default function ReceiveScreen() {
             <Text style={[styles.infoText, { color: theme.text }]}>
               • Only receive assets on the{" "}
               <Text style={{ fontWeight: "bold" }}>{currentChain.name}</Text>{" "}
-              network.{"\n\n"}• Recieving tokens from other networks may result
+              network.{"\n\n"}• Receiving tokens from other networks may result
               in permanent loss of funds.{"\n\n"}• Always double-check the
               network before making a transfer.
             </Text>
@@ -455,6 +619,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
+
+  // Styles untuk Coin Selector (Rounded Full Dropdown)
+  coinSelector: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 999, // Rounded full
+    borderWidth: 1,
+    marginBottom: 24, // Jarak ke Address Card
+    gap: 10,
+  },
+  coinIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  coinSelectorText: {
+    fontSize: 15,
+    fontWeight: "600",
+    flex: 1, // Agar teks mengisi ruang tapi tetap center visual
+    textAlign: "center",
+  },
+
   addressCard: {
     width: "100%",
     borderRadius: 24,

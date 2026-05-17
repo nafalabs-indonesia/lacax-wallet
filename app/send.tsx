@@ -611,7 +611,7 @@ export default function SendScreen() {
               styles.input,
               { backgroundColor: theme.card, color: theme.text },
             ]}
-            placeholder="0x..."
+            placeholder="Your recipient's wallet address"
             placeholderTextColor={theme.textSecondary}
             value={recipientAddress}
             onChangeText={setRecipientAddress}
