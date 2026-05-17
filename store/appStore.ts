@@ -12,7 +12,6 @@ interface AppState {
   mnemonic: string | null;
   isStorageLoaded: boolean;
 
-  // ✅ TAMBAHKAN INI
   activeChainId: string;
   setActiveChainId: (id: string) => void;
 
@@ -21,10 +20,14 @@ interface AppState {
   setMnemonic: (mnemonic: string | null) => void;
 
   loadWalletFromStorage: () => Promise<void>;
+
+  // ✅ Gunakan nama fungsi yang sesuai dengan Repository
+  unlockWallet: (pin: string) => Promise<boolean>;
+
   resetWallet: () => Promise<void>;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   isDarkMode: true,
   toggleTheme: () => set((state) => ({ isDarkMode: !state.isDarkMode })),
 
@@ -33,7 +36,6 @@ export const useAppStore = create<AppState>((set) => ({
   mnemonic: null,
   isStorageLoaded: false,
 
-  // ✅ DEFAULT VALUE: Ethereum Mainnet
   activeChainId: "ethereum-mainnet",
   setActiveChainId: (id) => set({ activeChainId: id }),
 
@@ -43,9 +45,6 @@ export const useAppStore = create<AppState>((set) => ({
 
   loadWalletFromStorage: async () => {
     try {
-      const encryptedWallet = await SecureStore.getItemAsync(
-        "laca_encrypted_wallet_v1",
-      );
       const savedAddress = await SecureStore.getItemAsync(
         "laca_wallet_address_v1",
       );
@@ -53,8 +52,8 @@ export const useAppStore = create<AppState>((set) => ({
       if (savedAddress) {
         set({
           walletAddress: savedAddress,
-          mnemonic: null,
           isStorageLoaded: true,
+          // mnemonic TETAP null di sini (belum di-unlock)
         });
       } else {
         set({ isStorageLoaded: true });
@@ -65,18 +64,43 @@ export const useAppStore = create<AppState>((set) => ({
     }
   },
 
+  // ✅ PERBAIKAN DI SINI
+  unlockWallet: async (pin: string): Promise<boolean> => {
+    try {
+      // 1. Verifikasi PIN dan ambil Mnemonic sekaligus
+      // Fungsi ini akan return null jika PIN salah
+      const recoveredMnemonic = await WalletRepository.getMnemonicIfValid(pin);
+
+      if (recoveredMnemonic) {
+        // 2. Jika berhasil, simpan mnemonic ke State (Memory)
+        //    dan update status unlocked
+        set({
+          mnemonic: recoveredMnemonic,
+          isUnlocked: true,
+        });
+        return true;
+      } else {
+        // PIN Salah
+        return false;
+      }
+    } catch (error) {
+      console.error("Unlock failed:", error);
+      return false;
+    }
+  },
+
   resetWallet: async () => {
     try {
       await WalletRepository.wipeWallet();
     } catch (e) {
-      console.error("Gagal reset wallet dari storage", e);
+      console.error("Gagal reset wallet", e);
     }
     set({
       walletAddress: null,
       mnemonic: null,
       isUnlocked: false,
       isStorageLoaded: true,
-      activeChainId: "ethereum-mainnet", // Reset ke default
+      activeChainId: "ethereum-mainnet",
     });
   },
 }));

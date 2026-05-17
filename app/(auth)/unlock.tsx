@@ -13,14 +13,19 @@ import {
   View,
 } from "react-native";
 
-import { WalletRepository } from "../../modules/wallet/infrastructure/WalletRepository";
-import { KeyDerivationService } from "../../services/crypto/KeyDerivation";
+// Hapus import WalletRepository & KeyDerivationService
+// import { WalletRepository } from "../../modules/wallet/infrastructure/WalletRepository";
+// import { KeyDerivationService } from "../../services/crypto/KeyDerivation";
+
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
 export default function UnlockScreen() {
   const router = useRouter();
-  const { setWalletAddress, setUnlocked, isDarkMode } = useAppStore();
+
+  // Ambil fungsi unlockWallet dan setter lainnya dari store
+  const { unlockWallet, setWalletAddress, isDarkMode, walletAddress } =
+    useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
   const [password, setPassword] = useState("");
@@ -97,41 +102,26 @@ export default function UnlockScreen() {
     startSpin();
 
     try {
-      // 1. Verifikasi Password
-      const isValid = await WalletRepository.verifyPassword(password);
+      // 1. Panggil fungsi unlock dari Store
+      // Fungsi ini akan memverifikasi password dan mengisi mnemonic ke state jika berhasil
+      const success = await unlockWallet(password);
 
-      if (!isValid) {
-        stopSpin();
-        setIsLoading(false);
+      stopSpin();
+      setIsLoading(false);
+
+      if (success) {
+        // 2. Jika berhasil, mnemonic sudah ada di store.
+        // Kita bisa langsung navigasi.
+        // Catatan: Address seharusnya sudah tersimpan di store saat loadWalletFromStorage pertama kali.
+        // Jika walletAddress masih null (jarang terjadi jika flow benar), bisa fetch ulang atau biarkan komponen lain menanganinya.
+
+        router.replace("/(tabs)");
+      } else {
+        // 3. Jika gagal (password salah)
         setPassword("");
         setError("Incorrect password. Please try again.");
         triggerShake();
-        return;
       }
-
-      // 2. Ambil Mnemonic jika password benar
-      const mnemonic = await WalletRepository.getMnemonicIfValid(password);
-
-      if (!mnemonic) {
-        // Jika mnemonic hilang tapi password benar (aneh), reset saja
-        await WalletRepository.wipeWallet();
-        router.replace("/welcome");
-        return;
-      }
-
-      // 3. Derive Address dari Mnemonic untuk memastikan konsistensi
-      const privateKey =
-        KeyDerivationService.getPrivateKeyFromMnemonic(mnemonic);
-      const address = KeyDerivationService.getAddressFromPrivateKey(privateKey);
-
-      // 4. Update Store
-      setWalletAddress(address);
-      setUnlocked(true);
-
-      stopSpin();
-
-      // Masuk ke main app
-      router.replace("/(tabs)");
     } catch (e: any) {
       console.error(e);
       stopSpin();
@@ -143,8 +133,8 @@ export default function UnlockScreen() {
   };
 
   const handleReset = async () => {
-    await WalletRepository.wipeWallet();
-    await useAppStore.getState().setWalletAddress(null);
+    // Gunakan resetWallet dari store agar state juga ter-reset bersih
+    await useAppStore.getState().resetWallet();
     router.replace("/welcome");
   };
 
@@ -293,7 +283,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "space-between", // Spread top, middle, bottom
+    justifyContent: "space-between",
     paddingTop: 80,
     paddingBottom: 44,
     paddingHorizontal: 28,

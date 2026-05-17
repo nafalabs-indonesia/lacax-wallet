@@ -38,10 +38,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+// Pastikan package.json Anda menginstall ethers@^5.7.0
+import { ethers } from "ethers";
 
 const { width } = Dimensions.get("window");
 
-// Mapping Icon Lokal
 const LOCAL_ICON_MAP: Record<string, any> = {
   ETH: require("../assets/chains/eth.png"),
   USDT: require("../assets/coins/usdt.png"),
@@ -49,39 +50,39 @@ const LOCAL_ICON_MAP: Record<string, any> = {
   BDAG: require("../assets/chains/bdag.png"),
 };
 
-// Mapping icon chain lokal (untuk dropdown network)
 const LOCAL_CHAIN_ICON_MAP: Record<string, any> = {
   "ethereum-mainnet": require("../assets/chains/eth.png"),
   "blockdag-mainnet": require("../assets/chains/bdag.png"),
 };
 
-// Filter hanya Mainnet
 const MAINNET_CHAINS = SUPPORTED_CHAINS.filter(
   (c) => !c.id.includes("testnet") && !c.id.includes("sepolia"),
 );
 
-// Public RPC endpoints sebagai fallback untuk gas estimation
-// Beberapa alternatif per chain — dicoba satu per satu sampai berhasil
 const PUBLIC_RPC_MAP: Record<string, string[]> = {
   "ethereum-mainnet": [
-    "https://cloudflare-eth.com", // Cloudflare, sangat reliable
-    "https://rpc.ankr.com/eth", // Ankr public
-    "https://ethereum.publicnode.com", // PublicNode
-    "https://eth.llamarpc.com", // LlamaRPC
+    "https://cloudflare-eth.com",
+    "https://rpc.ankr.com/eth",
+    "https://ethereum.publicnode.com",
+    "https://eth.llamarpc.com",
   ],
   "blockdag-mainnet": ["https://rpc.primordial.bdagscan.com"],
 };
 
-// Default fallback gas price (wei) jika semua metode gagal
 const HARDCODED_GAS_FALLBACK: Record<string, string> = {
-  "ethereum-mainnet": "20000000000", // 20 gwei
-  "blockdag-mainnet": "1000000000", // 1 gwei
+  "ethereum-mainnet": "20000000000",
+  "blockdag-mainnet": "1000000000",
 };
 
-// Gas limit konstanta — dipakai konsisten di seluruh file
-const NATIVE_DECIMALS = 18; // gas selalu dalam ETH/native, bukan decimals token
-const GAS_LIMIT_NATIVE = 21000; // transfer ETH biasa
-const GAS_LIMIT_TOKEN = 65000; // transfer ERC-20
+const NATIVE_DECIMALS = 18;
+const GAS_LIMIT_NATIVE = 21000;
+const GAS_LIMIT_TOKEN = 65000;
+
+// Standard ERC-20 transfer ABI
+const ERC20_ABI = [
+  "function transfer(address to, uint256 amount) returns (bool)",
+  "function decimals() view returns (uint8)",
+];
 
 interface AssetOption {
   symbol: string;
@@ -101,36 +102,39 @@ export default function SendScreen() {
   const initialChainId = (params.chainId as string) || "ethereum-mainnet";
   const initialSymbol = (params.symbol as string) || "ETH";
 
-  // State Selection
   const [selectedChain, setSelectedChain] = useState<ChainConfig>(
     MAINNET_CHAINS.find((c) => c.id === initialChainId) || MAINNET_CHAINS[0],
   );
   const [selectedAsset, setSelectedAsset] = useState<AssetOption | null>(null);
   const [availableAssets, setAvailableAssets] = useState<AssetOption[]>([]);
 
-  // State Input
   const [recipientAddress, setRecipientAddress] = useState("");
   const [amount, setAmount] = useState("");
 
-  // State UI Dropdowns
   const [isNetworkDropdownOpen, setIsNetworkDropdownOpen] = useState(false);
   const [isAssetDropdownOpen, setIsAssetDropdownOpen] = useState(false);
 
-  // Camera Permission Hook
   const [permission, requestPermission] = useCameraPermissions();
   const [isScanning, setIsScanning] = useState(false);
 
-  // State Data & Loading
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [gasPriceWei, setGasPriceWei] = useState<string>("0");
   const [isSending, setIsSending] = useState(false);
 
-  // Constants
-  const SERVICE_FEE_PERCENT = 0.0001; // 0.01%
+  const SERVICE_FEE_PERCENT = 0.0001;
 
-  // ─── Fallback: estimasi gas via public RPC (eth_gasPrice JSON-RPC) ──────────
-  // Pakai native fetch (bukan axios) agar tidak kena network proxy restriction.
-  // Coba setiap URL dalam daftar secara berurutan sampai salah satu berhasil.
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  // Resolve RPC URL untuk chain — pakai rpcUrl dari ChainConfig,
+  // fallback ke PUBLIC_RPC_MAP jika tidak ada
+  const getRpcUrl = useCallback((chain: ChainConfig): string => {
+    if (chain.rpcUrl) return chain.rpcUrl;
+    const fallbacks = PUBLIC_RPC_MAP[chain.id];
+    return fallbacks?.[0] ?? "";
+  }, []);
+
+  // ─── Gas Fetching ────────────────────────────────────────────────────────────
+
   const fetchGasFromPublicRpc = useCallback(
     async (chainId: string): Promise<string | null> => {
       const rpcUrls = PUBLIC_RPC_MAP[chainId];
@@ -157,12 +161,7 @@ export default function SendScreen() {
 
           clearTimeout(timer);
 
-          if (!response.ok) {
-            console.warn(
-              `[GasFallback] ${rpcUrl} HTTP ${response.status}, trying next...`,
-            );
-            continue;
-          }
+          if (!response.ok) continue;
 
           const json = await response.json();
           const hexPrice: string | undefined = json?.result;
@@ -192,7 +191,6 @@ export default function SendScreen() {
     [],
   );
 
-  // 1. Fetch Gas Price: coba 0x API → public RPC → hardcoded fallback
   const fetchGasPrice = useCallback(async () => {
     const chainIdMap: Record<string, number> = {
       "ethereum-mainnet": 1,
@@ -200,7 +198,6 @@ export default function SendScreen() {
     };
     const cid = chainIdMap[selectedChain.id];
 
-    // --- Attempt 1: 0x API ---
     if (ZEROEX_API_KEY && cid) {
       try {
         const response = await axios.get(`https://api.0x.org/swap/v1/price`, {
@@ -216,23 +213,20 @@ export default function SendScreen() {
         });
 
         if (response.data?.gasPrice) {
-          console.log("[Gas] 0x API success:", response.data.gasPrice);
           setGasPriceWei(response.data.gasPrice);
           return;
         }
-      } catch (error) {
+      } catch {
         console.warn("[Gas] 0x API failed, trying public RPC fallback...");
       }
     }
 
-    // --- Attempt 2: Public RPC ---
     const rpcPrice = await fetchGasFromPublicRpc(selectedChain.id);
     if (rpcPrice) {
       setGasPriceWei(rpcPrice);
       return;
     }
 
-    // --- Attempt 3: Hardcoded fallback ---
     const fallback = HARDCODED_GAS_FALLBACK[selectedChain.id] ?? "5000000000";
     console.warn(
       `[Gas] All methods failed, using hardcoded fallback: ${fallback} wei`,
@@ -240,7 +234,8 @@ export default function SendScreen() {
     setGasPriceWei(fallback);
   }, [selectedChain.id, walletAddress, fetchGasFromPublicRpc]);
 
-  // 2. Fetch Balances & Populate Assets
+  // ─── Balance Fetching ────────────────────────────────────────────────────────
+
   const fetchBalances = useCallback(async () => {
     if (!walletAddress) return;
     setIsLoadingBalance(true);
@@ -253,7 +248,6 @@ export default function SendScreen() {
 
       let assets: AssetOption[] = [];
 
-      // Add Native
       assets.push({
         symbol: selectedChain.symbol,
         name: selectedChain.name.split(" ")[0],
@@ -264,7 +258,6 @@ export default function SendScreen() {
         isNative: true,
       });
 
-      // Add Tokens
       if (selectedChain.tokens) {
         for (const token of selectedChain.tokens) {
           try {
@@ -291,7 +284,6 @@ export default function SendScreen() {
 
       setAvailableAssets(assets);
 
-      // Set Default Selected
       const defaultAsset =
         assets.find((a) => a.symbol === initialSymbol) || assets[0];
       setSelectedAsset(defaultAsset);
@@ -309,13 +301,13 @@ export default function SendScreen() {
     setIsAssetDropdownOpen(false);
   }, [fetchGasPrice, fetchBalances]);
 
-  // Handlers
+  // ─── Handlers ────────────────────────────────────────────────────────────────
+
   const handleMax = () => {
     if (!selectedAsset) return;
     let maxVal = parseFloat(selectedAsset.balance);
 
     if (selectedAsset.isNative) {
-      // Gas selalu 18 decimals (ETH), buffer 10%
       const gasCostEth =
         (GAS_LIMIT_NATIVE * parseInt(gasPriceWei)) /
         Math.pow(10, NATIVE_DECIMALS);
@@ -354,7 +346,11 @@ export default function SendScreen() {
     }
   };
 
+  // ─── Send Handler (Updated for Ethers v5) ───────────────────────────────────
+
   const handleSend = async () => {
+    // console.log("DEBUG MNEMONIC:", mnemonic ? "ADA" : "KOSONG/UNDEFINED");
+    // console.log("DEBUG MNEMONIC VALUE:", mnemonic);
     if (!selectedAsset || !mnemonic) {
       Alert.alert("Error", "Wallet not initialized.");
       return;
@@ -363,6 +359,16 @@ export default function SendScreen() {
       Alert.alert("Invalid Address", "Please enter a recipient address.");
       return;
     }
+
+    // Validate address format (Ethers v5 syntax)
+    if (!ethers.utils.isAddress(recipientAddress)) {
+      Alert.alert(
+        "Invalid Address",
+        "The recipient address is not a valid Ethereum address.",
+      );
+      return;
+    }
+
     const sendAmount = parseFloat(amount);
     if (isNaN(sendAmount) || sendAmount <= 0) {
       Alert.alert("Invalid Amount", "Please enter a valid amount.");
@@ -374,7 +380,6 @@ export default function SendScreen() {
     }
 
     const serviceFee = sendAmount * SERVICE_FEE_PERCENT;
-    // ✅ Gas selalu dalam ETH (NATIVE_DECIMALS = 18), bukan decimals token
     const txGasLimit = selectedAsset.isNative
       ? GAS_LIMIT_NATIVE
       : GAS_LIMIT_TOKEN;
@@ -383,7 +388,6 @@ export default function SendScreen() {
 
     let totalRequired = sendAmount;
     if (selectedAsset.isNative) {
-      // Cek total ETH = amount + serviceFee + gas
       totalRequired += serviceFee + gasCostEth;
     }
 
@@ -400,7 +404,6 @@ export default function SendScreen() {
 
     Alert.alert(
       "Confirm Transfer",
-      // ✅ Gas ditampilkan dalam nativeSymbol (ETH), bukan token
       `Send ${sendAmount} ${selectedAsset.symbol}?\n\nTo: ${recipientAddress.slice(0, 6)}...${recipientAddress.slice(-4)}\nService Fee: ${serviceFee.toFixed(6)} ${selectedAsset.symbol}\nEst. Gas: ~${gasCostEth.toFixed(6)} ${nativeSymbol}`,
       [
         { text: "Cancel", style: "cancel" },
@@ -409,13 +412,95 @@ export default function SendScreen() {
           onPress: async () => {
             setIsSending(true);
             try {
-              // TODO: Implement actual transaction signing
-              setTimeout(() => {
-                Alert.alert("Success", "Transaction submitted!");
-                router.back();
-              }, 2000);
+              const rpcUrl = getRpcUrl(selectedChain);
+              if (!rpcUrl) {
+                throw new Error("No RPC URL available for this network.");
+              }
+
+              // Setup provider & wallet dari mnemonic (Ethers v5 syntax)
+              const provider = new ethers.providers.JsonRpcProvider(rpcUrl);
+
+              // fromPhrase diganti menjadi fromMnemonic di v5
+              const wallet =
+                ethers.Wallet.fromMnemonic(mnemonic).connect(provider);
+
+              // Pastikan address wallet cocok
+              if (
+                wallet.address.toLowerCase() !== walletAddress?.toLowerCase()
+              ) {
+                throw new Error(
+                  "Wallet address mismatch. Please re-import wallet.",
+                );
+              }
+
+              let txResponse: ethers.providers.TransactionResponse;
+
+              if (selectedAsset.isNative) {
+                // ── Kirim native token (ETH / BDAG) ──────────────────────────
+                txResponse = await wallet.sendTransaction({
+                  to: recipientAddress,
+                  value: ethers.utils.parseUnits(amount, NATIVE_DECIMALS),
+                  gasLimit: GAS_LIMIT_NATIVE, // v5 accepts number
+                  gasPrice: ethers.utils.parseUnits(gasPriceWei, "wei"), // Ensure proper formatting or just pass string/number
+                });
+              } else {
+                // ── Kirim ERC-20 token ────────────────────────────────────────
+                const contract = new ethers.Contract(
+                  selectedAsset.address,
+                  ERC20_ABI,
+                  wallet,
+                );
+
+                // Di v5, override options biasanya argumen terakhir
+                txResponse = await contract.transfer(
+                  recipientAddress,
+                  ethers.utils.parseUnits(amount, selectedAsset.decimals),
+                  {
+                    gasLimit: GAS_LIMIT_TOKEN,
+                    gasPrice: ethers.utils.parseUnits(gasPriceWei, "wei"),
+                  },
+                );
+              }
+
+              console.log("[Send] TX submitted:", txResponse.hash);
+
+              Alert.alert(
+                "Transaction Submitted",
+                `TX Hash:\n${txResponse.hash}\n\nYour transaction has been broadcast to the network.`,
+                [
+                  {
+                    text: "OK",
+                    onPress: () => router.back(),
+                  },
+                ],
+              );
             } catch (error: any) {
-              Alert.alert("Failed", error.message);
+              console.error("[Send] Error:", error);
+
+              // Parse pesan error yang lebih user-friendly
+              let message = error?.message ?? "Unknown error occurred.";
+
+              // Ethers v5 errors often have error.reason or error.code
+              if (error?.reason) {
+                message = error.reason;
+              }
+
+              if (message.includes("insufficient funds")) {
+                message = "Insufficient funds to cover amount and gas fees.";
+              } else if (message.includes("nonce")) {
+                message = "Transaction nonce error. Please try again.";
+              } else if (message.includes("replacement fee too low")) {
+                message = "Gas price too low. Please try again.";
+              } else if (
+                message.includes("network") ||
+                message.includes("ENOTFOUND")
+              ) {
+                message = "Network error. Check your connection and try again.";
+              } else if (message.includes("user rejected")) {
+                message = "Transaction rejected.";
+              }
+
+              Alert.alert("Transaction Failed", message);
             } finally {
               setIsSending(false);
             }
@@ -425,10 +510,10 @@ export default function SendScreen() {
     );
   };
 
-  // Helpers
+  // ─── Display Helpers ─────────────────────────────────────────────────────────
+
   const formatCurrency = (val: string) => parseFloat(val).toFixed(4);
 
-  // ✅ nativeSymbol & estimatedGasEth pakai NATIVE_DECIMALS (18), bukan selectedAsset.decimals
   const nativeSymbol =
     availableAssets.find((a) => a.isNative)?.symbol ?? selectedChain.symbol;
   const gasLimit = selectedAsset?.isNative ? GAS_LIMIT_NATIVE : GAS_LIMIT_TOKEN;
@@ -765,7 +850,6 @@ export default function SendScreen() {
             { backgroundColor: theme.card, zIndex: 50 },
           ]}
         >
-          {/* ✅ Network fee selalu dalam native token (ETH/BDAG), bukan token yg dikirim */}
           <View style={styles.feeRow}>
             <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
               Network Fee (Est.)
@@ -774,7 +858,6 @@ export default function SendScreen() {
               ~{estimatedGasEth.toFixed(6)} {nativeSymbol}
             </Text>
           </View>
-          {/* Service fee dalam token yang dikirim */}
           <View style={styles.feeRow}>
             <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
               Service Fee (0.01%)
@@ -784,7 +867,6 @@ export default function SendScreen() {
               {selectedAsset?.symbol}
             </Text>
           </View>
-          {/* Info jika kirim token ERC-20: gas tetap dibayar ETH */}
           {selectedAsset && !selectedAsset.isNative && (
             <View
               style={[
