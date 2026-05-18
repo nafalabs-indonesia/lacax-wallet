@@ -17,7 +17,7 @@ import { gcm } from "@noble/ciphers/aes.js";
 import { bytesToHex, hexToBytes } from "@noble/ciphers/utils.js";
 
 // ====================== SECURITY CONFIGURATION ======================
-const PBKDF2_ITERATIONS = 75_000;
+const PBKDF2_ITERATIONS = 30_000;
 const KEY_LENGTH = 32;
 const SALT_LENGTH = 16;
 const NONCE_LENGTH = 12;

@@ -87,12 +87,9 @@ export default function RootLayout() {
       "get-started",
       "welcome",
       "unlock",
-      "create",
       "import",
       "backup-intro",
       "reveal-seed",
-      "verify-seed",
-      "create-pin",
       "wallet-ready",
     ];
 

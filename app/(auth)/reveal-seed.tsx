@@ -12,6 +12,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -39,6 +40,7 @@ export default function RevealSeedScreen() {
 
   const [step, setStep] = useState<Step>("seed");
   const [copied, setCopied] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Password state
   const [password, setPassword] = useState("");
@@ -61,6 +63,18 @@ export default function RevealSeedScreen() {
   // Animations for fade-in content
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
+
+  // FIX: Dot animations untuk loading indicator
+  // Kita gunakan Animated.Value biasa untuk opacity/scale
+  const dotAnims = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+  ]).current;
+
+  // State untuk teks loading yang berubah
+  const [loadingText, setLoadingText] = useState("Creating your wallet...");
 
   useEffect(() => {
     if (!mnemonic) generateNewWallet();
@@ -88,6 +102,51 @@ export default function RevealSeedScreen() {
     setPasswordError("");
     setConfirmationError("");
   }, [step]);
+
+  // FIX: Loop animasi dots yang BENAR dan TERUS MENYALA
+  useEffect(() => {
+    if (!isCreating) {
+      // Stop animation and reset when not creating
+      dotAnims.forEach((anim) => anim.stopAnimation());
+      dotAnims.forEach((anim) => anim.setValue(0));
+      return;
+    }
+
+    // Create the animation sequence for a single dot
+    // Scale from 0.5 to 1.2 then back to 0.5
+    const createDotAnimation = (anim: Animated.Value) => {
+      return Animated.sequence([
+        Animated.delay(0), // Start immediately relative to stagger
+        Animated.timing(anim, {
+          toValue: 1, // Full scale/opacity
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(anim, {
+          toValue: 0.3, // Small scale/opacity
+          duration: 400,
+          useNativeDriver: true,
+        }),
+      ]);
+    };
+
+    // Stagger the animations so they wave across
+    // Dot 1 starts at 0ms, Dot 2 at 150ms, etc.
+    const staggeredAnimations = dotAnims.map((anim, index) => {
+      return Animated.sequence([
+        Animated.delay(index * 150),
+        Animated.loop(createDotAnimation(anim))
+      ]);
+    });
+
+    // Start all animations in parallel
+    Animated.parallel(staggeredAnimations).start();
+
+    // Cleanup function to stop animations when component unmounts or isCreating becomes false
+    return () => {
+      dotAnims.forEach((anim) => anim.stopAnimation());
+    };
+  }, [isCreating]);
 
   // Calculate password strength
   useEffect(() => {
@@ -167,27 +226,37 @@ export default function RevealSeedScreen() {
       return;
     }
 
-    setStep("loading");
+    // 1. Set Loading True & Teks Awal
+    setIsCreating(true);
+    setLoadingText("Creating your wallet...");
 
     try {
+      // Simulasi delay kecil agar user melihat teks "Creating..." sebelum berubah
+      // Ini juga memberi waktu bagi animasi loading untuk mulai berjalan smooth
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // 2. Ubah Teks menjadi "Saving..."
+      setLoadingText("Saving your wallet securely...");
+
+      // 3. Proses Finalisasi Wallet
       const ok = await finalizeWallet(password);
 
       if (ok) {
         router.replace("/(auth)/wallet-ready");
       } else {
         setPasswordError("Failed to save wallet. Please try again.");
+        setIsCreating(false);
         setStep("password");
       }
     } catch (error) {
       console.error(error);
       setPasswordError("An error occurred. Please try again.");
+      setIsCreating(false);
       setStep("password");
     }
   };
 
   if (!mnemonic) return null;
-
-  const isLoading = step === "loading";
 
   return (
     <ScrollView
@@ -196,11 +265,11 @@ export default function RevealSeedScreen() {
         { backgroundColor: theme.background },
       ]}
       showsVerticalScrollIndicator={false}
-      scrollEnabled={!isLoading}
+      scrollEnabled={!isCreating}
       keyboardShouldPersistTaps="handled"
     >
       {/* HEADER */}
-      {!isLoading && (
+      {!isCreating && (
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => {
@@ -226,26 +295,34 @@ export default function RevealSeedScreen() {
       )}
 
       {/* ─── STEP: LOADING ─── */}
-      {/* ─── STEP: LOADING ─── */}
-      {isLoading && (
+      {/* Muncul hanya ketika isCreating true, menutupi konten lain karena ScrollView contentContainer */}
+      {isCreating && (
         <View style={styles.loadingWrapper}>
           <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
-            Saving your wallet securely...
+            {loadingText}
           </Text>
 
-          {/* Indikator Loading: 4 Kotak Kecil Horizontal */}
+          {/* FIX: Indikator Loading dengan Animated dots yang looping terus */}
           <View style={styles.loadingDotsContainer}>
-            {[0, 1, 2, 3].map((index) => (
-              <View
+            {dotAnims.map((anim, index) => (
+              <Animated.View
                 key={index}
                 style={[
                   styles.loadingDot,
                   {
-                    // Warna berubah berdasarkan index dan waktu (simulasi geser)
-                    backgroundColor:
-                      (Date.now() % 1000) / 250 > index
-                        ? theme.primary
-                        : theme.border,
+                    backgroundColor: theme.primary,
+                    opacity: anim.interpolate({
+                      inputRange: [0.3, 1],
+                      outputRange: [0.4, 1]
+                    }),
+                    transform: [
+                      {
+                        scale: anim.interpolate({
+                          inputRange: [0.3, 1],
+                          outputRange: [0.8, 1.2],
+                        }),
+                      },
+                    ],
                   },
                 ]}
               />
@@ -255,7 +332,7 @@ export default function RevealSeedScreen() {
       )}
 
       {/* ─── STEP: SEED PHRASE ─── */}
-      {step === "seed" && (
+      {step === "seed" && !isCreating && (
         <Animated.View
           style={[
             styles.content,
@@ -337,7 +414,7 @@ export default function RevealSeedScreen() {
       )}
 
       {/* ─── STEP: CONFIRM SEED ─── */}
-      {step === "confirm" && (
+      {step === "confirm" && !isCreating && (
         <Animated.View
           style={[
             styles.content,
@@ -398,16 +475,28 @@ export default function RevealSeedScreen() {
                       </Text>
                     )}
 
-                    {/* FIX: Gunakan BlurView dari expo-blur untuk efek blur nyata */}
+                    {/* FIX: BlurView dengan fallback untuk Android */}
                     {!isHighlighted && (
-                      <BlurView
-                        intensity={80} // Atur intensitas blur (0-100)
-                        tint={isDarkMode ? "dark" : "light"} // Sesuaikan tint dengan tema
-                        style={[
-                          StyleSheet.absoluteFillObject,
-                          { borderRadius: 10 }, // Samakan dengan borderRadius parent
-                        ]}
-                      />
+                      Platform.OS === "ios" ? (
+                        <BlurView
+                          intensity={80}
+                          tint={isDarkMode ? "dark" : "light"}
+                          style={[
+                            StyleSheet.absoluteFillObject,
+                            { borderRadius: 10 },
+                          ]}
+                        />
+                      ) : (
+                        <BlurView
+                          intensity={80}
+                          tint={isDarkMode ? "dark" : "light"}
+                          experimentalBlurMethod="dimezisBlurView"
+                          style={[
+                            StyleSheet.absoluteFillObject,
+                            { borderRadius: 10 },
+                          ]}
+                        />
+                      )
                     )}
                   </View>
                 );
@@ -429,7 +518,7 @@ export default function RevealSeedScreen() {
       )}
 
       {/* ─── STEP: PASSWORD ─── */}
-      {step === "password" && (
+      {step === "password" && !isCreating && (
         <Animated.View
           style={[
             styles.passwordContent,
@@ -545,14 +634,14 @@ export default function RevealSeedScreen() {
                 backgroundColor: theme.primary,
                 marginTop: 125,
                 marginBottom: 0,
-                opacity: isLoading ? 0.7 : 1, // Sedikit transparan saat loading
+                opacity: isCreating ? 0.7 : 1,
               },
             ]}
             onPress={handleCreatePassword}
-            disabled={isLoading} // Nonaktifkan klik saat loading
+            disabled={isCreating}
           >
             <Text style={styles.primaryBtnText}>
-              {isLoading ? "Creating your wallet..." : "Create Password"}
+              {isCreating ? "Creating your wallet..." : "Create Password"}
             </Text>
           </TouchableOpacity>
         </Animated.View>
@@ -761,6 +850,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingBottom: 100,
+    minHeight: 300,
   },
   loadingText: {
     fontSize: 16,
