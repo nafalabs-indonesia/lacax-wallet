@@ -16,7 +16,7 @@ export default function Index() {
 
     const timer = setTimeout(() => {
       if (walletAddress) {
-        router.replace("/unlock");
+        router.replace("/(auth)/unlock");
       }
     }, 1500);
 

@@ -1,8 +1,10 @@
 module.exports = function (api) {
   api.cache(true);
+
   return {
     presets: ["babel-preset-expo"],
     plugins: [
+      // ✅ "module:expo-router" dihapus
       [
         "module:react-native-dotenv",
         {
