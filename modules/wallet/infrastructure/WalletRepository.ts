@@ -1,5 +1,6 @@
 // modules/wallet/infrastructure/WalletRepository.ts
-import { validateMnemonic } from "bip39";
+import { validateMnemonic } from '@scure/bip39';
+import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { ethers } from "ethers";
 import * as SecureStore from "expo-secure-store";
 
@@ -214,7 +215,7 @@ export class WalletRepository {
   }
 
   static async createWallet(mnemonic: string, password: string): Promise<void> {
-    if (!validateMnemonic(mnemonic)) {
+    if (!validateMnemonic(mnemonic, wordlist)) {
       throw new Error(
         "Invalid mnemonic. Use a valid 12 or 24-word BIP39 phrase.",
       );
