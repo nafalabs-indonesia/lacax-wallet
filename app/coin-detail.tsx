@@ -36,7 +36,7 @@ import { Colors } from "../theme/colors";
 const { width } = Dimensions.get("window");
 const CHART_HEIGHT = 250;
 const PRICE_LABEL_WIDTH = 55;
-const CHART_LEFT_PADDING = 20; // ← geser chart ke kanan
+const CHART_LEFT_PADDING = 20;
 const COLOR_BLUE = "#3b82f6";
 const COLOR_GREEN = "#7ed957";
 const COLOR_RED = "#ff3131";
@@ -406,11 +406,35 @@ export default function CoinDetailScreen() {
   const [chartLoading, setChartLoading] = useState(false);
   const [disclaimerVisible, setDisclaimerVisible] = useState(false);
 
+  // ── Kurs USD → IDR real-time dari CoinGecko ──
+  const [usdToIdr, setUsdToIdr] = useState<number>(15500); // fallback sementara
+
   const id = typeof coinId === "string" ? coinId : "ethereum";
   const geckoId = COINGECKO_ID_MAP[id] || id;
 
   const change24h = coinData?.price_change_percentage_24h ?? 0;
   const isPositive = change24h >= 0;
+
+  // ─────────────────────────────────────────────
+  // Fetch kurs USD → IDR via CoinGecko
+  // Pakai endpoint simple/price: minta harga USDT dalam IDR.
+  // Karena 1 USDT ≈ 1 USD, nilai idr-nya = kurs USD→IDR saat ini.
+  // ─────────────────────────────────────────────
+  const fetchUsdToIdr = useCallback(async () => {
+    try {
+      const res = await fetch(
+        "https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=idr",
+      );
+      if (!res.ok) throw new Error("rate fetch failed");
+      const data = await res.json();
+      const rate = data?.tether?.idr;
+      if (rate && rate > 1000) {
+        setUsdToIdr(rate);
+      }
+    } catch {
+      // Biarkan fallback 15500 tetap dipakai jika gagal
+    }
+  }, []);
 
   const fetchChartForTimeframe = useCallback(
     async (tf: string, isMock: boolean, basePrice: number) => {
@@ -505,9 +529,17 @@ export default function CoinDetailScreen() {
     }
   }, [geckoId, id, timeFrame, fetchChartForTimeframe]);
 
+  // Fetch kurs + coin data saat pertama kali mount
   useEffect(() => {
+    fetchUsdToIdr();
     fetchCoinData();
-  }, [fetchCoinData]);
+  }, [fetchCoinData, fetchUsdToIdr]);
+
+  // Refresh kurs setiap 60 detik
+  useEffect(() => {
+    const interval = setInterval(fetchUsdToIdr, 60_000);
+    return () => clearInterval(interval);
+  }, [fetchUsdToIdr]);
 
   const handleTimeFrameChange = (tf: string) => {
     setTimeFrame(tf);
@@ -517,7 +549,18 @@ export default function CoinDetailScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
+    fetchUsdToIdr();
     fetchCoinData();
+  };
+
+  // ── Format IDR: selalu "IDR 1.234.567" ──
+  const formatIDR = (usdValue: number) => {
+    const idrValue = usdValue * usdToIdr;
+    const formatted = new Intl.NumberFormat("id-ID", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(idrValue);
+    return `IDR ${formatted}`;
   };
 
   const formatCurrency = (val: number) =>
@@ -622,11 +665,9 @@ export default function CoinDetailScreen() {
             <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>
               Current Price
             </Text>
+            {/* IDR menggunakan kurs real-time dari CoinGecko */}
             <Text style={[styles.priceValue, { color: theme.text }]}>
-              IDR{" "}
-              {(coinData.current_price * 15000).toLocaleString("id-ID", {
-                maximumFractionDigits: 0,
-              })}
+              {formatIDR(coinData.current_price)}
             </Text>
             <View style={styles.changeRow}>
               <Text style={{ color: theme.textSecondary, fontSize: 12 }}>

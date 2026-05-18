@@ -1,85 +1,131 @@
-// app/(tabs)/settings.tsx
-import { useRouter } from "expo-router";
+// app/settings.tsx
+import * as Clipboard from "expo-clipboard";
+import { router } from "expo-router";
 import {
-    ArrowLeft,
-    ChevronRight,
-    Fingerprint,
-    Globe,
-    Info,
-    LogOut,
-    Moon,
-    Shield,
-    Sun,
-    Wallet,
+  ChevronLeft,
+  Fingerprint,
+  Globe,
+  Info,
+  LogOut,
+  Moon,
+  Shield,
+  Sun,
+  Wallet,
 } from "lucide-react-native";
-import React from "react";
+import React, { useState } from "react";
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    View,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
-interface SettingItemProps {
+// --- Komponen Item Grid ---
+interface GridItemProps {
   icon: React.ReactNode;
   title: string;
-  subtitle?: string;
   onPress?: () => void;
-  rightElement?: React.ReactNode;
-  danger?: boolean;
 }
 
-function SettingItem({
-  icon,
-  title,
-  subtitle,
-  onPress,
-  rightElement,
-  danger,
-}: SettingItemProps) {
+function GridItem({ icon, title, onPress }: GridItemProps) {
   const { isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
+  const iconColor = theme.text;
+
   return (
     <TouchableOpacity
-      style={[styles.item, { borderBottomColor: theme.border }]}
+      style={styles.gridItem}
       onPress={onPress}
-      activeOpacity={onPress ? 0.7 : 1}
-      disabled={!onPress}
+      activeOpacity={0.7}
     >
-      <View
-        style={[
-          styles.itemIcon,
-          { backgroundColor: danger ? "#EF444415" : theme.primary + "12" },
-        ]}
-      >
-        {icon}
+      <View style={styles.iconWrapper}>
+        {React.cloneElement(icon as React.ReactElement<any>, {
+          color: iconColor,
+          size: 25,
+          strokeWidth: 2,
+        })}
       </View>
-      <View style={styles.itemContent}>
-        <Text
-          style={[styles.itemTitle, { color: danger ? "#EF4444" : theme.text }]}
-        >
-          {title}
-        </Text>
-        {subtitle && (
-          <Text style={[styles.itemSubtitle, { color: theme.textSecondary }]}>
-            {subtitle}
-          </Text>
-        )}
-      </View>
-      {rightElement ||
-        (onPress && <ChevronRight size={18} color={theme.textSecondary} />)}
+      <Text style={[styles.gridTitle, { color: theme.text }]}>{title}</Text>
     </TouchableOpacity>
   );
 }
 
+// --- Custom Modal ---
+interface AlertButton {
+  text: string;
+  style?: "default" | "cancel" | "destructive";
+  onPress?: () => void;
+}
+
+function CustomAlert({
+  visible,
+  title,
+  message,
+  buttons,
+  onClose,
+}: {
+  visible: boolean;
+  title: string;
+  message: string;
+  buttons: AlertButton[];
+  onClose: () => void;
+}) {
+  const { isDarkMode } = useAppStore();
+  const theme = isDarkMode ? Colors.dark : Colors.light;
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContainer, { backgroundColor: theme.card }]}>
+          <Text style={[styles.modalTitle, { color: theme.text }]}>
+            {title}
+          </Text>
+
+          {/* FIX: scroll + batas tinggi */}
+          <ScrollView
+            style={styles.modalScroll}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>
+              {message}
+            </Text>
+          </ScrollView>
+
+          <View style={styles.modalButtons}>
+            {buttons.map((btn, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.modalButton}
+                onPress={() => {
+                  onClose();
+                  btn.onPress?.();
+                }}
+              >
+                <Text
+                  style={{
+                    color:
+                      btn.style === "destructive" ? theme.error : theme.text,
+                    fontWeight: "600",
+                  }}
+                >
+                  {btn.text}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function SettingsScreen() {
-  const router = useRouter();
   const {
     isDarkMode,
     toggleTheme,
@@ -87,7 +133,33 @@ export default function SettingsScreen() {
     setUnlocked,
     setWalletAddress,
   } = useAppStore();
+
   const theme = isDarkMode ? Colors.dark : Colors.light;
+
+  const [modal, setModal] = useState({
+    visible: false,
+    title: "",
+    message: "",
+    buttons: [] as AlertButton[],
+  });
+
+  const showAlert = (
+    title: string,
+    message: string,
+    buttons: AlertButton[] = [{ text: "OK" }],
+  ) => {
+    setModal({ visible: true, title, message, buttons });
+  };
+
+  const closeAlert = () => {
+    setModal((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handleCopyAddress = async () => {
+    if (!walletAddress) return;
+    await Clipboard.setStringAsync(walletAddress);
+    showAlert("Success", "Wallet address copied to clipboard");
+  };
 
   const handleLockWallet = () => {
     setUnlocked(false);
@@ -95,13 +167,13 @@ export default function SettingsScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert(
-      "Keluar Wallet",
-      "Apakah Anda yakin ingin keluar? Pastikan mnemonic sudah tersimpan.",
+    showAlert(
+      "Logout Wallet",
+      "Are you sure you want to log out? Make sure you have backed up your recovery phrase.",
       [
-        { text: "Batal", style: "cancel" },
+        { text: "Cancel", style: "cancel" },
         {
-          text: "Keluar",
+          text: "Logout",
           style: "destructive",
           onPress: () => {
             setUnlocked(false);
@@ -113,226 +185,255 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleSecuritySettings = () => {
+    showAlert(
+      "Security Settings",
+      "Manage your Password, Biometrics, and Recovery Phrase.",
+      [
+        {
+          text: "Change Password",
+          onPress: () => showAlert("Info", "Navigate to Change Password"),
+        },
+        {
+          text: "Enable Biometrics",
+          onPress: () => showAlert("Info", "Toggle Biometrics"),
+        },
+        { text: "Close", style: "cancel" },
+      ],
+    );
+  };
+
+  const handleLanguage = () => {
+    showAlert("Language", "Select your preferred language.", [
+      {
+        text: "English",
+        onPress: () => showAlert("Success", "Language set to English"),
+      },
+      {
+        text: "Indonesian",
+        onPress: () => showAlert("Success", "Language set to Indonesian"),
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
+  const handleAbout = () => {
+    showAlert(
+      "About Lacax Wallet",
+      "Version: 1.0.0\n\nA secure and simple crypto wallet for everyone.",
+    );
+  };
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity
-          style={[
-            styles.backBtn,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-          onPress={() => router.back()}
-          activeOpacity={0.75}
-        >
-          <ArrowLeft size={18} color={theme.text} strokeWidth={2.2} />
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <ChevronLeft size={28} color={theme.text} strokeWidth={2.5} />
         </TouchableOpacity>
-
         <Text style={[styles.headerTitle, { color: theme.text }]}>
-          Pengaturan
+          Settings
         </Text>
-
-        {/* Spacer agar title tetap center */}
-        <View style={styles.backBtn} />
+        <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Account Section */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-            AKUN
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Account & Security
           </Text>
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: theme.card, borderColor: theme.border },
-            ]}
-          >
-            <SettingItem
-              icon={<Wallet size={18} color={theme.primary} />}
-              title="Alamat Wallet"
-              subtitle={
-                walletAddress
-                  ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
-                  : "-"
-              }
-              onPress={() => {}}
+          <View style={[styles.gridContainer, { backgroundColor: theme.card }]}>
+            <GridItem
+              icon={<Wallet />}
+              title="Wallet Address"
+              onPress={handleCopyAddress}
             />
-            <SettingItem
-              icon={<Shield size={18} color={theme.primary} />}
-              title="Keamanan"
-              subtitle="PIN & Backup"
-              onPress={() => {}}
+            <GridItem
+              icon={<Shield />}
+              title="Security"
+              onPress={handleSecuritySettings}
             />
-          </View>
-        </View>
-
-        {/* Appearance Section */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-            TAMPILAN
-          </Text>
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: theme.card, borderColor: theme.border },
-            ]}
-          >
-            <SettingItem
-              icon={
-                isDarkMode ? (
-                  <Moon size={18} color={theme.primary} />
-                ) : (
-                  <Sun size={18} color={theme.primary} />
-                )
-              }
-              title="Mode Gelap"
-              subtitle={isDarkMode ? "Aktif" : "Nonaktif"}
-              rightElement={
-                <Switch
-                  value={isDarkMode}
-                  onValueChange={() => toggleTheme()}
-                />
-              }
-            />
-            <SettingItem
-              icon={<Globe size={18} color={theme.primary} />}
-              title="Bahasa"
-              subtitle="Bahasa Indonesia"
-              onPress={() => {}}
-            />
-          </View>
-        </View>
-
-        {/* Actions Section */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-            TINDAKAN
-          </Text>
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: theme.card, borderColor: theme.border },
-            ]}
-          >
-            <SettingItem
-              icon={<Fingerprint size={18} color={theme.primary} />}
-              title="Kunci Wallet"
-              subtitle="Kunci dan kembali ke layar PIN"
+            <GridItem
+              icon={<Fingerprint />}
+              title="Lock Wallet"
               onPress={handleLockWallet}
             />
-            <SettingItem
-              icon={<Info size={18} color={theme.primary} />}
-              title="Tentang"
-              subtitle="Versi 1.0.0"
-              onPress={() => {}}
-            />
           </View>
         </View>
 
-        {/* Logout */}
         <View style={styles.section}>
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: theme.card, borderColor: theme.border },
-            ]}
-          >
-            <SettingItem
-              icon={<LogOut size={18} color="#EF4444" />}
-              title="Keluar Wallet"
-              subtitle="Hapus sesi dan kembali ke awal"
-              onPress={handleLogout}
-              danger
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Preferences
+          </Text>
+          <View style={[styles.gridContainer, { backgroundColor: theme.card }]}>
+            <TouchableOpacity style={styles.gridItem} onPress={toggleTheme}>
+              <View style={styles.iconWrapper}>
+                {isDarkMode ? (
+                  <Moon color={theme.text} size={25} strokeWidth={2} />
+                ) : (
+                  <Sun color={theme.text} size={25} strokeWidth={2} />
+                )}
+              </View>
+              <Text style={[styles.gridTitle, { color: theme.text }]}>
+                Appearance
+              </Text>
+            </TouchableOpacity>
+
+            <GridItem
+              icon={<Globe />}
+              title="Language"
+              onPress={handleLanguage}
             />
+            <GridItem icon={<Info />} title="About" onPress={handleAbout} />
           </View>
         </View>
 
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={[styles.footerText, { color: theme.textSecondary }]}>
-            Lacax Wallet v1.0.0
-          </Text>
+        <View style={styles.footerSection}>
+          <TouchableOpacity
+            style={[styles.aboutRow, { backgroundColor: theme.card }]}
+            onPress={handleAbout}
+          >
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 12 }}
+            >
+              <Info size={20} color={theme.textSecondary} />
+              <Text style={[styles.aboutText, { color: theme.textSecondary }]}>
+                Lacax Wallet v1.0.0
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.logoutButton,
+              { marginTop: 16, backgroundColor: theme.error + "15" },
+            ]}
+            onPress={handleLogout}
+          >
+            <LogOut size={20} color={theme.error} />
+            <Text
+              style={{ color: theme.error, marginLeft: 10, fontWeight: "600" }}
+            >
+              Log Out
+            </Text>
+          </TouchableOpacity>
         </View>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
-    </View>
+
+      <CustomAlert
+        visible={modal.visible}
+        title={modal.title}
+        message={modal.message}
+        buttons={modal.buttons}
+        onClose={closeAlert}
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 10 },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 10,
   },
-  backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    letterSpacing: -0.3,
-  },
-  section: {
-    marginTop: 24,
-    paddingHorizontal: 20,
-  },
+  backBtn: { padding: 8, marginLeft: -8 },
+  headerTitle: { fontSize: 20, fontWeight: "700", letterSpacing: 0.5 },
+  section: { marginBottom: 24 },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 18,
     fontWeight: "700",
-    letterSpacing: 1,
-    marginBottom: 8,
-    textTransform: "uppercase",
+    marginBottom: 12,
+    marginLeft: 4,
   },
-  card: {
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: "hidden",
+  gridContainer: {
+    borderRadius: 20,
+    padding: 16,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  item: {
+  gridItem: {
+    width: "30%",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  iconWrapper: { marginBottom: 8 },
+  gridTitle: {
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "center",
+    lineHeight: 14,
+  },
+  footerSection: { marginTop: 10 },
+  aboutRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    gap: 12,
+    justifyContent: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
   },
-  itemIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  aboutText: { fontSize: 14, fontWeight: "500" },
+  logoutButton: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    padding: 16,
+    borderRadius: 16,
   },
-  itemContent: {
+
+  // --- Modal Styles (FIXED) ---
+  modalOverlay: {
     flex: 1,
-    gap: 2,
-  },
-  itemTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  itemSubtitle: {
-    fontSize: 13,
-  },
-  footer: {
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
     alignItems: "center",
-    marginTop: 32,
-    marginBottom: 40,
-    gap: 4,
   },
-  footerText: {
-    fontSize: 12,
+  modalContainer: {
+    width: "92%", // diperbesar
+    maxHeight: "75%", // biar tidak kepanjangan
+    borderRadius: 20,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 10,
+  },
+  modalScroll: {
+    maxHeight: 200, // batas isi text
+  },
+  modalMessage: {
+    fontSize: 14,
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 16,
+  },
+  modalButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
   },
 });

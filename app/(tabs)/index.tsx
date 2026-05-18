@@ -31,15 +31,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import Svg, { Polyline } from "react-native-svg";
 import { HomeHeader } from "../../components/HomeHeader";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
-const { width: W, height: H } = Dimensions.get("window");
-
-const COLOR_UP = "#7ed957";
-const COLOR_DOWN = "#ff3131";
+const { width: W } = Dimensions.get("window");
 
 // ─────────────────────────────────────────────
 // Helper: Detect Testnet
@@ -67,7 +63,6 @@ const LOCAL_ICON_MAP: Record<string, any> = {
 const NETWORK_BADGE_ICON: Record<string, any> = {
   "ethereum-mainnet": require("../../assets/chains/eth-symbol.webp"),
   "ethereum-sepolia": require("../../assets/chains/eth-symbol.webp"),
-  // Fallback jika badge lain belum ada
 };
 
 // ─────────────────────────────────────────────
@@ -84,7 +79,8 @@ const COINGECKO_IDS: Record<string, string> = {
 // Price Data Interface
 // ─────────────────────────────────────────────
 interface PriceData {
-  price: number;
+  usd: number;
+  idr: number;
   change24h: number;
   lastUpdated: number;
 }
@@ -93,13 +89,21 @@ interface PriceData {
 // Asset Display Interface
 // ─────────────────────────────────────────────
 interface DisplayAsset {
-  id: string; // Unique ID
+  id: string;
   chainId: string;
   name: string;
   symbol: string;
   balance: string;
   isNative: boolean;
   tokenConfig?: TokenConfig;
+}
+
+// ─────────────────────────────────────────────
+// Balance History Snapshot Interface
+// ─────────────────────────────────────────────
+interface BalanceSnapshot {
+  totalFiat: number;
+  timestamp: number;
 }
 
 // ─────────────────────────────────────────────
@@ -114,19 +118,16 @@ function AssetIcon({
   chainId: string;
   isNative: boolean;
 }) {
-  // Tentukan source icon utama
-  let mainSource = LOCAL_ICON_MAP[symbol]; // Coba cari berdasarkan symbol (untuk token)
+  let mainSource = LOCAL_ICON_MAP[symbol];
   if (!mainSource) {
-    mainSource = LOCAL_ICON_MAP[chainId]; // Fallback ke icon chain (untuk native)
+    mainSource = LOCAL_ICON_MAP[chainId];
   }
 
-  // Tentukan source badge network
   const showBadge = !isNative;
   const badgeSource = NETWORK_BADGE_ICON[chainId];
 
   return (
     <View style={styles.assetIconContainer}>
-      {/* Main Icon */}
       <View style={styles.assetIcon}>
         {mainSource ? (
           <Image
@@ -147,7 +148,6 @@ function AssetIcon({
         )}
       </View>
 
-      {/* Network Badge (Small Icon at Bottom Right) */}
       {showBadge && badgeSource && (
         <View style={styles.networkBadge}>
           <Image
@@ -162,68 +162,6 @@ function AssetIcon({
         </View>
       )}
     </View>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Mini Sparkline Chart
-// ─────────────────────────────────────────────
-function MiniSparkline({ data, color }: { data: number[]; color: string }) {
-  if (!data || data.length < 2) return null;
-  const W_CHART = 56;
-  const H_CHART = 26;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const points = data
-    .map((v, i) => {
-      const x = (i / (data.length - 1)) * W_CHART;
-      const y = H_CHART - ((v - min) / range) * H_CHART;
-      return `${x},${y}`;
-    })
-    .join(" ");
-  return (
-    <Svg width={W_CHART} height={H_CHART} style={{ overflow: "visible" }}>
-      <Polyline
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        points={points}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Large Balance Chart (inside card)
-// ─────────────────────────────────────────────
-function BalanceChart({ data, color }: { data: number[]; color: string }) {
-  if (!data || data.length < 2) return null;
-  const CW = W - 230;
-  const CH = 40;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const points = data
-    .map((v, i) => {
-      const x = (i / (data.length - 1)) * CW;
-      const y = CH - ((v - min) / range) * CH;
-      return `${x},${y}`;
-    })
-    .join(" ");
-  return (
-    <Svg width={CW} height={CH} style={{ overflow: "visible" }}>
-      <Polyline
-        fill="none"
-        stroke={color}
-        strokeWidth="2.5"
-        points={points}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
   );
 }
 
@@ -290,23 +228,19 @@ export default function HomeScreen() {
 
   const [displayAssets, setDisplayAssets] = useState<DisplayAsset[]>([]);
   const [prices, setPrices] = useState<Record<string, PriceData>>({});
-  const [chartData, setChartData] = useState<number[]>([]);
   const [activeChainId, setActiveChainId] =
     useState<ChainId>("ethereum-mainnet");
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // State baru untuk Tab dan Network Management
   const [activeTab, setActiveTab] = useState<"crypto" | "network">("crypto");
   const [showNetworkSheet, setShowNetworkSheet] = useState(false);
-
-  // State untuk Modal Peringatan Testnet
   const [showTestnetAlert, setShowTestnetAlert] = useState(false);
-
-  // ✅ State untuk Hide/Show Balance
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
 
-  // State untuk menyimpan network mana yang ON/OFF
+  // State untuk menyimpan history saldo (untuk kalkulasi PnL personal)
+  const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
+
   const [enabledNetworks, setEnabledNetworks] = useState<
     Record<string, boolean>
   >(
@@ -316,21 +250,47 @@ export default function HomeScreen() {
   const activeChainConfig =
     SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
 
-  // Hitung Total Balance Fiat (Hanya dari Native Active Chain untuk simplifikasi UI saat ini)
+  // Hitung Total Balance Fiat (IDR) Saat Ini
   const currentAsset = displayAssets.find(
     (a) => a.chainId === activeChainId && a.isNative,
   );
   const currentBalanceRaw = parseFloat(currentAsset?.balance || "0");
-  const currentPrice = prices[activeChainId]?.price || 0;
-  const totalFiat = currentBalanceRaw * currentPrice;
+  const currentPriceIDR = prices[activeChainId]?.idr || 0;
+  const totalFiat = currentBalanceRaw * currentPriceIDR;
 
-  const formatIDR = (val: number) =>
-    new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
+  // ─── Kalkulasi Persentase Berdasarkan History (Bukan Market) ───
+  // Ambil snapshot terakhir sebagai baseline
+  const lastSnapshot =
+    balanceHistory.length > 0
+      ? balanceHistory[balanceHistory.length - 1]
+      : null;
+
+  // Jika tidak ada history, atau history == 0, kita gunakan totalFiat saat ini sebagai baseline awal (agar % jadi 0)
+  // Atau jika ingin strict, baseline bisa 0. Tapi agar UX bagus saat pertama load, kita set baseline = current jika history kosong.
+  const baselineFiat = lastSnapshot ? lastSnapshot.totalFiat : totalFiat;
+
+  // Hitung selisih absolut
+  const totalFiatChange = totalFiat - baselineFiat;
+
+  // Hitung persentase
+  let portfolioChangePercent = 0;
+  if (baselineFiat > 0) {
+    portfolioChangePercent = (totalFiatChange / baselineFiat) * 100;
+  } else if (totalFiat > 0) {
+    // Jika sebelumnya 0, sekarang ada duit, anggap naik 100% (atau bisa fixed 100)
+    portfolioChangePercent = 100;
+  }
+
+  const isPortfolioUp = totalFiatChange >= 0;
+
+  // ─── Format IDR: selalu "IDR 1.234.567" (tanpa simbol Rp) ───
+  const formatIDR = (val: number) => {
+    const formatted = new Intl.NumberFormat("id-ID", {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(val);
+    return `IDR ${formatted}`;
+  };
 
   const formatIDRCompact = (val: number) => {
     if (isBalanceHidden) return "IDR ****";
@@ -341,21 +301,38 @@ export default function HomeScreen() {
     return `IDR ${formatted}`;
   };
 
+  // ─────────────────────────────────────────────
+  // recordBalanceSnapshot: Simpan state saldo saat ini ke history
+  // ─────────────────────────────────────────────
+  const recordBalanceSnapshot = useCallback((currentTotal: number) => {
+    setBalanceHistory((prev) => {
+      // Hindari duplikasi jika nilai sama persis dengan terakhir
+      if (prev.length > 0 && prev[prev.length - 1].totalFiat === currentTotal) {
+        return prev;
+      }
+      // Simpan snapshot baru
+      return [...prev, { totalFiat: currentTotal, timestamp: Date.now() }];
+    });
+  }, []);
+
+  // ─────────────────────────────────────────────
+  // fetchPrices: request USD + IDR sekaligus dari CoinGecko
+  // ─────────────────────────────────────────────
   const fetchPrices = useCallback(async () => {
     try {
       const ids = Object.values(COINGECKO_IDS).join(",");
       const response = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd,idr&include_24hr_change=true`,
       );
       const data = await response.json();
       const newPrices: Record<string, PriceData> = {};
 
-      // Map harga ke Key yang kita gunakan (Chain ID atau Symbol Token)
       Object.entries(COINGECKO_IDS).forEach(([key, cgId]) => {
         if (data[cgId]) {
           newPrices[key] = {
-            price: data[cgId].usd,
-            change24h: data[cgId].usd_24h_change || 0,
+            usd: data[cgId].usd ?? 0,
+            idr: data[cgId].idr ?? 0,
+            change24h: data[cgId].usd_24h_change ?? 0,
             lastUpdated: Date.now(),
           };
         }
@@ -365,27 +342,6 @@ export default function HomeScreen() {
       console.warn("Failed to fetch prices:", error);
     }
   }, []);
-
-  const fetchChartHistory = useCallback(async () => {
-    const cgId = COINGECKO_IDS[activeChainId];
-    if (!cgId) {
-      setChartData([]);
-      return;
-    }
-    try {
-      const response = await fetch(
-        `https://api.coingecko.com/api/v3/coins/${cgId}/market_chart?vs_currency=usd&days=1&interval=hourly`,
-      );
-      const data = await response.json();
-      if (data.prices && Array.isArray(data.prices)) {
-        setChartData(data.prices.map((p: any[]) => p[1]));
-      } else {
-        setChartData([]);
-      }
-    } catch {
-      setChartData([]);
-    }
-  }, [activeChainId]);
 
   const fetchAllBalances = useCallback(async () => {
     if (!walletAddress) return;
@@ -414,7 +370,7 @@ export default function HomeScreen() {
             console.error(`Error fetching native balance for ${chain.id}`, e);
           }
 
-          // 2. Fetch Token Balances (Jika ada)
+          // 2. Fetch Token Balances
           if (chain.tokens && chain.tokens.length > 0) {
             await Promise.all(
               chain.tokens.map(async (token) => {
@@ -453,8 +409,8 @@ export default function HomeScreen() {
   }, [walletAddress]);
 
   const fetchAllData = useCallback(async () => {
-    await Promise.all([fetchPrices(), fetchAllBalances(), fetchChartHistory()]);
-  }, [fetchPrices, fetchAllBalances, fetchChartHistory]);
+    await Promise.all([fetchPrices(), fetchAllBalances()]);
+  }, [fetchPrices, fetchAllBalances]);
 
   useFocusEffect(
     useCallback(() => {
@@ -462,9 +418,21 @@ export default function HomeScreen() {
     }, [fetchAllData]),
   );
 
+  // Effect: Setiap kali displayAssets atau prices berubah (yang berarti data baru sudah datang),
+  // kita hitung ulang totalFiat dan simpan ke history.
   useEffect(() => {
-    fetchChartHistory();
-  }, [activeChainId, fetchChartHistory]);
+    if (!isLoading && displayAssets.length > 0) {
+      // Recalculate totalFiat based on current assets/prices to ensure consistency before saving
+      const asset = displayAssets.find(
+        (a) => a.chainId === activeChainId && a.isNative,
+      );
+      const bal = parseFloat(asset?.balance || "0");
+      const price = prices[activeChainId]?.idr || 0;
+      const calculatedTotal = bal * price;
+
+      recordBalanceSnapshot(calculatedTotal);
+    }
+  }, [displayAssets, prices, isLoading, activeChainId, recordBalanceSnapshot]);
 
   useEffect(() => {
     const interval = setInterval(fetchPrices, 30000);
@@ -483,21 +451,17 @@ export default function HomeScreen() {
     }));
   };
 
-  // Handler klik pada list aset
   const handleAssetPress = (asset: DisplayAsset) => {
     if (isTestnet(asset.chainId)) {
       setShowTestnetAlert(true);
     } else {
-      // Logic navigasi untuk Mainnet
       const cgId = COINGECKO_IDS[asset.isNative ? asset.chainId : asset.symbol];
-
       if (cgId) {
         router.push({
           pathname: "/coin-detail",
           params: { coinId: cgId, symbol: asset.symbol, name: asset.name },
         });
       } else {
-        // Fallback jika tidak ada ID coingecko (misal BDAG detail custom)
         setActiveChainId(asset.chainId as ChainId);
       }
     }
@@ -512,11 +476,6 @@ export default function HomeScreen() {
       </View>
     );
   }
-
-  const portfolioChange = prices[activeChainId]?.change24h || 0;
-  const isPortfolioUp = portfolioChange >= 0;
-
-  const totalFiatChange = totalFiat * (portfolioChange / 100);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
@@ -545,14 +504,10 @@ export default function HomeScreen() {
             resizeMode="cover"
             imageStyle={{ borderRadius: 24 }}
           >
-            <View style={styles.cardOverlay} />
-
             <View style={styles.cardContent}>
               {/* Header: Address & Toggle Eye */}
               <View style={styles.cardHeaderRow}>
                 <WalletAddressBar address={walletAddress} />
-
-                {/* ✅ Toggle Hide Balance Button */}
                 <TouchableOpacity
                   onPress={() => setIsBalanceHidden(!isBalanceHidden)}
                   style={styles.eyeButton}
@@ -565,57 +520,54 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.chartArea}>
-                {chartData.length > 1 ? (
-                  <BalanceChart data={chartData} color="#fff" />
-                ) : (
-                  <Text style={styles.emptyChartText}>~ ~ ~</Text>
-                )}
-              </View>
-
-              <Text style={styles.balanceAmount}>
-                {isLoading && !refreshing ? "..." : formatIDRCompact(totalFiat)}
-              </Text>
-
-              <View style={styles.changeRow}>
-                <Text
-                  style={[
-                    styles.changeAbsolute,
-                    { color: "rgba(255,255,255,0.85)" },
-                  ]}
-                >
-                  {isBalanceHidden ? (
-                    "****"
-                  ) : (
-                    <>
-                      {isPortfolioUp ? "+" : ""}
-                      {new Intl.NumberFormat("id-ID", {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 0,
-                      }).format(totalFiatChange)}
-                    </>
-                  )}
+              {/* Center block: Balance + change */}
+              <View style={styles.balanceCenterBlock}>
+                <Text style={styles.balanceAmount}>
+                  {isLoading && !refreshing
+                    ? "..."
+                    : formatIDRCompact(totalFiat)}
                 </Text>
-                <View
-                  style={[
-                    styles.changeBadge,
-                    {
-                      backgroundColor: isPortfolioUp
-                        ? "rgba(126,217,87,0.25)"
-                        : "rgba(255,49,49,0.25)",
-                      borderColor: isPortfolioUp ? COLOR_UP : COLOR_DOWN,
-                    },
-                  ]}
-                >
+
+                <View style={styles.changeRow}>
                   <Text
                     style={[
-                      styles.changeBadgeText,
-                      { color: isPortfolioUp ? COLOR_UP : COLOR_DOWN },
+                      styles.changeAbsolute,
+                      { color: "rgba(255,255,255,0.85)" },
                     ]}
                   >
-                    {isPortfolioUp ? "↑" : "↓"}{" "}
-                    {Math.abs(portfolioChange).toFixed(0)}%
+                    {isBalanceHidden ? (
+                      "****"
+                    ) : (
+                      <>
+                        {isPortfolioUp ? "+" : ""}
+                        {new Intl.NumberFormat("id-ID", {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0,
+                        }).format(totalFiatChange)}
+                      </>
+                    )}
                   </Text>
+                  <View
+                    style={[
+                      styles.changeBadge,
+                      {
+                        backgroundColor: isPortfolioUp
+                          ? "rgba(126,217,87,0.25)"
+                          : "rgba(255,49,49,0.25)",
+                        borderColor: isPortfolioUp ? "#7ed957" : "#ff3131",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.changeBadgeText,
+                        { color: isPortfolioUp ? "#7ed957" : "#ff3131" },
+                      ]}
+                    >
+                      {isPortfolioUp ? "↑" : "↓"}{" "}
+                      {Math.abs(portfolioChangePercent).toFixed(2)}%
+                    </Text>
+                  </View>
                 </View>
               </View>
 
@@ -699,54 +651,26 @@ export default function HomeScreen() {
             </View>
 
             {displayAssets.map((asset) => {
-              // Filter jika network dimatikan
               if (!enabledNetworks[asset.chainId]) return null;
 
-              // Ambil harga: Key nya adalah ChainID (untuk native) atau Symbol (untuk token)
               const priceKey = asset.isNative ? asset.chainId : asset.symbol;
               const priceData = prices[priceKey];
 
               const isTest = isTestnet(asset.chainId);
               const displayPriceData = isTest ? null : priceData;
 
+              // Hitung Total Nilai Aset dalam IDR (real-time dari CoinGecko)
               const assetFiatVal = isTest
                 ? 0
-                : parseFloat(asset.balance) * (displayPriceData?.price || 0);
+                : parseFloat(asset.balance) * (displayPriceData?.idr || 0);
+
+              // Harga satuan token dalam IDR (real-time)
+              const unitPriceIDR = displayPriceData?.idr || 0;
 
               const isUp = displayPriceData
                 ? displayPriceData.change24h >= 0
                 : true;
-              const clr = isUp ? COLOR_UP : COLOR_DOWN;
-
-              // ✅ Sparkline Logic Updated:
-              // Tampilkan sparkline untuk SEMUA mainnet assets (USDT, USDC, BDAG, dll)
-              // dengan generate dummy data berdasarkan trend 24h agar visual tetap hidup.
-              let sparkData: number[] = [];
-
-              if (!isTest) {
-                if (asset.isNative && asset.chainId === activeChainId) {
-                  // Gunakan data chart lengkap untuk active chain
-                  sparkData = chartData;
-                } else {
-                  // Generate mini sparkline dummy berdasarkan % change 24h
-                  // Agar USDT/USDC/BDAG punya grafik kecil yang relevan dengan tren
-                  const base = 100;
-                  const changePercent = displayPriceData
-                    ? displayPriceData.change24h
-                    : 0;
-                  const endVal = base * (1 + changePercent / 100);
-
-                  // Buat 10 titik data sederhana dari base ke endVal dengan sedikit noise
-                  const points = 10;
-                  for (let i = 0; i <= points; i++) {
-                    const progress = i / points;
-                    const linearVal = base + (endVal - base) * progress;
-                    // Tambah noise acak kecil
-                    const noise = (Math.random() - 0.5) * (base * 0.02);
-                    sparkData.push(linearVal + noise);
-                  }
-                }
-              }
+              const clr = isUp ? "#7ed957" : "#ff3131";
 
               return (
                 <TouchableOpacity
@@ -772,36 +696,46 @@ export default function HomeScreen() {
                     </Text>
                   </View>
 
-                  <View style={styles.sparklineArea}>
-                    {sparkData.length > 1 ? (
-                      <MiniSparkline data={sparkData} color={clr} />
-                    ) : (
-                      // Placeholder space agar layout rata
-                      <View style={{ width: 56, height: 26 }} />
-                    )}
-                  </View>
-
                   <View style={styles.assetRight}>
+                    {/* Total Value IDR */}
+                    <Text
+                      style={[styles.assetTotalValue, { color: theme.text }]}
+                    >
+                      {isBalanceHidden ? "****" : formatIDR(assetFiatVal)}
+                    </Text>
+
+                    {/* Harga Satuan IDR + Persen 24h */}
                     {displayPriceData ? (
-                      <Text style={[styles.assetChangeText, { color: clr }]}>
-                        {isUp ? "+" : ""}
-                        {displayPriceData.change24h.toFixed(2)}%
-                      </Text>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.assetUnitPrice,
+                            { color: theme.textSecondary },
+                          ]}
+                        >
+                          {formatIDR(unitPriceIDR)}
+                        </Text>
+                        <Text style={[styles.assetChangeText, { color: clr }]}>
+                          {isUp ? "+" : ""}
+                          {displayPriceData.change24h.toFixed(2)}%
+                        </Text>
+                      </View>
                     ) : (
                       <Text
                         style={[
-                          styles.assetChangeText,
+                          styles.assetUnitPrice,
                           { color: theme.textSecondary },
                         ]}
                       >
                         -
                       </Text>
                     )}
-                    <Text style={[styles.assetFiat, { color: theme.text }]}>
-                      {isBalanceHidden
-                        ? "****"
-                        : formatIDRCompact(assetFiatVal)}
-                    </Text>
                   </View>
                 </TouchableOpacity>
               );
@@ -978,7 +912,7 @@ const styles = StyleSheet.create({
   },
   balanceCard: {
     width: "100%",
-    height: 340,
+    height: 320,
     borderRadius: 24,
     overflow: "hidden",
     shadowColor: "#000",
@@ -987,25 +921,27 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 12,
   },
-  cardOverlay: {
-    // ...StyleSheet.absoluteFillObject,
-  },
   cardContent: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "space-between", // header atas, balance tengah, actions bawah
     paddingTop: 20,
     paddingBottom: 20,
     paddingHorizontal: 20,
   },
 
-  // ✅ New Style for Header Row (Address + Eye)
+  // ── Balance center block (NEW) ──
+  balanceCenterBlock: {
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1, // ambil sisa ruang antara header dan actions
+  },
+
   cardHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     width: "100%",
-    marginBottom: 10,
   },
   eyeButton: {
     padding: 8,
@@ -1013,7 +949,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
 
-  // ── Wallet Address Bar ──
   walletAddressBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -1032,16 +967,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  chartArea: {
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyChartText: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 20,
-    letterSpacing: 4,
-  },
   balanceAmount: {
     color: "#fff",
     fontSize: 38,
@@ -1050,12 +975,13 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(0,0,0,0.3)",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 6,
+    textAlign: "center",
+    marginBottom: 8,
   },
   changeRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: -4,
   },
   changeAbsolute: {
     fontSize: 13,
@@ -1164,15 +1090,14 @@ const styles = StyleSheet.create({
   assetRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
     borderRadius: 14,
-    marginBottom: 4,
+    marginBottom: 8,
   },
 
-  // Updated Styles for Icon with Badge
   assetIconContainer: {
-    marginRight: 10,
+    marginRight: 12,
     position: "relative",
   },
   assetIcon: {
@@ -1197,7 +1122,7 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: "#fff", // Border putih
+    backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1.5,
@@ -1209,32 +1134,30 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   assetName: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "600",
     marginBottom: 2,
   },
   assetSub: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "500",
   },
-  sparklineArea: {
-    width: 56,
-    height: 26,
-    alignItems: "center",
-    justifyContent: "center",
-    marginHorizontal: 6,
-  },
+
   assetRight: {
     alignItems: "flex-end",
-    minWidth: 90,
+    minWidth: 100,
   },
-  assetChangeText: {
-    fontSize: 13,
+  assetTotalValue: {
+    fontSize: 15,
     fontWeight: "700",
     marginBottom: 2,
   },
-  assetFiat: {
-    fontSize: 13,
+  assetUnitPrice: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  assetChangeText: {
+    fontSize: 12,
     fontWeight: "600",
   },
 
