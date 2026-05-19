@@ -1,4 +1,4 @@
-import { BlurView } from "expo-blur"; // Import BlurView dari expo-blur
+import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import {
@@ -398,7 +398,7 @@ export default function RevealSeedScreen() {
                       </Text>
                     )}
 
-                    {/* FIX: BlurView dengan fallback untuk Android */}
+                    {/* BlurView dengan fallback untuk Android */}
                     {!isHighlighted &&
                       (Platform.OS === "ios" ? (
                         <BlurView
@@ -766,7 +766,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // Loading
   loadingWrapper: {
     flex: 1,
     justifyContent: "center",

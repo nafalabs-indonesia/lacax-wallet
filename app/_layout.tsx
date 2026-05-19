@@ -142,8 +142,8 @@ export default function RootLayout() {
         <Stack.Screen
           name="swap"
           options={{
-            presentation: "card", // Atau "modal" jika ingin efek slide up
-            headerShown: false, // Kita handle header di dalam swap.tsx
+            presentation: "card",
+            headerShown: false,
             animation: "slide_from_right",
           }}
         />
@@ -158,13 +158,29 @@ export default function RootLayout() {
           }}
         />
 
+        {/* Security Screen - NEW */}
+        <Stack.Screen
+          name="security"
+          options={{
+            presentation: "card",
+            headerShown: false,
+            animation: "slide_from_right",
+          }}
+        />
+
+        {/* Wallet Address Screen - NEW */}
+        <Stack.Screen
+          name="wallet-address"
+          options={{
+            presentation: "card",
+            headerShown: false,
+            animation: "slide_from_right",
+          }}
+        />
+
         {/* Other Modals */}
         <Stack.Screen
           name="send"
-          options={{ presentation: "modal", headerShown: false }}
-        />
-        <Stack.Screen
-          name="notifications"
           options={{ presentation: "modal", headerShown: false }}
         />
         <Stack.Screen

@@ -32,7 +32,6 @@ export default function ImportWalletScreen() {
   const { isDarkMode, setWalletAddress } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  // ─── State ───
   const [step, setStep] = useState<Step>("seed");
   const [mnemonic, setMnemonic] = useState("");
 
@@ -755,7 +754,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-  // Loading
   loadingGif: {
     width: 80,
     height: 80,

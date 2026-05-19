@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 24,
     alignItems: "center",
-    justifyContent: "center", // Pusatkan semua konten secara vertikal
+    justifyContent: "center",
   },
   content: {
     width: "100%",

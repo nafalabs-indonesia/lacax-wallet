@@ -13,17 +13,12 @@ import {
   View,
 } from "react-native";
 
-// Hapus import WalletRepository & KeyDerivationService
-// import { WalletRepository } from "../../modules/wallet/infrastructure/WalletRepository";
-// import { KeyDerivationService } from "../../services/crypto/KeyDerivation";
-
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
 export default function UnlockScreen() {
   const router = useRouter();
 
-  // Ambil fungsi unlockWallet dan setter lainnya dari store
   const { unlockWallet, setWalletAddress, isDarkMode, walletAddress } =
     useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
@@ -102,19 +97,12 @@ export default function UnlockScreen() {
     startSpin();
 
     try {
-      // 1. Panggil fungsi unlock dari Store
-      // Fungsi ini akan memverifikasi password dan mengisi mnemonic ke state jika berhasil
       const success = await unlockWallet(password);
 
       stopSpin();
       setIsLoading(false);
 
       if (success) {
-        // 2. Jika berhasil, mnemonic sudah ada di store.
-        // Kita bisa langsung navigasi.
-        // Catatan: Address seharusnya sudah tersimpan di store saat loadWalletFromStorage pertama kali.
-        // Jika walletAddress masih null (jarang terjadi jika flow benar), bisa fetch ulang atau biarkan komponen lain menanganinya.
-
         router.replace("/(tabs)");
       } else {
         // 3. Jika gagal (password salah)

@@ -2,12 +2,12 @@
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef } from "react";
 import {
-    Animated,
-    Image,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Animated,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 import { useAppStore } from "../../store/appStore";
@@ -110,7 +110,6 @@ export default function WalletReadyScreen() {
           Your wallet has been imported successfully!
         </Animated.Text>
 
-        {/* ✅ Subtitle ditambahkan di sini */}
         <Animated.Text
           style={[
             styles.subtitle,

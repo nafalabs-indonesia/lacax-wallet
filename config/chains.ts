@@ -61,7 +61,7 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     id: "blockdag-mainnet",
     name: "BlockDAG Mainnet",
     chainId: 1404,
-    rpcUrl: "https://rpc.bdagscan.com/",
+    rpcUrl: "https://public-bdag.nownodes.io/", // ganti sementara "https://rpc.bdagscan.com/",
     explorerUrl: "https://bdagscan.com/",
     icon: "/assets/chains/bdag.png",
     symbol: "BDAG",

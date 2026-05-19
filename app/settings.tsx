@@ -1,5 +1,4 @@
 // app/settings.tsx
-import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import {
   ChevronLeft,
@@ -155,10 +154,8 @@ export default function SettingsScreen() {
     setModal((prev) => ({ ...prev, visible: false }));
   };
 
-  const handleCopyAddress = async () => {
-    if (!walletAddress) return;
-    await Clipboard.setStringAsync(walletAddress);
-    showAlert("Success", "Wallet address copied to clipboard");
+  const handleViewWalletAddress = () => {
+    router.push("/wallet-address");
   };
 
   const handleLockWallet = () => {
@@ -186,21 +183,7 @@ export default function SettingsScreen() {
   };
 
   const handleSecuritySettings = () => {
-    showAlert(
-      "Security Settings",
-      "Manage your Password, Biometrics, and Recovery Phrase.",
-      [
-        {
-          text: "Change Password",
-          onPress: () => showAlert("Info", "Navigate to Change Password"),
-        },
-        {
-          text: "Enable Biometrics",
-          onPress: () => showAlert("Info", "Toggle Biometrics"),
-        },
-        { text: "Close", style: "cancel" },
-      ],
-    );
+    router.push("/security");
   };
 
   const handleLanguage = () => {
@@ -250,7 +233,7 @@ export default function SettingsScreen() {
             <GridItem
               icon={<Wallet />}
               title="Wallet Address"
-              onPress={handleCopyAddress}
+              onPress={handleViewWalletAddress}
             />
             <GridItem
               icon={<Shield />}
