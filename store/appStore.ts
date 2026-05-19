@@ -64,7 +64,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  // ✅ PERBAIKAN DI SINI
   unlockWallet: async (password: string): Promise<boolean> => {
     try {
       // 1. Verifikasi password dan ambil Mnemonic sekaligus
@@ -93,7 +92,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await WalletRepository.wipeWallet();
     } catch (e) {
-      console.error("Gagal reset wallet", e);
+      console.error("Failed to reset wallet", e);
     }
     set({
       walletAddress: null,
