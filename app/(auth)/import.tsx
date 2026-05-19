@@ -175,7 +175,7 @@ export default function ImportWalletScreen() {
 
     // 2. Validasi Kriptografi
     try {
-      ethers.Wallet.fromMnemonic(cleanMnemonic);
+      ethers.Wallet.fromPhrase(cleanMnemonic);
       setMnemonic(cleanMnemonic); // Simpan versi bersih
       setStep("confirm");
     } catch (err) {
@@ -224,7 +224,7 @@ export default function ImportWalletScreen() {
 
     try {
       // 1. Derive Address
-      const wallet = ethers.Wallet.fromMnemonic(mnemonic);
+      const wallet = ethers.Wallet.fromPhrase(mnemonic);
       const address = wallet.address;
 
       // 2. Simpan ke SecureStore

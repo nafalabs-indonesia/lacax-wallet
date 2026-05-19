@@ -26,13 +26,13 @@ export class BlockchainService {
   /**
    * Cache provider agar tidak membuat koneksi baru setiap kali request
    */
-  private static providers: Record<string, ethers.providers.JsonRpcProvider> =
+  private static providers: Record<string, ethers.JsonRpcProvider> =
     {};
 
   /**
    * Ambil provider berdasarkan chain ID secara dinamis dari Config
    */
-  static getProvider(chainId: string): ethers.providers.JsonRpcProvider {
+  static getProvider(chainId: string): ethers.JsonRpcProvider {
     // Jika sudah ada di cache, return yang lama
     if (this.providers[chainId]) {
       return this.providers[chainId];
@@ -49,8 +49,7 @@ export class BlockchainService {
       `✅ Creating provider for ${chainId}: ${config.rpcUrl.substring(0, 20)}...`,
     );
 
-    // Buat provider baru (V5) dan simpan di cache
-    const provider = new ethers.providers.JsonRpcProvider(config.rpcUrl);
+    const provider = new ethers.JsonRpcProvider(config.rpcUrl);
     this.providers[chainId] = provider;
 
     return provider;
@@ -63,7 +62,7 @@ export class BlockchainService {
   static isNativeToken(tokenAddress: string): boolean {
     return (
       tokenAddress.toLowerCase() === NATIVE_ETH_ADDRESS ||
-      tokenAddress === ethers.constants.AddressZero // 0x0000...0000
+      tokenAddress.toLowerCase() === ethers.ZeroAddress.toLowerCase()
     );
   }
 
@@ -75,8 +74,7 @@ export class BlockchainService {
       const provider = this.getProvider(chainId);
       const balanceBigInt = await provider.getBalance(address);
 
-      // V5: ethers.utils.formatEther
-      const balanceFormatted = ethers.utils.formatEther(balanceBigInt);
+      const balanceFormatted = ethers.formatEther(balanceBigInt);
 
       return parseFloat(balanceFormatted).toFixed(4);
     } catch (error) {
@@ -107,7 +105,7 @@ export class BlockchainService {
           `ℹ️ ${tokenAddress} adalah native token, menggunakan getBalance()`,
         );
         const balanceBigInt = await provider.getBalance(walletAddress);
-        const balanceFormatted = ethers.utils.formatEther(balanceBigInt);
+        const balanceFormatted = ethers.formatEther(balanceBigInt);
         return parseFloat(balanceFormatted).toFixed(4);
       }
 
@@ -115,8 +113,7 @@ export class BlockchainService {
       const contract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
       const balanceRaw = await contract.balanceOf(walletAddress);
 
-      // V5: ethers.utils.formatUnits
-      const balanceFormatted = ethers.utils.formatUnits(balanceRaw, decimals);
+      const balanceFormatted = ethers.formatUnits(balanceRaw, decimals);
 
       return parseFloat(balanceFormatted).toFixed(4);
     } catch (error) {
@@ -188,7 +185,7 @@ export class BlockchainService {
           let valueFormatted = "0";
           try {
             valueFormatted = parseFloat(
-              ethers.utils.formatEther(tx.value),
+              ethers.formatEther(tx.value),
             ).toFixed(4);
           } catch (e) {
             valueFormatted = "0";

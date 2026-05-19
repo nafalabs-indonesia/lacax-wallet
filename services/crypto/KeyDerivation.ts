@@ -41,7 +41,7 @@ export class KeyDerivationService {
     }
 
     try {
-      const wallet = Wallet.fromMnemonic(mnemonic);
+      const wallet = Wallet.fromPhrase(mnemonic);
       return wallet.privateKey;
     } catch (error) {
       console.error("Error deriving private key:", error);

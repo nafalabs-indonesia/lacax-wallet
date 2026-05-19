@@ -38,7 +38,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-// Pastikan package.json Anda menginstall ethers@^5.7.0
+// Ensure package.json has ethers@^6.16.0
 import { ethers } from "ethers";
 
 const { width } = Dimensions.get("window");
@@ -346,7 +346,7 @@ export default function SendScreen() {
     }
   };
 
-  // ─── Send Handler (Updated for Ethers v5) ───────────────────────────────────
+  // ─── Send Handler (Updated for Ethers v6) ───────────────────────────────────
 
   const handleSend = async () => {
     // console.log("DEBUG MNEMONIC:", mnemonic ? "ADA" : "KOSONG/UNDEFINED");
@@ -360,8 +360,8 @@ export default function SendScreen() {
       return;
     }
 
-    // Validate address format (Ethers v5 syntax)
-    if (!ethers.utils.isAddress(recipientAddress)) {
+    // Validate address format (Ethers v6 syntax)
+    if (!ethers.isAddress(recipientAddress)) {
       Alert.alert(
         "Invalid Address",
         "The recipient address is not a valid Ethereum address.",
@@ -417,12 +417,12 @@ export default function SendScreen() {
                 throw new Error("No RPC URL available for this network.");
               }
 
-              // Setup provider & wallet dari mnemonic (Ethers v5 syntax)
-              const provider = new ethers.providers.JsonRpcProvider(rpcUrl);
+              // Setup provider & wallet dari mnemonic (Ethers v6 syntax)
+              const provider = new ethers.JsonRpcProvider(rpcUrl);
 
-              // fromPhrase diganti menjadi fromMnemonic di v5
+              // fromMnemonic diganti menjadi fromPhrase di v6
               const wallet =
-                ethers.Wallet.fromMnemonic(mnemonic).connect(provider);
+                ethers.Wallet.fromPhrase(mnemonic).connect(provider);
 
               // Pastikan address wallet cocok
               if (
@@ -433,15 +433,15 @@ export default function SendScreen() {
                 );
               }
 
-              let txResponse: ethers.providers.TransactionResponse;
+              let txResponse: ethers.TransactionResponse;
 
               if (selectedAsset.isNative) {
                 // ── Kirim native token (ETH / BDAG) ──────────────────────────
                 txResponse = await wallet.sendTransaction({
                   to: recipientAddress,
-                  value: ethers.utils.parseUnits(amount, NATIVE_DECIMALS),
-                  gasLimit: GAS_LIMIT_NATIVE, // v5 accepts number
-                  gasPrice: ethers.utils.parseUnits(gasPriceWei, "wei"), // Ensure proper formatting or just pass string/number
+                  value: ethers.parseUnits(amount, NATIVE_DECIMALS),
+                  gasLimit: GAS_LIMIT_NATIVE, // v6 accepts number
+                  gasPrice: ethers.parseUnits(gasPriceWei, "wei"), // Ensure proper formatting or just pass string/number
                 });
               } else {
                 // ── Kirim ERC-20 token ────────────────────────────────────────
@@ -451,13 +451,13 @@ export default function SendScreen() {
                   wallet,
                 );
 
-                // Di v5, override options biasanya argumen terakhir
+                // Di v6, override options biasanya argumen terakhir
                 txResponse = await contract.transfer(
                   recipientAddress,
-                  ethers.utils.parseUnits(amount, selectedAsset.decimals),
+                  ethers.parseUnits(amount, selectedAsset.decimals),
                   {
                     gasLimit: GAS_LIMIT_TOKEN,
-                    gasPrice: ethers.utils.parseUnits(gasPriceWei, "wei"),
+                    gasPrice: ethers.parseUnits(gasPriceWei, "wei"),
                   },
                 );
               }
@@ -480,7 +480,7 @@ export default function SendScreen() {
               // Parse pesan error yang lebih user-friendly
               let message = error?.message ?? "Unknown error occurred.";
 
-              // Ethers v5 errors often have error.reason or error.code
+              // Ethers v6 errors often have error.reason or error.code
               if (error?.reason) {
                 message = error.reason;
               }

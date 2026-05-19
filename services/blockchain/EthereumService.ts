@@ -12,9 +12,9 @@ if (!ETH_CONFIG) {
 }
 
 export class EthereumService {
-  private static provider: ethers.providers.JsonRpcProvider | null = null;
+  private static provider: ethers.JsonRpcProvider | null = null;
 
-  static getProvider(): ethers.providers.JsonRpcProvider {
+  static getProvider(): ethers.JsonRpcProvider {
     if (!this.provider) {
       if (!ETH_CONFIG) {
         throw new Error("Konfigurasi Ethereum Mainnet tidak ditemukan.");
@@ -26,7 +26,7 @@ export class EthereumService {
         chainId: ETH_CONFIG.chainId,
       };
 
-      this.provider = new ethers.providers.JsonRpcProvider(
+      this.provider = new ethers.JsonRpcProvider(
         ETH_CONFIG.rpcUrl,
         network,
       );
@@ -39,7 +39,7 @@ export class EthereumService {
     try {
       const provider = this.getProvider();
       const balanceWei = await provider.getBalance(address);
-      const balanceEth = ethers.utils.formatEther(balanceWei);
+      const balanceEth = ethers.formatEther(balanceWei);
       return parseFloat(balanceEth).toFixed(4);
     } catch (error) {
       console.error("Error fetching ETH balance:", error);

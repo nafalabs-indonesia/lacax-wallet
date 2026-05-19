@@ -225,7 +225,7 @@ export class WalletRepository {
       throw new Error("Password must be at least 8 characters long.");
     }
 
-    const wallet = ethers.Wallet.fromMnemonic(mnemonic);
+    const wallet = ethers.Wallet.fromPhrase(mnemonic);
 
     const address = wallet.address;
 

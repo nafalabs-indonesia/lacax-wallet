@@ -7,9 +7,9 @@ const BDAG_CONFIG = SUPPORTED_CHAINS.find(
 );
 
 export class BlockDAGService {
-  private static provider: ethers.providers.JsonRpcProvider | null = null;
+  private static provider: ethers.JsonRpcProvider | null = null;
 
-  static getProvider(): ethers.providers.JsonRpcProvider {
+  static getProvider(): ethers.JsonRpcProvider {
     if (!this.provider) {
       if (!BDAG_CONFIG) {
         throw new Error("Konfigurasi BlockDAG tidak ditemukan.");
@@ -20,7 +20,7 @@ export class BlockDAGService {
         chainId: BDAG_CONFIG.chainId,
       };
 
-      this.provider = new ethers.providers.JsonRpcProvider(
+      this.provider = new ethers.JsonRpcProvider(
         BDAG_CONFIG.rpcUrl,
         network,
       );
@@ -33,7 +33,7 @@ export class BlockDAGService {
     try {
       const provider = this.getProvider();
       const balanceWei = await provider.getBalance(address);
-      const balanceBdag = ethers.utils.formatEther(balanceWei);
+      const balanceBdag = ethers.formatEther(balanceWei);
       return parseFloat(balanceBdag).toFixed(4);
     } catch (error) {
       console.error("Error fetching BDAG balance:", error);

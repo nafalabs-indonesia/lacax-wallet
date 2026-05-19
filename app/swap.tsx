@@ -50,7 +50,7 @@ const NETWORK_ICON_MAP: Record<string, any> = {
   "blockdag-mainnet": require("../assets/chains/bdag.png"),
 };
 
-// Helper: Get harga dari CoinGecko
+// Helper: Get harga USD dari CoinGecko
 const fetchCoinPrice = async (coinId: string): Promise<number> => {
   try {
     const response = await fetch(
@@ -61,6 +61,22 @@ const fetchCoinPrice = async (coinId: string): Promise<number> => {
   } catch (error) {
     console.warn(`Failed to fetch price for ${coinId}`, error);
     return 0;
+  }
+};
+
+// ✅ Helper: Get Kurs USD to IDR Realtime
+const fetchUsdToIdrRate = async (): Promise<number> => {
+  try {
+    // Menggunakan API open exchange rates yang gratis dan publik
+    const response = await fetch("https://open.er-api.com/v6/latest/USD");
+    const data = await response.json();
+    if (data && data.rates && data.rates.IDR) {
+      return data.rates.IDR;
+    }
+    return 15000; // Fallback jika gagal
+  } catch (error) {
+    console.warn("Failed to fetch USD to IDR rate", error);
+    return 15000; // Fallback
   }
 };
 
@@ -118,6 +134,9 @@ export default function SwapScreen() {
     {},
   );
 
+  // ✅ State untuk Kurs USD ke IDR
+  const [usdToIdrRate, setUsdToIdrRate] = useState<number>(15000);
+
   // Helper: Get Config for Current Chain
   const currentChainConfig = SUPPORTED_CHAINS.find(
     (c) => c.id === selectedChainId,
@@ -165,17 +184,17 @@ export default function SwapScreen() {
 
     const initTo: SwapToken = defaultToTokenConfig
       ? {
-          symbol: defaultToTokenConfig.symbol,
-          name: defaultToTokenConfig.name,
-          address: defaultToTokenConfig.address,
-          decimals: defaultToTokenConfig.decimals,
-          balance: "0",
-          price: 0,
-          coingeckoId: getCoingeckoId(
-            defaultToTokenConfig.symbol,
-            selectedChainId,
-          ),
-        }
+        symbol: defaultToTokenConfig.symbol,
+        name: defaultToTokenConfig.name,
+        address: defaultToTokenConfig.address,
+        decimals: defaultToTokenConfig.decimals,
+        balance: "0",
+        price: 0,
+        coingeckoId: getCoingeckoId(
+          defaultToTokenConfig.symbol,
+          selectedChainId,
+        ),
+      }
       : initFrom;
 
     setFromToken(initFrom);
@@ -185,6 +204,18 @@ export default function SwapScreen() {
     setError(null);
     setTokenBalances({});
   }, [selectedChainId, currentChainConfig]);
+
+  // ✅ Fetch Kurs USD to IDR saat pertama load
+  useEffect(() => {
+    const getRate = async () => {
+      const rate = await fetchUsdToIdrRate();
+      setUsdToIdrRate(rate);
+    };
+    getRate();
+    // Refresh kurs setiap 1 jam (3600000 ms)
+    const interval = setInterval(getRate, 3600000);
+    return () => clearInterval(interval);
+  }, []);
 
   // ✅ Fetch balance semua token ERC-20 di chain ini (untuk ditampilkan di sheet)
   const fetchAllTokenBalances = useCallback(async () => {
@@ -406,10 +437,8 @@ export default function SwapScreen() {
     setError(null);
 
     try {
-      // Konversi amount ke unit terkecil (wei/satoshi)
-      const sellAmountWei = ethers.utils
-        .parseUnits(fromAmount, fromToken.decimals)
-        .toString();
+      // Konversi amount ke unit terkecil (wei/satoshi) - V6 Syntax
+      const sellAmountWei = ethers.parseUnits(fromAmount, fromToken.decimals).toString();
 
       // Ambil quote dari 0x
       const quote = await ZeroExService.getSwapQuote({
@@ -421,8 +450,8 @@ export default function SwapScreen() {
         slippagePercentage: parseFloat(slippage) / 100, // 0.5% → 0.005
       });
 
-      // Konfirmasi ke user
-      const estimatedOut = ethers.utils.formatUnits(
+      // Konfirmasi ke user - V6 Syntax
+      const estimatedOut = ethers.formatUnits(
         quote.buyAmount,
         toToken.decimals,
       );
@@ -438,8 +467,8 @@ export default function SwapScreen() {
               try {
                 const provider = BlockchainService.getProvider(selectedChainId);
 
-                // ✅ GENERATE SIGNER DARI MNEMONIC DI SINI
-                const walletFromMnemonic = ethers.Wallet.fromMnemonic(mnemonic);
+                // ✅ GENERATE SIGNER DARI MNEMONIC DI SINI (V6 Syntax: fromPhrase)
+                const walletFromMnemonic = ethers.Wallet.fromPhrase(mnemonic);
                 const signer = walletFromMnemonic.connect(provider);
 
                 // Double check address match
@@ -453,7 +482,7 @@ export default function SwapScreen() {
                 if (
                   !BlockchainService.isNativeToken(fromToken.address) &&
                   quote.allowanceTarget &&
-                  quote.allowanceTarget !== ethers.constants.AddressZero
+                  quote.allowanceTarget !== ethers.ZeroAddress // ✅ V6 Syntax
                 ) {
                   const ERC20_APPROVE_ABI = [
                     "function allowance(address owner, address spender) view returns (uint256)",
@@ -469,13 +498,15 @@ export default function SwapScreen() {
                     walletAddress,
                     quote.allowanceTarget,
                   );
-                  const sellAmountBN = ethers.BigNumber.from(sellAmountWei);
 
-                  if (allowance.lt(sellAmountBN)) {
+                  // ✅ V6 Syntax: allowance is bigint now
+                  const sellAmountBN = BigInt(sellAmountWei);
+
+                  if (allowance < sellAmountBN) { // ✅ V6 Syntax: direct comparison
                     console.log("🔑 Approving token spend...");
                     const approveTx = await tokenContract.approve(
                       quote.allowanceTarget,
-                      ethers.constants.MaxUint256,
+                      ethers.MaxUint256, // ✅ V6 Syntax
                     );
                     await approveTx.wait();
                     console.log("✅ Approved!");
@@ -486,11 +517,9 @@ export default function SwapScreen() {
                 const tx = await signer.sendTransaction({
                   to: quote.to,
                   data: quote.data,
-                  value: ethers.BigNumber.from(quote.value || "0"),
-                  gasLimit: ethers.BigNumber.from(
-                    quote.estimatedGas || "300000",
-                  ),
-                  gasPrice: ethers.BigNumber.from(quote.gasPrice),
+                  value: BigInt(quote.value || "0"), // ✅ V6 Syntax: BigInt
+                  gasLimit: BigInt(quote.estimatedGas || "300000"), // ✅ V6 Syntax: BigInt
+                  gasPrice: BigInt(quote.gasPrice), // ✅ V6 Syntax: BigInt
                 });
 
                 console.log("⏳ Swap tx sent:", tx.hash);
@@ -512,7 +541,7 @@ export default function SwapScreen() {
                 Alert.alert(
                   "Swap Failed",
                   execError?.message ||
-                    "An error occurred while sending the transaction.",
+                  "An error occurred while sending the transaction.",
                 );
               }
             },
@@ -567,6 +596,14 @@ export default function SwapScreen() {
 
   const isSwapDisabled =
     !!error || !fromAmount || isSwapping || isLoadingPrices;
+
+  // Helper Format IDR
+  const formatIDR = (usdValue: number) => {
+    const idrValue = usdValue * usdToIdrRate;
+    return idrValue.toLocaleString("id-ID", {
+      maximumFractionDigits: 0,
+    });
+  };
 
   return (
     <KeyboardAvoidingView
@@ -634,12 +671,8 @@ export default function SwapScreen() {
           <View style={styles.fiatRow}>
             <Text style={{ color: theme.textSecondary }}>
               ~ IDR{" "}
-              {fromAmount
-                ? (
-                    parseFloat(fromAmount) *
-                    fromToken.price *
-                    15000
-                  ).toLocaleString("id-ID")
+              {fromAmount && fromToken.price > 0
+                ? formatIDR(parseFloat(fromAmount) * fromToken.price)
                 : "0"}
             </Text>
             <TouchableOpacity onPress={handleMax}>
@@ -699,10 +732,8 @@ export default function SwapScreen() {
           <View style={styles.fiatRow}>
             <Text style={{ color: theme.textSecondary }}>
               ~ IDR{" "}
-              {toAmount
-                ? (parseFloat(toAmount) * toToken.price * 15000).toLocaleString(
-                    "id-ID",
-                  )
+              {toAmount && toToken.price > 0
+                ? formatIDR(parseFloat(toAmount) * toToken.price)
                 : "0"}
             </Text>
           </View>
