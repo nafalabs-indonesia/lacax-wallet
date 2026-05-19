@@ -17,8 +17,9 @@ import {
   EyeOff,
   Repeat2,
 } from "lucide-react-native";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Animated,
   Dimensions,
   Image,
   ImageBackground,
@@ -104,6 +105,73 @@ interface DisplayAsset {
 interface BalanceSnapshot {
   totalFiat: number;
   timestamp: number;
+}
+
+// ─────────────────────────────────────────────
+// Skeleton Pulse Item
+// ─────────────────────────────────────────────
+function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 0.35,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulseAnim]);
+
+  const skeletonBg = isDarkMode ? "#2a2a2a" : "#e0e0e0";
+
+  return (
+    <Animated.View style={[styles.assetRow, { opacity: pulseAnim }]}>
+      {/* Icon placeholder */}
+      <View style={[styles.skeletonCircle, { backgroundColor: skeletonBg }]} />
+
+      {/* Name + sub */}
+      <View style={styles.assetInfo}>
+        <View
+          style={[
+            styles.skeletonLine,
+            { width: "55%", marginBottom: 8, backgroundColor: skeletonBg },
+          ]}
+        />
+        <View
+          style={[
+            styles.skeletonLine,
+            { width: "38%", height: 11, backgroundColor: skeletonBg },
+          ]}
+        />
+      </View>
+
+      {/* Value + price */}
+      <View style={styles.assetRight}>
+        <View
+          style={[
+            styles.skeletonLine,
+            { width: 90, marginBottom: 8, backgroundColor: skeletonBg },
+          ]}
+        />
+        <View
+          style={[
+            styles.skeletonLine,
+            { width: 70, height: 11, backgroundColor: skeletonBg },
+          ]}
+        />
+      </View>
+    </Animated.View>
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -259,31 +327,24 @@ export default function HomeScreen() {
   const totalFiat = currentBalanceRaw * currentPriceIDR;
 
   // ─── Kalkulasi Persentase Berdasarkan History (Bukan Market) ───
-  // Ambil snapshot terakhir sebagai baseline
   const lastSnapshot =
     balanceHistory.length > 0
       ? balanceHistory[balanceHistory.length - 1]
       : null;
 
-  // Jika tidak ada history, atau history == 0, kita gunakan totalFiat saat ini sebagai baseline awal (agar % jadi 0)
-  // Atau jika ingin strict, baseline bisa 0. Tapi agar UX bagus saat pertama load, kita set baseline = current jika history kosong.
   const baselineFiat = lastSnapshot ? lastSnapshot.totalFiat : totalFiat;
-
-  // Hitung selisih absolut
   const totalFiatChange = totalFiat - baselineFiat;
 
-  // Hitung persentase
   let portfolioChangePercent = 0;
   if (baselineFiat > 0) {
     portfolioChangePercent = (totalFiatChange / baselineFiat) * 100;
   } else if (totalFiat > 0) {
-    // Jika sebelumnya 0, sekarang ada duit, anggap naik 100% (atau bisa fixed 100)
     portfolioChangePercent = 100;
   }
 
   const isPortfolioUp = totalFiatChange >= 0;
 
-  // ─── Format IDR: selalu "IDR 1.234.567" (tanpa simbol Rp) ───
+  // ─── Format IDR ───
   const formatIDR = (val: number) => {
     const formatted = new Intl.NumberFormat("id-ID", {
       minimumFractionDigits: 0,
@@ -302,21 +363,19 @@ export default function HomeScreen() {
   };
 
   // ─────────────────────────────────────────────
-  // recordBalanceSnapshot: Simpan state saldo saat ini ke history
+  // recordBalanceSnapshot
   // ─────────────────────────────────────────────
   const recordBalanceSnapshot = useCallback((currentTotal: number) => {
     setBalanceHistory((prev) => {
-      // Hindari duplikasi jika nilai sama persis dengan terakhir
       if (prev.length > 0 && prev[prev.length - 1].totalFiat === currentTotal) {
         return prev;
       }
-      // Simpan snapshot baru
       return [...prev, { totalFiat: currentTotal, timestamp: Date.now() }];
     });
   }, []);
 
   // ─────────────────────────────────────────────
-  // fetchPrices: request USD + IDR sekaligus dari CoinGecko
+  // fetchPrices
   // ─────────────────────────────────────────────
   const fetchPrices = useCallback(async () => {
     try {
@@ -352,7 +411,6 @@ export default function HomeScreen() {
     try {
       await Promise.all(
         SUPPORTED_CHAINS.map(async (chain) => {
-          // 1. Fetch Native Balance
           try {
             const bal = await BlockchainService.getBalance(
               chain.id as ChainId,
@@ -370,7 +428,6 @@ export default function HomeScreen() {
             console.error(`Error fetching native balance for ${chain.id}`, e);
           }
 
-          // 2. Fetch Token Balances
           if (chain.tokens && chain.tokens.length > 0) {
             await Promise.all(
               chain.tokens.map(async (token) => {
@@ -418,11 +475,8 @@ export default function HomeScreen() {
     }, [fetchAllData]),
   );
 
-  // Effect: Setiap kali displayAssets atau prices berubah (yang berarti data baru sudah datang),
-  // kita hitung ulang totalFiat dan simpan ke history.
   useEffect(() => {
     if (!isLoading && displayAssets.length > 0) {
-      // Recalculate totalFiat based on current assets/prices to ensure consistency before saving
       const asset = displayAssets.find(
         (a) => a.chainId === activeChainId && a.isNative,
       );
@@ -466,6 +520,10 @@ export default function HomeScreen() {
       }
     }
   };
+
+  // Jumlah skeleton yang ditampilkan saat loading
+  // Sesuaikan dengan perkiraan jumlah aset yang akan muncul
+  const SKELETON_COUNT = 4;
 
   if (!walletAddress) {
     return (
@@ -650,103 +708,123 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            {displayAssets.map((asset) => {
-              if (!enabledNetworks[asset.chainId]) return null;
+            {/* ── Skeleton Loading atau Asset List ── */}
+            {isLoading && !refreshing ? (
+              // Tampilkan skeleton saat loading pertama kali
+              Array.from({ length: SKELETON_COUNT }).map((_, i) => (
+                <SkeletonAssetRow
+                  key={`skeleton-${i}`}
+                  isDarkMode={isDarkMode}
+                />
+              ))
+            ) : (
+              // Tampilkan asset setelah data tersedia
+              <>
+                {displayAssets.map((asset) => {
+                  if (!enabledNetworks[asset.chainId]) return null;
 
-              const priceKey = asset.isNative ? asset.chainId : asset.symbol;
-              const priceData = prices[priceKey];
+                  const priceKey = asset.isNative
+                    ? asset.chainId
+                    : asset.symbol;
+                  const priceData = prices[priceKey];
 
-              const isTest = isTestnet(asset.chainId);
-              const displayPriceData = isTest ? null : priceData;
+                  const isTest = isTestnet(asset.chainId);
+                  const displayPriceData = isTest ? null : priceData;
 
-              // Hitung Total Nilai Aset dalam IDR (real-time dari CoinGecko)
-              const assetFiatVal = isTest
-                ? 0
-                : parseFloat(asset.balance) * (displayPriceData?.idr || 0);
+                  const assetFiatVal = isTest
+                    ? 0
+                    : parseFloat(asset.balance) * (displayPriceData?.idr || 0);
 
-              // Harga satuan token dalam IDR (real-time)
-              const unitPriceIDR = displayPriceData?.idr || 0;
+                  const unitPriceIDR = displayPriceData?.idr || 0;
 
-              const isUp = displayPriceData
-                ? displayPriceData.change24h >= 0
-                : true;
-              const clr = isUp ? "#7ed957" : "#ff3131";
+                  const isUp = displayPriceData
+                    ? displayPriceData.change24h >= 0
+                    : true;
+                  const clr = isUp ? "#7ed957" : "#ff3131";
 
-              return (
-                <TouchableOpacity
-                  key={asset.id}
-                  activeOpacity={0.7}
-                  onPress={() => handleAssetPress(asset)}
-                  style={[styles.assetRow]}
-                >
-                  <AssetIcon
-                    symbol={asset.symbol}
-                    chainId={asset.chainId}
-                    isNative={asset.isNative}
-                  />
-
-                  <View style={styles.assetInfo}>
-                    <Text style={[styles.assetName, { color: theme.text }]}>
-                      {asset.name}
-                    </Text>
-                    <Text
-                      style={[styles.assetSub, { color: theme.textSecondary }]}
+                  return (
+                    <TouchableOpacity
+                      key={asset.id}
+                      activeOpacity={0.7}
+                      onPress={() => handleAssetPress(asset)}
+                      style={[styles.assetRow]}
                     >
-                      {parseFloat(asset.balance).toFixed(4)} {asset.symbol}
-                    </Text>
-                  </View>
+                      <AssetIcon
+                        symbol={asset.symbol}
+                        chainId={asset.chainId}
+                        isNative={asset.isNative}
+                      />
 
-                  <View style={styles.assetRight}>
-                    {/* Total Value IDR */}
-                    <Text
-                      style={[styles.assetTotalValue, { color: theme.text }]}
-                    >
-                      {isBalanceHidden ? "****" : formatIDR(assetFiatVal)}
-                    </Text>
-
-                    {/* Harga Satuan IDR + Persen 24h */}
-                    {displayPriceData ? (
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
+                      <View style={styles.assetInfo}>
+                        <Text style={[styles.assetName, { color: theme.text }]}>
+                          {asset.name}
+                        </Text>
                         <Text
                           style={[
-                            styles.assetUnitPrice,
+                            styles.assetSub,
                             { color: theme.textSecondary },
                           ]}
                         >
-                          {formatIDR(unitPriceIDR)}
-                        </Text>
-                        <Text style={[styles.assetChangeText, { color: clr }]}>
-                          {isUp ? "+" : ""}
-                          {displayPriceData.change24h.toFixed(2)}%
+                          {parseFloat(asset.balance).toFixed(4)} {asset.symbol}
                         </Text>
                       </View>
-                    ) : (
-                      <Text
-                        style={[
-                          styles.assetUnitPrice,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        -
-                      </Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
 
-            {displayAssets.length === 0 && !isLoading && (
-              <View style={{ alignItems: "center", marginTop: 40 }}>
-                <Text style={{ color: theme.textSecondary }}>
-                  No assets found.
-                </Text>
-              </View>
+                      <View style={styles.assetRight}>
+                        <Text
+                          style={[
+                            styles.assetTotalValue,
+                            { color: theme.text },
+                          ]}
+                        >
+                          {isBalanceHidden ? "****" : formatIDR(assetFiatVal)}
+                        </Text>
+
+                        {displayPriceData ? (
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 4,
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.assetUnitPrice,
+                                { color: theme.textSecondary },
+                              ]}
+                            >
+                              {formatIDR(unitPriceIDR)}
+                            </Text>
+                            <Text
+                              style={[styles.assetChangeText, { color: clr }]}
+                            >
+                              {isUp ? "+" : ""}
+                              {displayPriceData.change24h.toFixed(2)}%
+                            </Text>
+                          </View>
+                        ) : (
+                          <Text
+                            style={[
+                              styles.assetUnitPrice,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            -
+                          </Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {displayAssets.length === 0 && (
+                  <View style={{ alignItems: "center", marginTop: 40 }}>
+                    <Text style={{ color: theme.textSecondary }}>
+                      No assets found.
+                    </Text>
+                  </View>
+                )}
+              </>
             )}
           </>
         ) : (
@@ -924,17 +1002,17 @@ const styles = StyleSheet.create({
   cardContent: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "space-between", // header atas, balance tengah, actions bawah
+    justifyContent: "space-between",
     paddingTop: 20,
     paddingBottom: 20,
     paddingHorizontal: 20,
   },
 
-  // ── Balance center block (NEW) ──
+  // ── Balance center block ──
   balanceCenterBlock: {
     alignItems: "center",
     justifyContent: "center",
-    flex: 1, // ambil sisa ruang antara header dan actions
+    flex: 1,
   },
 
   cardHeaderRow: {
@@ -1159,6 +1237,18 @@ const styles = StyleSheet.create({
   assetChangeText: {
     fontSize: 12,
     fontWeight: "600",
+  },
+
+  // ── Skeleton Styles ──
+  skeletonCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+  },
+  skeletonLine: {
+    height: 13,
+    borderRadius: 6,
   },
 
   // ── Bottom Sheet Styles ──

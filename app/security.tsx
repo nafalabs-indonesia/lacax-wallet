@@ -3,30 +3,91 @@ import { ethers } from "ethers";
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import {
-    ChevronLeft,
-    Copy,
-    Eye,
-    EyeOff,
-    Key,
-    Lock,
-    ShieldAlert,
-    Unlock,
+  AlertTriangle,
+  CheckCircle,
+  ChevronLeft,
+  Copy,
+  Eye,
+  EyeOff,
+  Fingerprint,
+  Key,
+  Lock,
+  ShieldAlert,
+  Unlock,
+  XCircle,
 } from "lucide-react-native";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WalletRepository } from "../modules/wallet/infrastructure/WalletRepository";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
+
+// --- Custom Modal Component ---
+interface CustomModalProps {
+  visible: boolean;
+  title: string;
+  message: string;
+  type?: "info" | "error" | "success";
+  onClose: () => void;
+  theme: any;
+}
+
+const CustomModal: React.FC<CustomModalProps> = ({
+  visible,
+  title,
+  message,
+  type = "info",
+  onClose,
+  theme,
+}) => {
+  const getIcon = () => {
+    switch (type) {
+      case "error":
+        return <XCircle size={48} color="#FF453A" />;
+      case "success":
+        return <CheckCircle size={48} color={theme.text} />;
+      default:
+        return <AlertTriangle size={48} color={theme.primary} />;
+    }
+  };
+
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+          <View style={styles.modalIconContainer}>{getIcon()}</View>
+          <Text style={[styles.modalTitle, { color: theme.text }]}>
+            {title}
+          </Text>
+          <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>
+            {message}
+          </Text>
+          <TouchableOpacity
+            style={[styles.modalButton, { backgroundColor: theme.primary }]}
+            onPress={onClose}
+          >
+            <Text style={styles.modalButtonText}>OK</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 export default function SecurityScreen() {
   const { isDarkMode } = useAppStore();
@@ -46,10 +107,30 @@ export default function SecurityScreen() {
   const [showMnemonic, setShowMnemonic] = useState(false);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
 
+  // Modal State
+  const [modalConfig, setModalConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type?: "info" | "error" | "success";
+  }>({ visible: false, title: "", message: "" });
+
+  const showModal = (
+    title: string,
+    message: string,
+    type: "info" | "error" | "success" = "info",
+  ) => {
+    setModalConfig({ visible: true, title, message, type });
+  };
+
+  const hideModal = () => {
+    setModalConfig((prev) => ({ ...prev, visible: false }));
+  };
+
   // Fungsi Verifikasi & Dekripsi
   const handleVerify = async () => {
     if (!password) {
-      Alert.alert("Error", "Please enter your wallet password.");
+      showModal("Error", "Please enter your wallet password.", "error");
       return;
     }
 
@@ -70,19 +151,24 @@ export default function SecurityScreen() {
         setIsVerified(true);
         setShowPasswordInput(false);
       } else {
-        Alert.alert("Access Denied", "Incorrect password. Please try again.");
+        showModal(
+          "Access Denied",
+          "Incorrect password. Please try again.",
+          "error",
+        );
         setPassword("");
       }
     } catch (error: any) {
       console.error(error);
       if (error.message?.startsWith("RATE_LIMITED")) {
         const seconds = error.message.split(":")[1];
-        Alert.alert(
+        showModal(
           "Too Many Attempts",
           `Please wait ${seconds} seconds before trying again.`,
+          "error",
         );
       } else {
-        Alert.alert("Error", "Failed to decrypt wallet data.");
+        showModal("Error", "Failed to decrypt wallet data.", "error");
       }
     } finally {
       setLoading(false);
@@ -92,7 +178,7 @@ export default function SecurityScreen() {
   const copyToClipboard = async (text: string, label: string) => {
     if (!text) return;
     await Clipboard.setStringAsync(text);
-    Alert.alert("Copied", `${label} copied to clipboard`);
+    showModal("Copied", `${label} copied to clipboard`, "success");
   };
 
   // --- Tampilan Sebelum Verifikasi ---
@@ -122,7 +208,7 @@ export default function SecurityScreen() {
                 { backgroundColor: theme.primary + "20" },
               ]}
             >
-              <Lock size={40} color={theme.primary} />
+              <Fingerprint size={40} color={theme.primary} />
             </View>
 
             <Text style={[styles.lockTitle, { color: theme.text }]}>
@@ -184,6 +270,16 @@ export default function SecurityScreen() {
 
           <View style={styles.warningBox}></View>
         </ScrollView>
+
+        {/* Custom Modal for Unverified State */}
+        <CustomModal
+          visible={modalConfig.visible}
+          title={modalConfig.title}
+          message={modalConfig.message}
+          type={modalConfig.type}
+          onClose={hideModal}
+          theme={theme}
+        />
       </SafeAreaView>
     );
   }
@@ -237,8 +333,6 @@ export default function SecurityScreen() {
           <View
             style={[styles.secretBox, { backgroundColor: theme.background }]}
           >
-            {" "}
-            {/* Ganti backgroundSecondary dengan theme.background */}
             <Text style={[styles.secretText, { color: theme.text }]}>
               {showMnemonic ? mnemonic : "••••••••••••••••••••••••"}
             </Text>
@@ -287,13 +381,15 @@ export default function SecurityScreen() {
           <View
             style={[styles.secretBox, { backgroundColor: theme.background }]}
           >
-            {" "}
-            {/* Ganti backgroundSecondary dengan theme.background */}
+            {/* 
+               PERBAIKAN: 
+               1. Menghapus numberOfLines dan ellipsizeMode agar teks tampil penuh.
+               2. Menambahkan flexWrap agar teks panjang turun ke baris baru.
+            */}
             <Text
-              numberOfLines={1}
-              ellipsizeMode="middle"
               style={[
                 styles.secretText,
+                styles.fullText,
                 { color: theme.text, fontFamily: "monospace" },
               ]}
             >
@@ -328,6 +424,16 @@ export default function SecurityScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Custom Modal for Verified State */}
+      <CustomModal
+        visible={modalConfig.visible}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        type={modalConfig.type}
+        onClose={hideModal}
+        theme={theme}
+      />
     </SafeAreaView>
   );
 }
@@ -446,6 +552,11 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     letterSpacing: 0.5,
   },
+  // Style baru untuk menampilkan teks penuh (wrap)
+  fullText: {
+    flexWrap: "wrap",
+    textAlign: "left",
+  },
 
   toggleBtn: {
     alignSelf: "flex-start",
@@ -460,4 +571,52 @@ const styles = StyleSheet.create({
 
   footerWarning: { marginTop: 24, paddingHorizontal: 8 },
   footerText: { fontSize: 12, textAlign: "center", lineHeight: 18 },
+
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 320,
+    borderRadius: 24,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalIconContainer: {
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  modalMessage: {
+    fontSize: 14,
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  modalButton: {
+    width: "100%",
+    height: 48,
+    borderRadius: 999,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalButtonText: {
+    color: "#FFF",
+    fontWeight: "600",
+    fontSize: 16,
+  },
 });
