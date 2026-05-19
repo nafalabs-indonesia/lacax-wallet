@@ -523,7 +523,7 @@ export default function SendScreen() {
   if (isLoadingBalance && !selectedAsset) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
+        <ActivityIndicator size="large" color={theme.text} />
       </View>
     );
   }
