@@ -46,7 +46,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadWalletFromStorage: async () => {
     try {
       const savedAddress = await SecureStore.getItemAsync(
-        "laca_wallet_address_v1",
+        "lacax_wallet_address_v1",
       );
 
       if (savedAddress) {
@@ -59,17 +59,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({ isStorageLoaded: true });
       }
     } catch (e) {
-      console.error("Gagal load wallet dari storage", e);
+      console.error("Failed to load wallet from storage", e);
       set({ isStorageLoaded: true });
     }
   },
 
   // ✅ PERBAIKAN DI SINI
-  unlockWallet: async (pin: string): Promise<boolean> => {
+  unlockWallet: async (password: string): Promise<boolean> => {
     try {
-      // 1. Verifikasi PIN dan ambil Mnemonic sekaligus
-      // Fungsi ini akan return null jika PIN salah
-      const recoveredMnemonic = await WalletRepository.getMnemonicIfValid(pin);
+      // 1. Verifikasi password dan ambil Mnemonic sekaligus
+      // Fungsi ini akan return null jika password salah
+      const recoveredMnemonic = await WalletRepository.getMnemonicIfValid(password);
 
       if (recoveredMnemonic) {
         // 2. Jika berhasil, simpan mnemonic ke State (Memory)
@@ -80,7 +80,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
         return true;
       } else {
-        // PIN Salah
+        // password Salah
         return false;
       }
     } catch (error) {
