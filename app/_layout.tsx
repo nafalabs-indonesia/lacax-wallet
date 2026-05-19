@@ -56,6 +56,7 @@ export default function RootLayout() {
       "(auth)/backup-intro",
       "(auth)/reveal-seed",
       "(auth)/wallet-ready",
+      "(auth)/import-ready",
     ];
 
     const isPublic = publicRoutes.some(
@@ -91,6 +92,7 @@ export default function RootLayout() {
       "backup-intro",
       "reveal-seed",
       "wallet-ready",
+      "import-ready",
     ];
 
     const isPrivateRoute = privateOnlyRoutes.some((route) =>

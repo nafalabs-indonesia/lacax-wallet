@@ -64,15 +64,6 @@ export default function RevealSeedScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
 
-  // FIX: Dot animations untuk loading indicator
-  // Kita gunakan Animated.Value biasa untuk opacity/scale
-  const dotAnims = useRef([
-    new Animated.Value(0),
-    new Animated.Value(0),
-    new Animated.Value(0),
-    new Animated.Value(0),
-  ]).current;
-
   // State untuk teks loading yang berubah
   const [loadingText, setLoadingText] = useState("Creating your wallet...");
 
@@ -102,51 +93,6 @@ export default function RevealSeedScreen() {
     setPasswordError("");
     setConfirmationError("");
   }, [step]);
-
-  // FIX: Loop animasi dots yang BENAR dan TERUS MENYALA
-  useEffect(() => {
-    if (!isCreating) {
-      // Stop animation and reset when not creating
-      dotAnims.forEach((anim) => anim.stopAnimation());
-      dotAnims.forEach((anim) => anim.setValue(0));
-      return;
-    }
-
-    // Create the animation sequence for a single dot
-    // Scale from 0.5 to 1.2 then back to 0.5
-    const createDotAnimation = (anim: Animated.Value) => {
-      return Animated.sequence([
-        Animated.delay(0), // Start immediately relative to stagger
-        Animated.timing(anim, {
-          toValue: 1, // Full scale/opacity
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(anim, {
-          toValue: 0.3, // Small scale/opacity
-          duration: 400,
-          useNativeDriver: true,
-        }),
-      ]);
-    };
-
-    // Stagger the animations so they wave across
-    // Dot 1 starts at 0ms, Dot 2 at 150ms, etc.
-    const staggeredAnimations = dotAnims.map((anim, index) => {
-      return Animated.sequence([
-        Animated.delay(index * 150),
-        Animated.loop(createDotAnimation(anim))
-      ]);
-    });
-
-    // Start all animations in parallel
-    Animated.parallel(staggeredAnimations).start();
-
-    // Cleanup function to stop animations when component unmounts or isCreating becomes false
-    return () => {
-      dotAnims.forEach((anim) => anim.stopAnimation());
-    };
-  }, [isCreating]);
 
   // Calculate password strength
   useEffect(() => {
@@ -295,39 +241,16 @@ export default function RevealSeedScreen() {
       )}
 
       {/* ─── STEP: LOADING ─── */}
-      {/* Muncul hanya ketika isCreating true, menutupi konten lain karena ScrollView contentContainer */}
       {isCreating && (
         <View style={styles.loadingWrapper}>
+          <Image
+            source={require("../../assets/loading.gif")}
+            style={styles.loadingGif}
+            resizeMode="contain"
+          />
           <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
             {loadingText}
           </Text>
-
-          {/* FIX: Indikator Loading dengan Animated dots yang looping terus */}
-          <View style={styles.loadingDotsContainer}>
-            {dotAnims.map((anim, index) => (
-              <Animated.View
-                key={index}
-                style={[
-                  styles.loadingDot,
-                  {
-                    backgroundColor: theme.primary,
-                    opacity: anim.interpolate({
-                      inputRange: [0.3, 1],
-                      outputRange: [0.4, 1]
-                    }),
-                    transform: [
-                      {
-                        scale: anim.interpolate({
-                          inputRange: [0.3, 1],
-                          outputRange: [0.8, 1.2],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              />
-            ))}
-          </View>
         </View>
       )}
 
@@ -476,8 +399,8 @@ export default function RevealSeedScreen() {
                     )}
 
                     {/* FIX: BlurView dengan fallback untuk Android */}
-                    {!isHighlighted && (
-                      Platform.OS === "ios" ? (
+                    {!isHighlighted &&
+                      (Platform.OS === "ios" ? (
                         <BlurView
                           intensity={80}
                           tint={isDarkMode ? "dark" : "light"}
@@ -496,8 +419,7 @@ export default function RevealSeedScreen() {
                             { borderRadius: 10 },
                           ]}
                         />
-                      )
-                    )}
+                      ))}
                   </View>
                 );
               })}
@@ -851,22 +773,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingBottom: 100,
     minHeight: 300,
+    gap: 16,
+  },
+  loadingGif: {
+    width: 80,
+    height: 80,
   },
   loadingText: {
     fontSize: 16,
     fontWeight: "500",
-  },
-  // Loading Styles Tambahan
-  loadingDotsContainer: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 20,
-  },
-  loadingDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "transparent",
   },
 });
