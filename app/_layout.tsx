@@ -10,6 +10,8 @@ import { useEffect, useState } from "react";
 import "react-native-reanimated";
 import "../polyfills";
 import { useAppStore } from "../store/appStore";
+// ✅ Import Modal Konfirmasi WalletConnect
+import { WcConfirmationModal } from "../components/WcConfirmationModal";
 
 export default function RootLayout() {
   const {
@@ -192,7 +194,11 @@ export default function RootLayout() {
           options={{ presentation: "modal", headerShown: false }}
         />
       </Stack>
+
       <StatusBar style={isDarkMode ? "light" : "dark"} />
+
+      {/* ✅ Render Modal Konfirmasi WC di level root agar selalu muncul di atas */}
+      <WcConfirmationModal />
     </ThemeProvider>
   );
 }

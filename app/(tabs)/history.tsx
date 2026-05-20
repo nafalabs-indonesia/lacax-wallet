@@ -9,19 +9,25 @@ import { router } from "expo-router";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  Check,
+  ChevronDown,
   Clock,
   RefreshCw,
-  Search,
+  Repeat,
+  X,
 } from "lucide-react-native";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Dimensions,
   Image,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { HomeHeader } from "../../components/HomeHeader";
@@ -29,17 +35,32 @@ import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
 // ─────────────────────────────────────────────
-// Types & Interfaces
+// Chain Icon Map (local assets)
+// Pastikan path asset ini sesuai dengan struktur project Anda
+// ────────────────────────────────────────────
+const CHAIN_ICONS: Record<number, any> = {
+  1: require("../../assets/chains/eth.png"),
+  11155111: require("../../assets/chains/eth-sepolia.png"),
+  56: require("../../assets/chains/bnb.png"),
+  97: require("../../assets/chains/bnb.png"),
+  137: require("../../assets/chains/polygon.png"),
+  80001: require("../../assets/chains/polygon.png"),
+  1404: require("../../assets/chains/bdag.png"),
+  1043: require("../../assets/chains/bdag.png"),
+  80002: require("../../assets/chains/polygon.png"),
+};
+
+// ────────────────────────────────────────────
+// Types
 // ─────────────────────────────────────────────
-type FilterType = "all" | "send" | "receive";
 type TxStatus = "confirmed" | "pending" | "failed";
-type TxType = "send" | "receive";
+type TxType = "send" | "receive" | "swap";
 
 interface TxEntity {
   hash: string;
   from: string;
   to: string;
-  value: string;
+  value: string; // e.g., "+3 ETH" or "-100 USDT"
   symbol: string;
   timestamp: number;
   status: TxStatus;
@@ -58,310 +79,327 @@ interface DisplayTransaction extends TxEntity {
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
-
-const getRelativeDate = (timestamp: number) => {
+const getRelativeDate = (ts: number) => {
   const now = new Date();
-  const txDate = new Date(timestamp * 1000);
+  const txDate = new Date(ts * 1000);
 
-  const nowDateOnly = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  );
-  const txDateOnly = new Date(
-    txDate.getFullYear(),
-    txDate.getMonth(),
-    txDate.getDate(),
-  );
+  // Reset time parts for accurate date comparison
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const transactionDay = new Date(txDate.getFullYear(), txDate.getMonth(), txDate.getDate());
 
-  const diffTime = nowDateOnly.getTime() - txDateOnly.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  const diffTime = today.getTime() - transactionDay.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24));
 
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
 
+  // Format: Jan 01, 2025
   return txDate.toLocaleDateString("en-US", {
-    day: "numeric",
     month: "short",
-    year: "numeric",
+    day: "numeric",
+    year: "numeric"
   });
 };
 
-const formatTime = (timestamp: number) => {
-  return new Date(timestamp * 1000).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
+const formatTime = (ts: number) =>
+  new Date(ts * 1000).toLocaleTimeString("en-US", {
+    hour: "2-digit", minute: "2-digit", hour12: false,
   });
-};
 
-const truncate = (str: string, start = 6, end = 4) => {
-  if (!str) return "";
-  return `${str.substring(0, start)}...${str.substring(str.length - end)}`;
-};
+const truncate = (str: string, s = 6, e = 4) =>
+  str ? `${str.slice(0, s)}…${str.slice(-e)}` : "";
+
+const shortChainName = (name: string) =>
+  name.replace(" Mainnet", "").replace(" Testnet", "");
 
 // ─────────────────────────────────────────────
-// Status Badge
+// TxRow Component (Redesigned to match screenshot)
 // ─────────────────────────────────────────────
-function StatusBadge({ status }: { status: TxStatus }) {
-  let config = { label: "Success", color: "#22C55E", bg: "#22C55E15" };
+function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
+  // ─────────────────────────────────────────────
+  // 1. Normalize Value & Determine Direction
+  // ─────────────────────────────────────────────
 
-  if (status === "pending") {
-    config = { label: "Pending", color: "#F59E0B", bg: "#F59E0B15" };
-  } else if (status === "failed") {
-    config = { label: "Failed", color: "#EF4444", bg: "#EF444415" };
+  let displayValue = tx.value;
+  let isIncoming = false;
+
+  // Cek tipe transaksi terlebih dahulu jika ada field 'type'
+  if (tx.type === 'receive') {
+    isIncoming = true;
+  } else if (tx.type === 'send') {
+    isIncoming = false;
+  } else {
+    // Jika type swap atau tidak jelas, cek tanda + / - di string value
+    // Atau cek apakah alamat 'from' sama dengan wallet user (logic tambahan bisa ditambahkan di sini)
+    // Untuk sekarang kita asumsikan: jika ada '+' di string, maka incoming.
+    // Jika tidak ada tanda, kita lihat tipenya atau default ke outgoing jika ragu.
+    const rawVal = tx.value.trim();
+    if (rawVal.startsWith('+')) {
+      isIncoming = true;
+    } else if (rawVal.startsWith('-')) {
+      isIncoming = false;
+    } else {
+      // Fallback: Jika tidak ada tanda, dan typenya 'swap', biasanya swap out (-) atau in (+) tergantung konteks.
+      // Namun, berdasarkan gambar, Received selalu hijau. 
+      // Kita paksa logic: Jika type 'receive' pasti hijau. Jika 'send' pasti oranye.
+      // Jika 'swap', kita biarkan mengikuti tanda jika ada, atau default ke oranye (out) jika tidak ada tanda minus.
+      if (tx.type === 'swap') {
+        // Opsional: Logic swap bisa kompleks. 
+        // Untuk keamanan visual sesuai gambar, kita cek tanda saja.
+        // Jika tidak ada tanda, anggap sebagai pengeluaran (outgoing) agar aman, 
+        // ATAU tambahkan logic khusus jika backend mengirim data swap secara spesifik.
+        isIncoming = false;
+      }
+    }
+  }
+
+  // Pastikan string value memiliki tanda + atau - untuk ditampilkan
+  // Hapus tanda lama jika ada, lalu tambahkan yang baru sesuai status
+  const cleanValue = displayValue.replace(/^[-+]/, '').trim();
+
+  // Logika Parsing untuk Memisahkan Angka dan Simbol Token
+  // Asumsi format input: "0.0820 SepoliaETH" atau "100 USDT" (tanpa tanda +/- di cleanValue)
+  // Kita cari spasi pertama untuk memisahkan amount dan symbol
+  const spaceIndex = cleanValue.indexOf(' ');
+  let amountPart = cleanValue;
+  let symbolPart = "";
+
+  if (spaceIndex !== -1) {
+    amountPart = cleanValue.substring(0, spaceIndex);
+    symbolPart = cleanValue.substring(spaceIndex + 1);
+  } else {
+    // Jika tidak ada spasi, coba ambil symbol dari tx.symbol jika tersedia, 
+    // atau biarkan kosong jika semua adalah amount
+    // Namun biasanya value string sudah lengkap.
+    symbolPart = tx.symbol || "";
+  }
+
+  // Tambahkan tanda +/- kembali ke amountPart
+  const signedAmount = isIncoming ? `+${amountPart}` : `-${amountPart}`;
+
+  // ────────────────────────────────────────────
+  // 2. Styling Colors
+  // ─────────────────────────────────────────────
+  let iconBgColor = "";
+  let iconTintColor = "";
+  let valueTextColor = "";
+
+  if (isIncoming) {
+    // Received / Swap In -> HIJAU
+    iconBgColor = theme.isDarkMode ? "#064E3B" : "#DCFCE7"; // Dark Green vs Light Green
+    iconTintColor = "#7ed957"; // Bright Green Icon
+    valueTextColor = "#7ed957"; // Bright Green Text
+  } else {
+    // Sent / Swap Out -> ORANYE/KREM
+    iconBgColor = theme.isDarkMode ? "#451A03" : "#FFEDD5"; // Dark Orange vs Light Orange
+    iconTintColor = "#F97316"; // Bright Orange Icon
+    valueTextColor = theme.isDarkMode ? "#FFFFFF" : "#1F2937"; // White vs Dark Gray Text
+  }
+
+  // ────────────────────────────────────────────
+  // 3. Icon & Text Content
+  // ─────────────────────────────────────────────
+  let IconComponent = ArrowDownLeft;
+  let BadgeComponent: React.ElementType | null = null;
+
+  if (tx.type === 'send') {
+    IconComponent = ArrowUpRight;
+    BadgeComponent = ArrowUpRight; // Badge arrow upright
+  } else if (tx.type === 'swap') {
+    IconComponent = Repeat;
+    BadgeComponent = null; // Will be handled by chain icon below
+  } else if (tx.type === 'receive') {
+    IconComponent = ArrowDownLeft;
+    BadgeComponent = ArrowDownLeft; // Badge arrow left down
+  }
+
+  let title = "Transaction";
+  let subtitle = "";
+
+  if (tx.type === 'swap') {
+    title = "Swapped";
+    subtitle = tx.chainName ? shortChainName(tx.chainName) : "Uniswap";
+  } else if (tx.type === 'send') {
+    title = "Sent";
+    subtitle = `To ${truncate(tx.to)}`;
+  } else {
+    title = "Received";
+    subtitle = `From ${truncate(tx.from)}`;
+  }
+
+  // Determine Badge Content
+  // If Swap, show network icon. If Send/Receive, show direction arrow.
+  let BadgeContent = null;
+  if (tx.type === 'swap') {
+    if (tx.chainId && CHAIN_ICONS[tx.chainId]) {
+      BadgeContent = (
+        <Image
+          source={CHAIN_ICONS[tx.chainId]}
+          style={{ width: 10, height: 10 }}
+          resizeMode="contain"
+        />
+      );
+    }
+  } else if (BadgeComponent) {
+    BadgeContent = <BadgeComponent size={8} color={theme.text} strokeWidth={3} />;
   }
 
   return (
-    <View style={[styles.statusBadge, { backgroundColor: config.bg }]}>
-      <Text style={[styles.statusText, { color: config.color }]}>
-        {config.label}
-      </Text>
+    <View style={styles.txRow}>
+      {/* Left Icon Container with Badge */}
+      <View style={[styles.iconWrapper]}>
+        <View style={[styles.iconContainer, { backgroundColor: iconBgColor }]}>
+          {tx.chainId && CHAIN_ICONS[tx.chainId] ? (
+            <Image
+              source={CHAIN_ICONS[tx.chainId]}
+              style={styles.chainIconInside}
+              resizeMode="contain"
+            />
+          ) : (
+            <IconComponent size={20} color={iconTintColor} strokeWidth={2.5} />
+          )}
+        </View>
+
+        {/* Badge Circle Bottom Right */}
+        {BadgeContent && (
+          <View style={[styles.badgeContainer, { backgroundColor: theme.card, borderColor: theme.text }]}>
+            {BadgeContent}
+          </View>
+        )}
+      </View>
+
+      {/* Middle Content */}
+      <View style={styles.contentContainer}>
+        <Text style={[styles.txTitle, { color: theme.text }]}>
+          {title}
+        </Text>
+        <Text style={[styles.txSubtitle, { color: theme.textSecondary }]}>
+          {subtitle}
+        </Text>
+      </View>
+
+      {/* Right Value - Modified to show Amount and Symbol side-by-side */}
+      <View style={styles.valueContainer}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
+          <Text
+            style={[styles.txValue, { color: valueTextColor }]}
+            numberOfLines={1}
+          >
+            {signedAmount}
+          </Text>
+          {symbolPart ? (
+            <Text
+              style={[styles.txSymbol, { color: valueTextColor }]}
+              numberOfLines={1}
+            >
+              {" "}{symbolPart}
+            </Text>
+          ) : null}
+        </View>
+      </View>
     </View>
   );
 }
 
-// ─────────────────────────────────────────────
-// Transaction Row Component
-// ─────────────────────────────────────────────
-function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
-  const isSend = tx.type === "send";
-  const isFailed = tx.status === "failed";
-
-  return (
-    <TouchableOpacity
-      style={[styles.txRow, { borderBottomColor: theme.border }]}
-      activeOpacity={0.7}
-    >
-      {/* Icon */}
-      <View
-        style={[
-          styles.txIcon,
-          {
-            backgroundColor: isFailed
-              ? "#EF444410"
-              : isSend
-                ? "#EF444415"
-                : "#22C55E15",
-          },
-        ]}
-      >
-        {isFailed ? (
-          <Clock size={20} color="#EF4444" strokeWidth={2} />
-        ) : isSend ? (
-          <ArrowUpRight size={20} color="#EF4444" strokeWidth={2.5} />
-        ) : (
-          <ArrowDownLeft size={20} color="#22C55E" strokeWidth={2.5} />
-        )}
-      </View>
-
-      {/* Info Content */}
-      <View style={styles.txInfo}>
-        {/* Top: Type/Token & Amount */}
-        <View style={styles.txTopRow}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text style={[styles.txTitle, { color: theme.text }]}>
-              {isSend ? "Sent" : "Received"}
-            </Text>
-            <Text style={[styles.txSymbol, { color: theme.textSecondary }]}>
-              {tx.symbol}
-            </Text>
-          </View>
-
-          <Text
-            style={[
-              styles.txAmount,
-              {
-                color: isFailed
-                  ? theme.textSecondary
-                  : isSend
-                    ? theme.text
-                    : "#22C55E",
-              },
-            ]}
-          >
-            {isSend ? "-" : "+"}
-            {tx.value}
-          </Text>
-        </View>
-
-        {/* Middle: Address */}
-        <View style={styles.txMiddleRow}>
-          <Text style={[styles.txAddress, { color: theme.textSecondary }]}>
-            {isSend ? "To" : "From"} {truncate(isSend ? tx.to : tx.from)}
-          </Text>
-        </View>
-
-        {/* Bottom: Date, Status & Chain Info */}
-        <View style={styles.txBottomRow}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={[styles.txDate, { color: theme.textSecondary }]}>
-              {tx.displayTime} • {tx.displayDate}
-            </Text>
-
-            {/* Chain Indicator */}
-            {tx.chainIcon && tx.chainName && (
-              <View
-                style={[
-                  styles.chainBadge,
-                  { backgroundColor: theme.background },
-                ]}
-              >
-                <Image
-                  source={{ uri: tx.chainIcon }}
-                  style={{ width: 12, height: 12, marginRight: 4 }}
-                  resizeMode="contain"
-                />
-                <Text
-                  style={[styles.chainText, { color: theme.textSecondary }]}
-                >
-                  {tx.chainName}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <StatusBadge status={tx.status} />
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-// ─────────────────────────────────────────────
+// ────────────────────────────────────────────
 // Main Screen
 // ─────────────────────────────────────────────
 export default function HistoryScreen() {
   const { walletAddress, isDarkMode } = useAppStore();
-  const theme = isDarkMode ? Colors.dark : Colors.light;
+  // Merge theme colors with a flag for easy access in components
+  const theme = {
+    ...isDarkMode ? Colors.dark : Colors.light,
+    isDarkMode: isDarkMode
+  };
 
   const [transactions, setTransactions] = useState<DisplayTransaction[]>([]);
   const [filteredTx, setFilteredTx] = useState<DisplayTransaction[]>([]);
-
-  const [filter, setFilter] = useState<FilterType>("all");
-  const [search, setSearch] = useState("");
+  const [selectedChain, setSelectedChain] = useState<ChainConfig | null>(null);
+  const [isModalVisible, setIsModalVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  const slideAnim = useRef(
+    new Animated.Value(Dimensions.get("window").height)
+  ).current;
+
+  // ── Fetch ────────────────────────────────
   const fetchHistory = useCallback(async () => {
-    if (!walletAddress) {
-      console.log("No wallet address found");
-      return;
-    }
-
+    if (!walletAddress) return;
     setIsLoading(true);
-    console.log("Fetching history for all chains...");
-
     try {
-      // ✅ Fetch from ALL supported chains (Mainnet & Testnet)
-      const chainPromises = SUPPORTED_CHAINS.map(async (chain: ChainConfig) => {
-        // Skip disabled chains
-        if (chain.disabled) {
-          console.log(`Skipping disabled chain: ${chain.name}`);
-          return [];
-        }
+      let allTxs: DisplayTransaction[] = [];
+      const chains = selectedChain
+        ? [selectedChain]
+        : SUPPORTED_CHAINS.filter((c) => !c.disabled);
 
+      for (const chain of chains) {
         try {
-          console.log(`Fetching ${chain.name}...`);
           const txs = await BlockchainService.getTransactionHistory(
             chain.id as ChainId,
             walletAddress,
           );
-
-          console.log(`Found ${txs.length} txs on ${chain.name}`);
-
-          // Enrich with chain data
-          return txs.map((tx) => ({
-            ...tx,
-            chainId: chain.chainId,
-            chainName: chain.name,
-            chainIcon: chain.icon,
-            displayDate: getRelativeDate(tx.timestamp),
-            displayTime: formatTime(tx.timestamp),
-          }));
-        } catch (error) {
-          // Log error but don't crash the whole screen
-          console.warn(`Failed to fetch history for ${chain.name}:`, error);
-          return [];
+          if (txs.length) {
+            allTxs.push(
+              ...txs.map((tx) => ({
+                ...tx,
+                chainId: chain.chainId,
+                chainName: chain.name,
+                chainIcon: chain.icon,
+                displayDate: getRelativeDate(tx.timestamp),
+                displayTime: formatTime(tx.timestamp),
+              })),
+            );
+          }
+        } catch (e) {
+          console.warn(`Failed to fetch ${chain.name}:`, e);
         }
-      });
+        // Small delay to prevent rate limiting if fetching multiple chains
+        await new Promise((r) => setTimeout(r, 300));
+      }
 
-      // Wait for all promises to settle (success or failure)
-      const results = await Promise.allSettled(chainPromises);
-
-      // Flatten the results into a single array
-      let allTxs: DisplayTransaction[] = [];
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          allTxs = [...allTxs, ...result.value];
-        } else {
-          console.error(
-            `Promise rejected for chain index ${index}:`,
-            result.reason,
-          );
-        }
-      });
-
-      // Sort by timestamp descending (newest first)
       allTxs.sort((a, b) => b.timestamp - a.timestamp);
-
-      console.log(`Total transactions loaded: ${allTxs.length}`);
       setTransactions(allTxs);
-    } catch (error) {
-      console.error("Failed to fetch global history:", error);
-      setTransactions([]);
+    } catch (e) {
+      console.error("History fetch failed:", e);
     } finally {
       setIsLoading(false);
     }
-  }, [walletAddress]);
+  }, [walletAddress, selectedChain]);
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchHistory();
-    }, [fetchHistory]),
-  );
+  useFocusEffect(useCallback(() => { fetchHistory(); }, [fetchHistory]));
+  useEffect(() => { setFilteredTx(transactions); }, [transactions]);
 
-  // Filter Logic
-  React.useEffect(() => {
-    let result = transactions;
-
-    // 1. Filter by Type
-    if (filter !== "all") {
-      result = result.filter((tx) => tx.type === filter);
-    }
-
-    // 2. Filter by Search
-    if (search.trim() !== "") {
-      const lowerSearch = search.toLowerCase();
-      result = result.filter(
-        (tx) =>
-          tx.symbol.toLowerCase().includes(lowerSearch) ||
-          tx.hash.toLowerCase().includes(lowerSearch) ||
-          tx.from.toLowerCase().includes(lowerSearch) ||
-          tx.to.toLowerCase().includes(lowerSearch) ||
-          (tx.chainName && tx.chainName.toLowerCase().includes(lowerSearch)),
-      );
-    }
-
-    setFilteredTx(result);
-  }, [transactions, filter, search]);
-
-  const handleRefresh = () => {
-    fetchHistory();
+  // ── Modal ──────────────────────────────────
+  const openModal = () => {
+    setIsModalVisible(true);
+    Animated.spring(slideAnim, {
+      toValue: 0, useNativeDriver: true, bounciness: 4,
+    }).start();
   };
 
-  // Grouping transactions by Date Header
-  const groupedTransactions = filteredTx.reduce(
-    (acc, tx) => {
-      const date = tx.displayDate || "Unknown";
-      if (!acc[date]) acc[date] = [];
-      acc[date].push(tx);
-      return acc;
-    },
-    {} as Record<string, DisplayTransaction[]>,
-  );
+  const closeModal = () => {
+    Animated.timing(slideAnim, {
+      toValue: Dimensions.get("window").height,
+      duration: 260,
+      useNativeDriver: true,
+    }).start(() => setIsModalVisible(false));
+  };
 
+  const selectChain = (c: ChainConfig | null) => {
+    setSelectedChain(c);
+    closeModal();
+  };
+
+  // ── Group by date ──────────────────────────
+  const grouped = filteredTx.reduce((acc, tx) => {
+    const key = tx.displayDate ?? "Unknown";
+    (acc[key] = acc[key] ?? []).push(tx);
+    return acc;
+  }, {} as Record<string, DisplayTransaction[]>);
+
+  // ────────────────────────────────────────────
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}>
       <HomeHeader
         onSettingsPress={() => router.push("/settings")}
         onScanPress={() => router.push("/scan")}
@@ -371,135 +409,81 @@ export default function HistoryScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View style={styles.pageHeader}>
-          <Text style={[styles.pageTitle, { color: theme.text }]}>History</Text>
+        {/* ── Toolbar ───────────────────────── */}
+        <View style={styles.toolbar}>
+          {/* Chain picker pill */}
           <TouchableOpacity
-            style={[styles.refreshBtn, { backgroundColor: theme.card }]}
-            onPress={handleRefresh}
-            activeOpacity={0.8}
+            style={[styles.pill, { backgroundColor: theme.card, borderColor: theme.border }]}
+            onPress={openModal}
+            activeOpacity={0.75}
           >
-            {isLoading ? (
-              <ActivityIndicator size="small" color={theme.text} />
+            {selectedChain ? (
+              <>
+                <Image
+                  source={
+                    CHAIN_ICONS[selectedChain.chainId] ?? { uri: selectedChain.icon }
+                  }
+                  style={styles.pillIcon}
+                  resizeMode="contain"
+                />
+                <Text style={[styles.pillLabel, { color: theme.text }]}>
+                  {shortChainName(selectedChain.name)}
+                </Text>
+              </>
             ) : (
-              <RefreshCw size={18} color={theme.text} strokeWidth={2.2} />
+              <Text style={[styles.pillLabel, { color: theme.text }]}>All Chains</Text>
             )}
+            <ChevronDown size={14} color={theme.textSecondary} />
+          </TouchableOpacity>
+
+          {/* Refresh */}
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+            onPress={fetchHistory}
+            activeOpacity={0.75}
+          >
+            {isLoading
+              ? <ActivityIndicator size="small" color={theme.text} />
+              : <RefreshCw size={15} color={theme.text} strokeWidth={2.2} />
+            }
           </TouchableOpacity>
         </View>
 
-        {/* Search Bar */}
-        <View
-          style={[
-            styles.searchBar,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-        >
-          <Search size={18} color={theme.textSecondary} strokeWidth={2} />
-          <TextInput
-            style={[styles.searchInput, { color: theme.text }]}
-            placeholder="Search hash, address, token, or chain..."
-            placeholderTextColor={theme.textSecondary}
-            value={search}
-            onChangeText={setSearch}
-          />
-          {search !== "" && (
-            <TouchableOpacity onPress={() => setSearch("")}>
-              <Text
-                style={{
-                  color: theme.primary,
-                  fontSize: 12,
-                  fontWeight: "600",
-                }}
-              >
-                Clear
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Filter Pills */}
-        <View style={styles.filterRow}>
-          {[
-            { key: "all", label: "All" },
-            { key: "receive", label: "Incoming" },
-            { key: "send", label: "Outgoing" },
-          ].map((f) => (
-            <TouchableOpacity
-              key={f.key}
-              style={[
-                styles.filterPill,
-                {
-                  backgroundColor:
-                    filter === f.key ? theme.primary + "20" : theme.card,
-                  borderColor: filter === f.key ? theme.primary : theme.border,
-                },
-              ]}
-              onPress={() => setFilter(f.key as FilterType)}
-              activeOpacity={0.75}
-            >
-              <Text
-                style={[
-                  styles.filterLabel,
-                  {
-                    color:
-                      filter === f.key ? theme.primary : theme.textSecondary,
-                    fontWeight: filter === f.key ? "700" : "500",
-                  },
-                ]}
-              >
-                {f.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Transaction List */}
+        {/* ─ Content ───────────────────────── */}
         {isLoading && transactions.length === 0 ? (
-          <View style={styles.loadingContainer}>
+          <View style={styles.centered}>
             <ActivityIndicator size="large" color={theme.text} />
-            <Text style={{ color: theme.textSecondary, marginTop: 10 }}>
-              Loading history from all chains...
+            <Text style={[styles.hint, { color: theme.textSecondary }]}>
+              Loading history…
             </Text>
           </View>
         ) : filteredTx.length === 0 ? (
-          <View style={styles.emptyState}>
-            <View
-              style={[styles.emptyIconBox, { backgroundColor: theme.card }]}
-            >
-              <Clock size={32} color={theme.textSecondary} strokeWidth={1.5} />
+          <View style={styles.centered}>
+            <View style={[styles.emptyCircle, { backgroundColor: theme.card }]}>
+              <Clock size={28} color={theme.textSecondary} strokeWidth={1.5} />
             </View>
             <Text style={[styles.emptyTitle, { color: theme.text }]}>
               No transactions yet
             </Text>
-            <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>
-              Your transaction history across all networks will appear here.
+            <Text style={[styles.hint, { color: theme.textSecondary }]}>
+              {selectedChain
+                ? `No history on ${shortChainName(selectedChain.name)}.`
+                : "Transactions across supported networks will appear here."}
             </Text>
           </View>
         ) : (
-          <View style={styles.listContainer}>
-            {Object.entries(groupedTransactions).map(([date, txs]) => (
-              <View key={date} style={styles.dateGroup}>
-                <Text
-                  style={[styles.dateHeader, { color: theme.textSecondary }]}
-                >
+          <View style={{ gap: 24 }}>
+            {Object.entries(grouped).map(([date, txs]) => (
+              <View key={date}>
+                <Text style={[styles.dateLabel, { color: theme.textSecondary }]}>
                   {date}
                 </Text>
-                <View
-                  style={[
-                    styles.txListCard,
-                    { backgroundColor: theme.card, borderColor: theme.border },
-                  ]}
-                >
-                  {txs.map((tx, index) => (
-                    <React.Fragment key={tx.hash + index}>
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  {txs.map((tx, i) => (
+                    <React.Fragment key={tx.hash + i}>
                       <TxRow tx={tx} theme={theme} />
-                      {index < txs.length - 1 && (
-                        <View
-                          style={[
-                            styles.divider,
-                            { backgroundColor: theme.border },
-                          ]}
-                        />
+                      {i < txs.length - 1 && (
+                        <View style={[styles.sep, { backgroundColor: theme.border }]} />
                       )}
                     </React.Fragment>
                   ))}
@@ -511,202 +495,313 @@ export default function HistoryScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* ── Chain Bottom Sheet ─────────────── */}
+      <Modal
+        visible={isModalVisible}
+        transparent
+        animationType="none"
+        onRequestClose={closeModal}
+      >
+        <TouchableWithoutFeedback onPress={closeModal}>
+          <View style={styles.overlay}>
+            <Animated.View
+              style={[
+                styles.sheet,
+                { backgroundColor: theme.card, transform: [{ translateY: slideAnim }] },
+              ]}
+            >
+              {/* Sheet header */}
+              <View style={[styles.sheetHead, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.sheetTitle, { color: theme.text }]}>
+                  Filter by Chain
+                </Text>
+                <TouchableOpacity onPress={closeModal} hitSlop={8}>
+                  <X size={20} color={theme.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView bounces={false}>
+                {/* All chains option */}
+                <ChainRow
+                  label="All Chains"
+                  subLabel={`${SUPPORTED_CHAINS.filter(c => !c.disabled).length} networks`}
+                  isSelected={!selectedChain}
+                  onPress={() => selectChain(null)}
+                  theme={theme}
+                />
+
+                {SUPPORTED_CHAINS.filter((c) => !c.disabled).map((chain) => {
+                  const isBnb = chain.chainId === 56 || chain.chainId === 97;
+                  return (
+                    <ChainRow
+                      key={chain.id}
+                      label={chain.name}
+                      subLabel={isBnb ? "History not supported yet" : undefined}
+                      icon={CHAIN_ICONS[chain.chainId] ?? { uri: chain.icon }}
+                      isSelected={selectedChain?.id === chain.id}
+                      onPress={() => selectChain(chain)}
+                      theme={theme}
+                    />
+                  );
+                })}
+                <View style={{ height: 20 }} />
+              </ScrollView>
+            </Animated.View>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 }
 
+// ─────────────────────────────────────────────
+// ChainRow helper
+// ─────────────────────────────────────────────
+function ChainRow({
+  label, subLabel, icon, isSelected, onPress, theme,
+}: {
+  label: string;
+  subLabel?: string;
+  icon?: any;
+  isSelected: boolean;
+  onPress: () => void;
+  theme: any;
+}) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.chainRow,
+        { borderBottomColor: theme.border },
+        isSelected && { backgroundColor: (theme.primary ?? "#6366F1") + "10" },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      {/* Icon */}
+      <View style={[styles.chainIconWrap, { backgroundColor: theme.background }]}>
+        {icon
+          ? <Image source={icon} style={styles.chainIconMd} resizeMode="contain" />
+          : <View style={[styles.chainIconMd, { borderRadius: 12, backgroundColor: theme.border }]} />
+        }
+      </View>
+
+      {/* Labels */}
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.chainLabel, { color: theme.text }]}>{label}</Text>
+        {subLabel && (
+          <Text style={[styles.chainSub, { color: theme.textSecondary }]}>{subLabel}</Text>
+        )}
+      </View>
+
+      {isSelected && (
+        <Check size={18} color={theme.primary ?? "#6366F1"} strokeWidth={2.5} />
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Styles
+// ─────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  root: { flex: 1 },
   scroll: { padding: 20, paddingTop: 8 },
 
-  pageHeader: {
+  // Toolbar
+  toolbar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 20,
     marginTop: 10,
   },
-  pageTitle: {
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-  },
-  refreshBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-    color: "#ffffff",
-  },
-
-  searchBar: {
+  pill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    borderRadius: 999,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
     borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
+  },
+  pillIcon: { width: 16, height: 16 },
+  pillLabel: { fontSize: 14, fontWeight: "600" },
+
+  iconBtn: {
+    width: 36, height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+
+  // Date group
+  dateLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginLeft: 4,
+    marginBottom: 10,
+  },
+
+  // Card
+  card: {
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: "hidden",
+    // Shadow for iOS
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
+    // Elevation for Android
     elevation: 2,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "500",
-    paddingVertical: 0,
-  },
 
-  filterRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 24,
-  },
-  filterPill: {
-    borderRadius: 99,
-    borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-  },
-  filterLabel: {
-    fontSize: 13,
-  },
-
-  listContainer: {
-    gap: 20,
-  },
-  dateGroup: {
-    gap: 8,
-  },
-  dateHeader: {
-    fontSize: 13,
-    fontWeight: "600",
-    marginLeft: 4,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  txListCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
+  // Tx Row — Redesigned Layout
   txRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     paddingVertical: 16,
     paddingHorizontal: 16,
     gap: 14,
   },
-  divider: {
-    height: 1,
-    marginLeft: 54,
-    marginRight: 0,
+
+  // Wrapper for Icon + Badge
+  iconWrapper: {
+    position: 'relative',
+    width: 44,
+    height: 44,
   },
-  txIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+
+  // Circular Icon Background
+  iconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 2,
+    flexShrink: 0,
   },
-  txInfo: { flex: 1, gap: 6 },
-  txTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+
+  chainIconInside: {
+    width: 50,
+    height: 50,
   },
+
+  // Badge Style
+  badgeContainer: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    zIndex: 10,
+  },
+
+  contentContainer: {
+    flex: 1,
+    justifyContent: "center",
+  },
+
   txTitle: {
     fontSize: 15,
-    fontWeight: "700",
-  },
-  txSymbol: {
-    fontSize: 13,
     fontWeight: "600",
-    opacity: 0.7,
+    lineHeight: 20,
   },
-  txAmount: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  txMiddleRow: {
-    flexDirection: "row",
-  },
-  txAddress: {
+
+  txSubtitle: {
     fontSize: 13,
-    fontWeight: "500",
-    opacity: 0.8,
+    fontWeight: "400",
+    lineHeight: 18,
+    marginTop: 2,
   },
-  txBottomRow: {
+
+  valueContainer: {
+    alignItems: "flex-end",
+    flexShrink: 0,
+  },
+
+  txValue: {
+    fontSize: 15,
+    fontWeight: "600",
+    lineHeight: 20,
+    textAlign: "right",
+  },
+
+  // Style baru untuk simbol token di samping angka
+  txSymbol: {
+    fontSize: 15,
+    fontWeight: "600",
+    lineHeight: 20,
+    textAlign: "right",
+    marginLeft: 4, // Jarak kecil antara angka dan simbol
+  },
+
+  sep: {
+    height: 1,
+    marginLeft: 74, // Align separator with text start (icon width + gap)
+    marginRight: 16,
+    opacity: 0.5,
+  },
+
+  // Empty / loading
+  centered: {
+    paddingVertical: 64,
+    alignItems: "center",
+    gap: 10,
+  },
+  emptyCircle: {
+    width: 60, height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  emptyTitle: { fontSize: 17, fontWeight: "700" },
+  hint: { fontSize: 13, textAlign: "center", maxWidth: 240, lineHeight: 19 },
+
+  // Modal / sheet
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "95%",
+  },
+  sheetHead: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 2,
-    flexWrap: "wrap",
-    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
   },
-  txDate: {
-    fontSize: 12,
-    fontWeight: "400",
-    opacity: 0.6,
-  },
+  sheetTitle: { fontSize: 16, fontWeight: "700" },
 
-  // New Styles for Chain Badge
-  chainBadge: {
+  // Chain row
+  chainRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(128,128,128,0.1)",
-  },
-  chainText: {
-    fontSize: 10,
-    fontWeight: "600",
-  },
-
-  statusBadge: {
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  statusText: { fontSize: 11, fontWeight: "700" },
-
-  loadingContainer: {
-    paddingVertical: 60,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyState: {
-    alignItems: "center",
-    paddingVertical: 60,
+    paddingHorizontal: 20,
+    paddingVertical: 13,
     gap: 12,
+    borderBottomWidth: 1,
   },
-  emptyIconBox: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+  chainIconWrap: {
+    width: 36, height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
   },
-  emptyTitle: { fontSize: 18, fontWeight: "700" },
-  emptyDesc: {
-    fontSize: 14,
-    fontWeight: "400",
-    textAlign: "center",
-    maxWidth: 250,
-    lineHeight: 20,
-  },
+  chainIconMd: { width: 35, height: 35, overflow: "hidden", borderRadius: 33 },
+  chainLabel: { fontSize: 15, fontWeight: "600" },
+  chainSub: { fontSize: 11, marginTop: 1 },
 });

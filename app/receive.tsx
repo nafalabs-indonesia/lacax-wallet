@@ -37,6 +37,10 @@ const CHAIN_LOGO_MAP: Record<string, any> = {
   "ethereum-sepolia": require("../assets/chains/eth-sepolia.png"),
   "blockdag-mainnet": require("../assets/chains/bdag.png"),
   "blockdag-testnet": require("../assets/chains/bdag.png"),
+  "polygon-mainnet": require("../assets/chains/polygon.png"),
+  "polygon-amoy": require("../assets/chains/polygon.png"),
+  "bnb-mainnet": require("../assets/chains/bnb.png"),
+  "bnb-testnet": require("../assets/chains/bnb.png"),
 };
 
 // Definisi Token per Chain
@@ -97,6 +101,74 @@ const TOKEN_CONFIG: Record<string, any[]> = {
       symbol: "USDT",
       name: "Test USDT",
       logo: require("../assets/coins/usdt.png"),
+    },
+  ],
+  "polygon-mainnet": [
+    {
+      symbol: "POL",
+      name: "Polygon",
+      logo: require("../assets/chains/polygon.png"),
+    },
+    {
+      symbol: "USDT",
+      name: "Tether USD",
+      logo: require("../assets/coins/usdt.png"),
+    },
+    {
+      symbol: "USDC",
+      name: "USD Coin",
+      logo: require("../assets/coins/usdc.png"),
+    },
+  ],
+  "polygon-amoy": [
+    {
+      symbol: "POL",
+      name: "Polygon Amoy",
+      logo: require("../assets/chains/polygon.png"),
+    },
+    {
+      symbol: "USDT",
+      name: "Test USDT",
+      logo: require("../assets/coins/usdt.png"),
+    },
+    {
+      symbol: "USDC",
+      name: "Test USDC",
+      logo: require("../assets/coins/usdc.png"),
+    },
+  ],
+  "bnb-mainnet": [
+    {
+      symbol: "BNB",
+      name: "BNB Smart Chain",
+      logo: require("../assets/chains/bnb.png"),
+    },
+    {
+      symbol: "USDT",
+      name: "Tether USD",
+      logo: require("../assets/coins/usdt.png"),
+    },
+    {
+      symbol: "USDC",
+      name: "USD Coin",
+      logo: require("../assets/coins/usdc.png"),
+    },
+  ],
+  "bnb-testnet": [
+    {
+      symbol: "BNB",
+      name: "BNB Testnet",
+      logo: require("../assets/chains/bnb.png"),
+    },
+    {
+      symbol: "USDT",
+      name: "Test USDT",
+      logo: require("../assets/coins/usdt.png"),
+    },
+    {
+      symbol: "USDC",
+      name: "Test USDC",
+      logo: require("../assets/coins/usdc.png"),
     },
   ],
 };

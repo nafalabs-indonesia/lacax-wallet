@@ -29,6 +29,8 @@ const getAlchemyRpc = (network: string) => {
   return `https://${network}.g.alchemy.com/v2/${key}`;
 };
 
+const PROXY_BASE_URL = "https://lacakoin.vercel.app/api/rpc";
+
 export const SUPPORTED_CHAINS: ChainConfig[] = [
   {
     id: "ethereum-mainnet",
@@ -112,13 +114,13 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     // rpc.bdagscan.com (resmi) diblokir Cloudflare untuk akses programmatic.
     // Semua provider third-party (NOWNodes dll) hanya tersedia untuk testnet (chainId 1043).
     // Chain ini di-disable sampai ada RPC publik mainnet yang accessible.
-    rpcUrl: "https://rpc.bdagscan.com/",
+    rpcUrl: `${PROXY_BASE_URL}/1404`,
     explorerUrl: "https://bdagscan.com/",
     icon: "/assets/chains/bdag.png",
     symbol: "BDAG",
     decimals: 18,
     type: "evm",
-    disabled: true,
+    disabled: false,
     disabledReason: "Mainnet RPC not available yet.",
   },
   {

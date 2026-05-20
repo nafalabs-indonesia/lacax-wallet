@@ -5,14 +5,17 @@ import {
   Fingerprint,
   Globe,
   Info,
+  Link,
   LogOut,
   Moon,
   Shield,
   Sun,
   Wallet,
+  XCircle,
 } from "lucide-react-native";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Modal,
   ScrollView,
   StyleSheet,
@@ -23,6 +26,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
+// Import fungsi untuk mendapatkan sesi aktif dari service WC
+import { initWalletConnect } from "../services/WalletConnectService";
 
 // --- Komponen Item Grid ---
 interface GridItemProps {
@@ -86,7 +91,6 @@ function CustomAlert({
             {title}
           </Text>
 
-          {/* FIX: scroll + batas tinggi */}
           <ScrollView
             style={styles.modalScroll}
             showsVerticalScrollIndicator={false}
@@ -135,12 +139,68 @@ export default function SettingsScreen() {
 
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
+  // State untuk Connected DApps
+  const [connectedApps, setConnectedApps] = useState<any[]>([]);
+  const [isLoadingApps, setIsLoadingApps] = useState(false);
+
   const [modal, setModal] = useState({
     visible: false,
     title: "",
     message: "",
     buttons: [] as AlertButton[],
   });
+
+  // Load Connected Apps saat screen dibuka
+  useEffect(() => {
+    loadConnectedApps();
+  }, []);
+
+  const loadConnectedApps = async () => {
+    setIsLoadingApps(true);
+    try {
+      const web3Wallet = await initWalletConnect();
+      // Mengambil semua sesi aktif
+      const sessions = web3Wallet.getActiveSessions();
+      const apps = Object.values(sessions).map((session: any) => ({
+        topic: session.topic,
+        name: session.peer.metadata.name || "Unknown DApp",
+        url: session.peer.metadata.url || "",
+        icon: session.peer.metadata.icons?.[0] || null,
+      }));
+      setConnectedApps(apps);
+    } catch (error) {
+      console.error("Failed to load sessions:", error);
+    } finally {
+      setIsLoadingApps(false);
+    }
+  };
+
+  const handleDisconnect = (topic: string, name: string) => {
+    showAlert(
+      "Disconnect DApp",
+      `Are you sure you want to disconnect from ${name}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Disconnect",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const web3Wallet = await initWalletConnect();
+              await web3Wallet.disconnectSession({
+                topic,
+                reason: { code: 6000, message: "User disconnected" },
+              });
+              loadConnectedApps(); // Refresh list
+              showAlert("Success", "DApp disconnected successfully.");
+            } catch (error) {
+              showAlert("Error", "Failed to disconnect.");
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const showAlert = (
     title: string,
@@ -202,7 +262,7 @@ export default function SettingsScreen() {
 
   const handleAbout = () => {
     showAlert(
-      "About Lacax Wallet",
+      "About LacaX Wallet",
       "Version: 1.0.0\n\nA secure and simple crypto wallet for everyone.",
     );
   };
@@ -225,6 +285,7 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
+        {/* --- Section: Account & Security --- */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
             Account & Security
@@ -248,6 +309,61 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* --- Section: Connected DApps (NEW) --- */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Connections
+          </Text>
+          <View style={[styles.listContainer, { backgroundColor: theme.card }]}>
+            {isLoadingApps ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator color={theme.textSecondary} />
+              </View>
+            ) : connectedApps.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Link size={24} color={theme.textSecondary} opacity={0.5} />
+                <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+                  No connected dApps
+                </Text>
+              </View>
+            ) : (
+              connectedApps.map((app) => (
+                <View key={app.topic} style={styles.dappRow}>
+                  <View style={styles.dappInfo}>
+                    {app.icon ? (
+                      // Jika ada icon URL, gunakan Image. Jika tidak, pakai placeholder
+                      // Note: Perlu import Image dari react-native jika ingin menampilkan icon URL
+                      // Untuk simplicity, kita pakai Icon default saja di sini atau Text
+                      <View style={[styles.dappIconPlaceholder, { backgroundColor: theme.background }]}>
+                        <Link size={16} color={theme.text} />
+                      </View>
+                    ) : (
+                      <View style={[styles.dappIconPlaceholder, { backgroundColor: theme.background }]}>
+                        <Link size={16} color={theme.text} />
+                      </View>
+                    )}
+                    <View>
+                      <Text style={[styles.dappName, { color: theme.text }]}>
+                        {app.name}
+                      </Text>
+                      <Text style={[styles.dappUrl, { color: theme.textSecondary }]}>
+                        {app.url.replace(/^https?:\/\//, "")}
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => handleDisconnect(app.topic, app.name)}
+                    style={styles.disconnectBtn}
+                  >
+                    <XCircle size={20} color={theme.error} />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+        </View>
+
+        {/* --- Section: Preferences --- */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
             Preferences
@@ -275,6 +391,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* --- Footer --- */}
         <View style={styles.footerSection}>
           <TouchableOpacity
             style={[styles.aboutRow, { backgroundColor: theme.card }]}
@@ -285,7 +402,7 @@ export default function SettingsScreen() {
             >
               <Info size={20} color={theme.textSecondary} />
               <Text style={[styles.aboutText, { color: theme.textSecondary }]}>
-                Lacax Wallet v1.0.0
+                LacaX Wallet v1.0.0
               </Text>
             </View>
           </TouchableOpacity>
@@ -340,6 +457,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     marginLeft: 4,
   },
+
+  // Grid Styles
   gridContainer: {
     borderRadius: 20,
     padding: 16,
@@ -364,6 +483,65 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 14,
   },
+
+  // List Container for DApps
+  listContainer: {
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    minHeight: 100,
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: "center",
+  },
+  emptyState: {
+    padding: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyText: {
+    marginTop: 8,
+    fontSize: 14,
+  },
+  dappRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(128,128,128,0.1)",
+  },
+  dappInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  dappIconPlaceholder: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dappName: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  dappUrl: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  disconnectBtn: {
+    padding: 8,
+  },
+
+  // Footer Styles
   footerSection: { marginTop: 10 },
   aboutRow: {
     flexDirection: "row",
@@ -384,7 +562,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
 
-  // --- Modal Styles (FIXED) ---
+  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -392,8 +570,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   modalContainer: {
-    width: "92%", // diperbesar
-    maxHeight: "75%", // biar tidak kepanjangan
+    width: "92%",
+    maxHeight: "75%",
     borderRadius: 20,
     padding: 20,
   },
@@ -403,7 +581,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   modalScroll: {
-    maxHeight: 200, // batas isi text
+    maxHeight: 200,
   },
   modalMessage: {
     fontSize: 14,

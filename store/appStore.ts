@@ -1,7 +1,17 @@
 // store/appStore.ts
+import { ethers } from "ethers";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 import { WalletRepository } from "../modules/wallet/infrastructure/WalletRepository";
+
+interface WcRequestData {
+  isVisible: boolean;
+  topic: string | null;
+  id: number | null;
+  method: string | null;
+  params: any[] | null;
+  chainId: number | null;
+}
 
 interface AppState {
   isDarkMode: boolean;
@@ -10,20 +20,22 @@ interface AppState {
   walletAddress: string | null;
   isUnlocked: boolean;
   mnemonic: string | null;
+  privateKey: string | null;
   isStorageLoaded: boolean;
 
   activeChainId: string;
   setActiveChainId: (id: string) => void;
+
+  // ✅ State untuk Konfirmasi WalletConnect
+  wcRequest: WcRequestData | null;
+  setWcRequest: (request: WcRequestData | null) => void;
 
   setWalletAddress: (address: string | null) => void;
   setUnlocked: (value: boolean) => void;
   setMnemonic: (mnemonic: string | null) => void;
 
   loadWalletFromStorage: () => Promise<void>;
-
-  // ✅ Gunakan nama fungsi yang sesuai dengan Repository
   unlockWallet: (pin: string) => Promise<boolean>;
-
   resetWallet: () => Promise<void>;
 }
 
@@ -34,7 +46,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   walletAddress: null,
   isUnlocked: false,
   mnemonic: null,
+  privateKey: null,
   isStorageLoaded: false,
+  
+  // ✅ Inisialisasi State WC Request
+  wcRequest: null,
+  setWcRequest: (request) => set({ wcRequest: request }),
 
   activeChainId: "ethereum-mainnet",
   setActiveChainId: (id) => set({ activeChainId: id }),
@@ -53,7 +70,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({
           walletAddress: savedAddress,
           isStorageLoaded: true,
-          // mnemonic TETAP null di sini (belum di-unlock)
         });
       } else {
         set({ isStorageLoaded: true });
@@ -66,20 +82,19 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   unlockWallet: async (password: string): Promise<boolean> => {
     try {
-      // 1. Verifikasi password dan ambil Mnemonic sekaligus
-      // Fungsi ini akan return null jika password salah
       const recoveredMnemonic = await WalletRepository.getMnemonicIfValid(password);
 
       if (recoveredMnemonic) {
-        // 2. Jika berhasil, simpan mnemonic ke State (Memory)
-        //    dan update status unlocked
+        const wallet = ethers.Wallet.fromPhrase(recoveredMnemonic);
+        const derivedPrivateKey = wallet.privateKey;
+
         set({
           mnemonic: recoveredMnemonic,
+          privateKey: derivedPrivateKey,
           isUnlocked: true,
         });
         return true;
       } else {
-        // password Salah
         return false;
       }
     } catch (error) {
@@ -97,6 +112,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       walletAddress: null,
       mnemonic: null,
+      privateKey: null,
+      wcRequest: null, // Reset juga request WC jika ada
       isUnlocked: false,
       isStorageLoaded: true,
       activeChainId: "ethereum-mainnet",

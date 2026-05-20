@@ -939,12 +939,12 @@ export default function HomeScreen() {
                     enabledNetworks[a.chainId] &&
                     !(isTestnet(a.chainId) && parseFloat(a.balance) === 0),
                 ).length === 0 && (
-                  <View style={{ alignItems: "center", marginTop: 40 }}>
-                    <Text style={{ color: theme.textSecondary }}>
-                      No assets found.
-                    </Text>
-                  </View>
-                )}
+                    <View style={{ alignItems: "center", marginTop: 40 }}>
+                      <Text style={{ color: theme.textSecondary }}>
+                        No assets found.
+                      </Text>
+                    </View>
+                  )}
               </>
             )}
           </>
@@ -1521,7 +1521,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    maxHeight: "100%",
+    maxHeight: "95%",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -5 },
     shadowOpacity: 0.1,
