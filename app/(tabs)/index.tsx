@@ -16,6 +16,8 @@ import {
   Eye,
   EyeOff,
   Repeat2,
+  Search,
+  X,
 } from "lucide-react-native";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -29,6 +31,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -42,7 +45,9 @@ const { width: W } = Dimensions.get("window");
 // Helper: Detect Testnet
 // ─────────────────────────────────────────────
 const isTestnet = (id: string) => {
-  return id.includes("testnet") || id.includes("sepolia");
+  return (
+    id.includes("testnet") || id.includes("sepolia") || id.includes("amoy")
+  );
 };
 
 // ─────────────────────────────────────────────
@@ -54,6 +59,10 @@ const LOCAL_ICON_MAP: Record<string, any> = {
   "ethereum-sepolia": require("../../assets/chains/eth-sepolia.png"),
   "blockdag-mainnet": require("../../assets/chains/bdag.png"),
   "blockdag-testnet": require("../../assets/chains/bdag.png"),
+  "polygon-mainnet": require("../../assets/chains/polygon.png"),
+  "polygon-amoy": require("../../assets/chains/polygon.png"),
+  "bnb-mainnet": require("../../assets/chains/bnb.png"),
+  "bnb-testnet": require("../../assets/chains/bnb.png"),
 
   // Tokens
   USDT: require("../../assets/coins/usdt.png"),
@@ -64,6 +73,10 @@ const LOCAL_ICON_MAP: Record<string, any> = {
 const NETWORK_BADGE_ICON: Record<string, any> = {
   "ethereum-mainnet": require("../../assets/chains/eth-symbol.webp"),
   "ethereum-sepolia": require("../../assets/chains/eth-symbol.webp"),
+  "polygon-mainnet": require("../../assets/chains/polygon.png"),
+  "polygon-amoy": require("../../assets/chains/polygon.png"),
+  "bnb-mainnet": require("../../assets/chains/bnb.png"),
+  "bnb-testnet": require("../../assets/chains/bnb.png"),
 };
 
 // ─────────────────────────────────────────────
@@ -72,6 +85,8 @@ const NETWORK_BADGE_ICON: Record<string, any> = {
 const COINGECKO_IDS: Record<string, string> = {
   "ethereum-mainnet": "ethereum",
   "blockdag-mainnet": "blockdag",
+  "polygon-mainnet": "polygon-ecosystem-token", // Polygon native token price often tracked via MATIC or POL
+  "bnb-mainnet": "binancecoin",
   USDT: "tether",
   USDC: "usd-coin",
 };
@@ -108,6 +123,18 @@ interface BalanceSnapshot {
 }
 
 // ─────────────────────────────────────────────
+// Helper: Format balance dengan presisi adaptif
+// Jika balance < 0.00001 tampilkan "< 0.00001"
+// Jika balance >= 0.00001 tampilkan 4 desimal
+// ─────────────────────────────────────────────
+const formatBalance = (balanceStr: string, symbol: string): string => {
+  const val = parseFloat(balanceStr);
+  if (isNaN(val)) return `0.0000 ${symbol}`;
+  if (val > 0 && val < 0.00001) return `< 0.00001 ${symbol}`;
+  return `${val.toFixed(4)} ${symbol}`;
+};
+
+// ─────────────────────────────────────────────
 // Skeleton Pulse Item
 // ─────────────────────────────────────────────
 function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
@@ -136,10 +163,7 @@ function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
 
   return (
     <Animated.View style={[styles.assetRow, { opacity: pulseAnim }]}>
-      {/* Icon placeholder */}
       <View style={[styles.skeletonCircle, { backgroundColor: skeletonBg }]} />
-
-      {/* Name + sub */}
       <View style={styles.assetInfo}>
         <View
           style={[
@@ -154,8 +178,6 @@ function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
           ]}
         />
       </View>
-
-      {/* Value + price */}
       <View style={styles.assetRight}>
         <View
           style={[
@@ -302,47 +324,91 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [activeTab, setActiveTab] = useState<"crypto" | "network">("crypto");
+
+  // State for Modals
   const [showNetworkSheet, setShowNetworkSheet] = useState(false);
+  const [showAssetSheet, setShowAssetSheet] = useState(false); // New state for Asset Sheet
   const [showTestnetAlert, setShowTestnetAlert] = useState(false);
+
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
 
   // State untuk menyimpan history saldo (untuk kalkulasi PnL personal)
   const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
 
+  // State for Enabled Networks
   const [enabledNetworks, setEnabledNetworks] = useState<
     Record<string, boolean>
   >(
     SUPPORTED_CHAINS.reduce((acc, chain) => ({ ...acc, [chain.id]: true }), {}),
   );
 
+  // State for Enabled Assets (by ID) - Default all true
+  const [enabledAssets, setEnabledAssets] = useState<Record<string, boolean>>(
+    {},
+  );
+
+  // State for Network Search
+  const [networkSearch, setNetworkSearch] = useState("");
+
   const activeChainConfig =
     SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
 
-  // Hitung Total Balance Fiat (IDR) Saat Ini
-  const currentAsset = displayAssets.find(
-    (a) => a.chainId === activeChainId && a.isNative,
-  );
-  const currentBalanceRaw = parseFloat(currentAsset?.balance || "0");
-  const currentPriceIDR = prices[activeChainId]?.idr || 0;
-  const totalFiat = currentBalanceRaw * currentPriceIDR;
+  // Initialize enabledAssets when displayAssets changes
+  useEffect(() => {
+    if (displayAssets.length > 0) {
+      setEnabledAssets((prev) => {
+        const next = { ...prev };
+        displayAssets.forEach((asset) => {
+          if (next[asset.id] === undefined) {
+            next[asset.id] = true; // Default to visible
+          }
+        });
+        return next;
+      });
+    }
+  }, [displayAssets]);
 
-  // ─── Kalkulasi Persentase Berdasarkan History (Bukan Market) ───
-  const lastSnapshot =
-    balanceHistory.length > 0
-      ? balanceHistory[balanceHistory.length - 1]
-      : null;
+  // ─── Hitung Total Balance Fiat (IDR) Kumulatif Semua Aset (mainnet only) ───
+  const totalFiat = displayAssets.reduce((sum, asset) => {
+    // Only count if enabled and not testnet
+    if (!enabledAssets[asset.id]) return sum;
+    if (isTestnet(asset.chainId)) return sum;
 
-  const baselineFiat = lastSnapshot ? lastSnapshot.totalFiat : totalFiat;
-  const totalFiatChange = totalFiat - baselineFiat;
+    const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+    const priceIDR = prices[priceKey]?.idr || 0;
+    return sum + parseFloat(asset.balance || "0") * priceIDR;
+  }, 0);
 
-  let portfolioChangePercent = 0;
-  if (baselineFiat > 0) {
-    portfolioChangePercent = (totalFiatChange / baselineFiat) * 100;
-  } else if (totalFiat > 0) {
-    portfolioChangePercent = 100;
-  }
+  // ─── Kalkulasi % Perubahan Kumulatif Berdasarkan Market change24h ───
+  // Bobot tiap aset = nilai fiat-nya, perubahan = change24h masing-masing aset
+  // Hasil: persentase perubahan portfolio secara kumulatif (weighted average)
+  const { portfolioChangePercent, totalFiatChange } = (() => {
+    let weightedChangeSum = 0;
+    let totalWeight = 0;
 
-  const isPortfolioUp = totalFiatChange >= 0;
+    displayAssets.forEach((asset) => {
+      if (!enabledAssets[asset.id]) return;
+      if (isTestnet(asset.chainId)) return;
+
+      const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+      const priceData = prices[priceKey];
+      if (!priceData) return;
+
+      const assetFiat = parseFloat(asset.balance || "0") * priceData.idr;
+      if (assetFiat <= 0) return;
+
+      weightedChangeSum += assetFiat * priceData.change24h;
+      totalWeight += assetFiat;
+    });
+
+    const pct = totalWeight > 0 ? weightedChangeSum / totalWeight : 0;
+    // Hitung perubahan absolut IDR dari persentase tertimbang
+    const absChange = totalFiat * (pct / 100);
+
+    return { portfolioChangePercent: pct, totalFiatChange: absChange };
+  })();
+
+  const isPortfolioUp = portfolioChangePercent >= 0;
 
   // ─── Format IDR ───
   const formatIDR = (val: number) => {
@@ -361,18 +427,6 @@ export default function HomeScreen() {
     }).format(val);
     return `IDR ${formatted}`;
   };
-
-  // ─────────────────────────────────────────────
-  // recordBalanceSnapshot
-  // ─────────────────────────────────────────────
-  const recordBalanceSnapshot = useCallback((currentTotal: number) => {
-    setBalanceHistory((prev) => {
-      if (prev.length > 0 && prev[prev.length - 1].totalFiat === currentTotal) {
-        return prev;
-      }
-      return [...prev, { totalFiat: currentTotal, timestamp: Date.now() }];
-    });
-  }, []);
 
   // ─────────────────────────────────────────────
   // fetchPrices
@@ -402,55 +456,80 @@ export default function HomeScreen() {
     }
   }, []);
 
+  // ─────────────────────────────────────────────
+  // fetchAllBalances
+  // ─────────────────────────────────────────────
   const fetchAllBalances = useCallback(async () => {
     if (!walletAddress) return;
     setIsLoading(true);
+
+    // Reset provider cache agar tidak pakai koneksi lama yang stale/rusak
+    BlockchainService.resetProviders();
 
     const newAssets: DisplayAsset[] = [];
 
     try {
       await Promise.all(
         SUPPORTED_CHAINS.map(async (chain) => {
+          // Skip chain yang RPC-nya tidak tersedia
+          if (chain.disabled) {
+            console.log(
+              `⏭️ [${chain.id}] dilewati: ${chain.disabledReason ?? "disabled"}`,
+            );
+            return;
+          }
+
+          // ── Native Balance ──
+          let nativeBal = "0.0000";
           try {
-            const bal = await BlockchainService.getBalance(
+            nativeBal = await BlockchainService.getBalance(
               chain.id as ChainId,
               walletAddress,
             );
-            newAssets.push({
-              id: `${chain.id}-native`,
-              chainId: chain.id,
-              name: chain.name.split(" ")[0],
-              symbol: chain.symbol,
-              balance: bal,
-              isNative: true,
-            });
-          } catch (e) {
-            console.error(`Error fetching native balance for ${chain.id}`, e);
+            console.log(
+              `✅ [${chain.id}] native: ${nativeBal} ${chain.symbol}`,
+            );
+          } catch (e: any) {
+            console.error(`❌ [${chain.id}] native FAILED: ${e?.message ?? e}`);
           }
 
+          newAssets.push({
+            id: `${chain.id}-native`,
+            chainId: chain.id,
+            name: chain.name.split(" ")[0],
+            symbol: chain.symbol,
+            balance: nativeBal,
+            isNative: true,
+          });
+
+          // ── Token Balances ──
           if (chain.tokens && chain.tokens.length > 0) {
             await Promise.all(
               chain.tokens.map(async (token) => {
+                let tokenBal = "0.0000";
                 try {
-                  const tokenBal = await BlockchainService.getTokenBalance(
+                  tokenBal = await BlockchainService.getTokenBalance(
                     chain.id as ChainId,
                     walletAddress,
                     token.address,
                     token.decimals,
                   );
-
-                  newAssets.push({
-                    id: `${chain.id}-${token.symbol}`,
-                    chainId: chain.id,
-                    name: token.name,
-                    symbol: token.symbol,
-                    balance: tokenBal,
-                    isNative: false,
-                    tokenConfig: token,
-                  });
-                } catch (e) {
-                  console.error(`Error fetching token ${token.symbol}`, e);
+                  console.log(`✅ [${chain.id}] ${token.symbol}: ${tokenBal}`);
+                } catch (e: any) {
+                  console.error(
+                    `❌ [${chain.id}] ${token.symbol} FAILED: ${e?.message ?? e}`,
+                  );
                 }
+
+                newAssets.push({
+                  id: `${chain.id}-${token.symbol}`,
+                  chainId: chain.id,
+                  name: token.name,
+                  symbol: token.symbol,
+                  balance: tokenBal,
+                  isNative: false,
+                  tokenConfig: token,
+                });
               }),
             );
           }
@@ -476,19 +555,6 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    if (!isLoading && displayAssets.length > 0) {
-      const asset = displayAssets.find(
-        (a) => a.chainId === activeChainId && a.isNative,
-      );
-      const bal = parseFloat(asset?.balance || "0");
-      const price = prices[activeChainId]?.idr || 0;
-      const calculatedTotal = bal * price;
-
-      recordBalanceSnapshot(calculatedTotal);
-    }
-  }, [displayAssets, prices, isLoading, activeChainId, recordBalanceSnapshot]);
-
-  useEffect(() => {
     const interval = setInterval(fetchPrices, 30000);
     return () => clearInterval(interval);
   }, [fetchPrices]);
@@ -502,6 +568,13 @@ export default function HomeScreen() {
     setEnabledNetworks((prev) => ({
       ...prev,
       [chainId]: !prev[chainId],
+    }));
+  };
+
+  const toggleAssetVisibility = (assetId: string) => {
+    setEnabledAssets((prev) => ({
+      ...prev,
+      [assetId]: !prev[assetId],
     }));
   };
 
@@ -521,8 +594,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Jumlah skeleton yang ditampilkan saat loading
-  // Sesuaikan dengan perkiraan jumlah aset yang akan muncul
   const SKELETON_COUNT = 4;
 
   if (!walletAddress) {
@@ -534,6 +605,41 @@ export default function HomeScreen() {
       </View>
     );
   }
+
+  // Filter assets for display based on enabled state
+  const visibleAssets = displayAssets.filter(
+    (asset) => enabledAssets[asset.id],
+  );
+
+  // Sort assets: Highest Fiat Value first
+  const sortedVisibleAssets = [...visibleAssets].sort((a, b) => {
+    const isTestA = isTestnet(a.chainId);
+    const isTestB = isTestnet(b.chainId);
+
+    // Calculate Fiat Value for A
+    const priceKeyA = a.isNative ? a.chainId : a.symbol;
+    const priceDataA = prices[priceKeyA];
+    const valueA = isTestA
+      ? 0
+      : parseFloat(a.balance || "0") * (priceDataA?.idr || 0);
+
+    // Calculate Fiat Value for B
+    const priceKeyB = b.isNative ? b.chainId : b.symbol;
+    const priceDataB = prices[priceKeyB];
+    const valueB = isTestB
+      ? 0
+      : parseFloat(b.balance || "0") * (priceDataB?.idr || 0);
+
+    // Sort descending (Highest first)
+    return valueB - valueA;
+  });
+
+  // Filter networks for list based on search
+  const filteredNetworks = SUPPORTED_CHAINS.filter(
+    (chain) =>
+      chain.name.toLowerCase().includes(networkSearch.toLowerCase()) ||
+      chain.symbol.toLowerCase().includes(networkSearch.toLowerCase()),
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
@@ -694,14 +800,16 @@ export default function HomeScreen() {
         </View>
 
         {/* ── Content Based on Active Tab ── */}
-
         {activeTab === "crypto" ? (
           <>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
                 Assets
               </Text>
-              <TouchableOpacity style={styles.manageBtn}>
+              <TouchableOpacity
+                style={styles.manageBtn}
+                onPress={() => setShowAssetSheet(true)}
+              >
                 <Text style={[styles.manageBtnText, { color: theme.text }]}>
                   Manage
                 </Text>
@@ -710,7 +818,6 @@ export default function HomeScreen() {
 
             {/* ── Skeleton Loading atau Asset List ── */}
             {isLoading && !refreshing ? (
-              // Tampilkan skeleton saat loading pertama kali
               Array.from({ length: SKELETON_COUNT }).map((_, i) => (
                 <SkeletonAssetRow
                   key={`skeleton-${i}`}
@@ -718,22 +825,32 @@ export default function HomeScreen() {
                 />
               ))
             ) : (
-              // Tampilkan asset setelah data tersedia
               <>
-                {displayAssets.map((asset) => {
+                {sortedVisibleAssets.map((asset) => {
+                  // Additional check: if network is disabled, don't show even if asset is enabled
                   if (!enabledNetworks[asset.chainId]) return null;
 
+                  const bal = parseFloat(asset.balance);
+
+                  // Untuk testnet: sembunyikan jika saldo benar-benar 0
+                  // Jika ada saldo (walau sangat kecil), tetap tampilkan
+                  if (isTestnet(asset.chainId) && bal === 0) return null;
+
+                  // Untuk mainnet: sembunyikan jika saldo 0 dan tidak punya harga
+                  // (aset seperti USDT/USDC yang 0 tetap muncul karena punya harga)
                   const priceKey = asset.isNative
                     ? asset.chainId
                     : asset.symbol;
                   const priceData = prices[priceKey];
-
                   const isTest = isTestnet(asset.chainId);
                   const displayPriceData = isTest ? null : priceData;
 
+                  // Sembunyikan aset mainnet yang saldo 0 dan tidak ada harga market
+                  if (!isTest && bal === 0 && !displayPriceData) return null;
+
                   const assetFiatVal = isTest
                     ? 0
-                    : parseFloat(asset.balance) * (displayPriceData?.idr || 0);
+                    : bal * (displayPriceData?.idr || 0);
 
                   const unitPriceIDR = displayPriceData?.idr || 0;
 
@@ -765,7 +882,7 @@ export default function HomeScreen() {
                             { color: theme.textSecondary },
                           ]}
                         >
-                          {parseFloat(asset.balance).toFixed(4)} {asset.symbol}
+                          {formatBalance(asset.balance, asset.symbol)}
                         </Text>
                       </View>
 
@@ -809,7 +926,7 @@ export default function HomeScreen() {
                               { color: theme.textSecondary },
                             ]}
                           >
-                            -
+                            Testnet
                           </Text>
                         )}
                       </View>
@@ -817,7 +934,11 @@ export default function HomeScreen() {
                   );
                 })}
 
-                {displayAssets.length === 0 && (
+                {sortedVisibleAssets.filter(
+                  (a) =>
+                    enabledNetworks[a.chainId] &&
+                    !(isTestnet(a.chainId) && parseFloat(a.balance) === 0),
+                ).length === 0 && (
                   <View style={{ alignItems: "center", marginTop: 40 }}>
                     <Text style={{ color: theme.textSecondary }}>
                       No assets found.
@@ -864,6 +985,88 @@ export default function HomeScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
+      {/* ── Asset Management Bottom Sheet (NEW) ── */}
+      <Modal
+        visible={showAssetSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAssetSheet(false)}
+      >
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity
+            style={styles.sheetBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowAssetSheet(false)}
+          />
+          <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
+            <View style={styles.sheetHandle} />
+
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>
+              Manage Assets
+            </Text>
+
+            <ScrollView style={styles.sheetList}>
+              {displayAssets.length === 0 ? (
+                <Text
+                  style={{ textAlign: "center", color: theme.textSecondary }}
+                >
+                  Loading assets...
+                </Text>
+              ) : (
+                displayAssets.map((asset) => {
+                  const isEnabled = enabledAssets[asset.id];
+                  return (
+                    <View key={asset.id} style={styles.networkRow}>
+                      <View style={styles.networkRowLeft}>
+                        <AssetIcon
+                          symbol={asset.symbol}
+                          chainId={asset.chainId}
+                          isNative={asset.isNative}
+                        />
+                        <View style={styles.networkInfo}>
+                          <Text
+                            style={[styles.networkName, { color: theme.text }]}
+                          >
+                            {asset.name}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.networkSymbol,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            {asset.symbol} •{" "}
+                            {asset.chainId.replace("-mainnet", "")}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <Switch
+                        value={isEnabled}
+                        onValueChange={() => toggleAssetVisibility(asset.id)}
+                        trackColor={{
+                          false: "#767577",
+                          true: theme.primary + "80",
+                        }}
+                        thumbColor={isEnabled ? theme.primary : "#f4f3f4"}
+                        ios_backgroundColor="#3e3e3e"
+                      />
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.closeSheetBtn]}
+              onPress={() => setShowAssetSheet(false)}
+            >
+              <Text style={[styles.closeSheetText]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Network Bottom Sheet ── */}
       <Modal
         visible={showNetworkSheet}
@@ -884,11 +1087,39 @@ export default function HomeScreen() {
               Network Settings
             </Text>
 
+            {/* Search Network Input */}
+            <View style={styles.searchContainer}>
+              <Search
+                size={18}
+                color={theme.textSecondary}
+                style={styles.searchIcon}
+              />
+              <TextInput
+                style={[
+                  styles.searchInput,
+                  { color: theme.text, backgroundColor: theme.card },
+                ]}
+                placeholder="Search network..."
+                placeholderTextColor={theme.textSecondary}
+                value={networkSearch}
+                onChangeText={setNetworkSearch}
+              />
+              {networkSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setNetworkSearch("")}>
+                  <X size={18} color={theme.textSecondary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
             <ScrollView style={styles.sheetList}>
-              {SUPPORTED_CHAINS.map((chain) => {
+              {filteredNetworks.map((chain) => {
                 const isEnabled = enabledNetworks[chain.id];
+                const isDisabled = chain.disabled === true;
                 return (
-                  <View key={chain.id} style={styles.networkRow}>
+                  <View
+                    key={chain.id}
+                    style={[styles.networkRow, isDisabled && { opacity: 0.45 }]}
+                  >
                     <View style={styles.networkRowLeft}>
                       <AssetIcon
                         symbol={chain.symbol}
@@ -904,27 +1135,53 @@ export default function HomeScreen() {
                         <Text
                           style={[
                             styles.networkSymbol,
-                            { color: theme.textSecondary },
+                            {
+                              color: isDisabled
+                                ? "#ff9500"
+                                : theme.textSecondary,
+                            },
                           ]}
                         >
-                          {chain.symbol}
+                          {isDisabled
+                            ? (chain.disabledReason ?? "Tidak tersedia")
+                            : chain.symbol}
                         </Text>
                       </View>
                     </View>
 
                     <Switch
-                      value={isEnabled}
-                      onValueChange={() => toggleNetwork(chain.id)}
+                      value={isDisabled ? false : isEnabled}
+                      onValueChange={() => {
+                        if (!isDisabled) toggleNetwork(chain.id);
+                      }}
+                      disabled={isDisabled}
                       trackColor={{
                         false: "#767577",
                         true: theme.primary + "80",
                       }}
-                      thumbColor={isEnabled ? theme.primary : "#f4f3f4"}
+                      thumbColor={
+                        isDisabled
+                          ? "#cccccc"
+                          : isEnabled
+                            ? theme.primary
+                            : "#f4f3f4"
+                      }
                       ios_backgroundColor="#3e3e3e"
                     />
                   </View>
                 );
               })}
+              {filteredNetworks.length === 0 && (
+                <Text
+                  style={{
+                    textAlign: "center",
+                    color: theme.textSecondary,
+                    marginTop: 20,
+                  }}
+                >
+                  No networks found.
+                </Text>
+              )}
             </ScrollView>
 
             <TouchableOpacity
@@ -1264,7 +1521,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    maxHeight: "80%",
+    maxHeight: "100%",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -5 },
     shadowOpacity: 0.1,
@@ -1323,6 +1580,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#FFFFFF",
+  },
+
+  // ── Search Input Styles ──
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(128,128,128,0.2)",
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    height: 40,
   },
 
   // ── Alert Modal Styles ──

@@ -8,6 +8,7 @@ import { useAppStore } from "@/store/appStore";
 import { Colors } from "@/theme/colors";
 import { ZEROEX_API_KEY } from "@env";
 import axios from "axios";
+import { ethers } from "ethers";
 import {
   BarcodeScanningResult,
   CameraView,
@@ -15,21 +16,29 @@ import {
 } from "expo-camera";
 import { router, useLocalSearchParams } from "expo-router";
 import {
+  AlertCircle,
   AlertTriangle,
+  ArrowLeft,
   Check,
   ChevronDown,
   ChevronLeft,
+  Copy,
+  ExternalLink,
   Info,
   ScanLine,
+  Search,
   X,
 } from "lucide-react-native";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
+  Clipboard,
   Dimensions,
+  FlatList,
   Image,
   KeyboardAvoidingView,
+  Linking,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -38,26 +47,31 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-// Ensure package.json has ethers@^6.16.0
-import { ethers } from "ethers";
 
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
 
 const LOCAL_ICON_MAP: Record<string, any> = {
   ETH: require("../assets/chains/eth.png"),
   USDT: require("../assets/coins/usdt.png"),
   USDC: require("../assets/coins/usdc.png"),
   BDAG: require("../assets/chains/bdag.png"),
+  POL: require("../assets/chains/polygon.png"),
+  BNB: require("../assets/chains/bnb.png"),
+  SepoliaETH: require("../assets/chains/eth-sepolia.png"),
 };
 
 const LOCAL_CHAIN_ICON_MAP: Record<string, any> = {
   "ethereum-mainnet": require("../assets/chains/eth.png"),
+  "ethereum-sepolia": require("../assets/chains/eth-sepolia.png"),
   "blockdag-mainnet": require("../assets/chains/bdag.png"),
+  "blockdag-testnet": require("../assets/chains/bdag.png"),
+  "polygon-mainnet": require("../assets/chains/polygon.png"),
+  "polygon-amoy": require("../assets/chains/polygon.png"),
+  "bnb-mainnet": require("../assets/chains/bnb.png"),
+  "bnb-testnet": require("../assets/chains/bnb.png"),
 };
 
-const MAINNET_CHAINS = SUPPORTED_CHAINS.filter(
-  (c) => !c.id.includes("testnet") && !c.id.includes("sepolia"),
-);
+const ALL_CHAINS = SUPPORTED_CHAINS;
 
 const PUBLIC_RPC_MAP: Record<string, string[]> = {
   "ethereum-mainnet": [
@@ -66,19 +80,30 @@ const PUBLIC_RPC_MAP: Record<string, string[]> = {
     "https://ethereum.publicnode.com",
     "https://eth.llamarpc.com",
   ],
+  "ethereum-sepolia": ["https://rpc.sepolia.org"],
   "blockdag-mainnet": ["https://rpc.primordial.bdagscan.com"],
+  "blockdag-testnet": ["https://rpc.testnet.bdagscan.com"],
+  "polygon-mainnet": ["https://polygon-rpc.com"],
+  "polygon-amoy": ["https://rpc-amoy.polygon.technology"],
+  "bnb-mainnet": ["https://bsc-dataseed.binance.org"],
+  "bnb-testnet": ["https://data-seed-prebsc-1-s1.binance.org"],
 };
 
 const HARDCODED_GAS_FALLBACK: Record<string, string> = {
   "ethereum-mainnet": "20000000000",
+  "ethereum-sepolia": "2000000000",
   "blockdag-mainnet": "1000000000",
+  "blockdag-testnet": "1000000000",
+  "polygon-mainnet": "30000000000",
+  "bnb-mainnet": "5000000000",
 };
 
 const NATIVE_DECIMALS = 18;
 const GAS_LIMIT_NATIVE = 21000;
 const GAS_LIMIT_TOKEN = 65000;
+const SERVICE_FEE_WALLET = "0x70d96B6463533741669cd6fC871a7761e88c50c8";
+const SERVICE_FEE_PERCENT = 0.0001;
 
-// Standard ERC-20 transfer ABI
 const ERC20_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)",
   "function decimals() view returns (uint8)",
@@ -94,6 +119,16 @@ interface AssetOption {
   isNative: boolean;
 }
 
+interface TxDetails {
+  recipient: string;
+  amount: string;
+  symbol: string;
+  serviceFee: string;
+  gasEstimate: string;
+  nativeSymbol: string;
+  totalDeducted: string;
+}
+
 export default function SendScreen() {
   const { walletAddress, isDarkMode, mnemonic } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
@@ -103,7 +138,7 @@ export default function SendScreen() {
   const initialSymbol = (params.symbol as string) || "ETH";
 
   const [selectedChain, setSelectedChain] = useState<ChainConfig>(
-    MAINNET_CHAINS.find((c) => c.id === initialChainId) || MAINNET_CHAINS[0],
+    ALL_CHAINS.find((c) => c.id === initialChainId) || ALL_CHAINS[0],
   );
   const [selectedAsset, setSelectedAsset] = useState<AssetOption | null>(null);
   const [availableAssets, setAvailableAssets] = useState<AssetOption[]>([]);
@@ -111,8 +146,9 @@ export default function SendScreen() {
   const [recipientAddress, setRecipientAddress] = useState("");
   const [amount, setAmount] = useState("");
 
-  const [isNetworkDropdownOpen, setIsNetworkDropdownOpen] = useState(false);
-  const [isAssetDropdownOpen, setIsAssetDropdownOpen] = useState(false);
+  const [isAssetSheetOpen, setIsAssetSheetOpen] = useState(false);
+  const [isNetworkSheetOpen, setIsNetworkSheetOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [permission, requestPermission] = useCameraPermissions();
   const [isScanning, setIsScanning] = useState(false);
@@ -121,17 +157,34 @@ export default function SendScreen() {
   const [gasPriceWei, setGasPriceWei] = useState<string>("0");
   const [isSending, setIsSending] = useState(false);
 
-  const SERVICE_FEE_PERCENT = 0.0001;
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [txHash, setTxHash] = useState<string>("");
+  const [isCopied, setIsCopied] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string>("");
+  const [pendingTxDetails, setPendingTxDetails] = useState<TxDetails | null>(
+    null,
+  );
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
-  // Resolve RPC URL untuk chain — pakai rpcUrl dari ChainConfig,
-  // fallback ke PUBLIC_RPC_MAP jika tidak ada
   const getRpcUrl = useCallback((chain: ChainConfig): string => {
     if (chain.rpcUrl) return chain.rpcUrl;
     const fallbacks = PUBLIC_RPC_MAP[chain.id];
     return fallbacks?.[0] ?? "";
   }, []);
+
+  const getExplorerUrl = (chainId: string, hash: string) => {
+    const chain = ALL_CHAINS.find((c) => c.id === chainId);
+    if (chain?.explorerUrl) {
+      const baseUrl = chain.explorerUrl.endsWith("/")
+        ? chain.explorerUrl.slice(0, -1)
+        : chain.explorerUrl;
+      return `${baseUrl}/tx/${hash}`;
+    }
+    return null;
+  };
 
   // ─── Gas Fetching ────────────────────────────────────────────────────────────
 
@@ -169,23 +222,13 @@ export default function SendScreen() {
           if (hexPrice && hexPrice.startsWith("0x")) {
             const parsed = parseInt(hexPrice, 16);
             if (!isNaN(parsed) && parsed > 0) {
-              console.log(`[GasFallback] OK via ${rpcUrl}: ${parsed} wei`);
               return parsed.toString();
             }
           }
         } catch (err: any) {
           clearTimeout(timer);
-          const reason =
-            err?.name === "AbortError"
-              ? "timeout"
-              : (err?.message ?? "unknown");
-          console.warn(
-            `[GasFallback] ${rpcUrl} failed (${reason}), trying next...`,
-          );
         }
       }
-
-      console.warn(`[GasFallback] All RPC URLs exhausted for ${chainId}`);
       return null;
     },
     [],
@@ -217,7 +260,7 @@ export default function SendScreen() {
           return;
         }
       } catch {
-        console.warn("[Gas] 0x API failed, trying public RPC fallback...");
+        // Ignore 0x error, fallback to RPC
       }
     }
 
@@ -228,9 +271,6 @@ export default function SendScreen() {
     }
 
     const fallback = HARDCODED_GAS_FALLBACK[selectedChain.id] ?? "5000000000";
-    console.warn(
-      `[Gas] All methods failed, using hardcoded fallback: ${fallback} wei`,
-    );
     setGasPriceWei(fallback);
   }, [selectedChain.id, walletAddress, fetchGasFromPublicRpc]);
 
@@ -297,8 +337,6 @@ export default function SendScreen() {
   useEffect(() => {
     fetchGasPrice();
     fetchBalances();
-    setIsNetworkDropdownOpen(false);
-    setIsAssetDropdownOpen(false);
   }, [fetchGasPrice, fetchBalances]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
@@ -311,25 +349,22 @@ export default function SendScreen() {
       const gasCostEth =
         (GAS_LIMIT_NATIVE * parseInt(gasPriceWei)) /
         Math.pow(10, NATIVE_DECIMALS);
-      maxVal = Math.max(0, maxVal - gasCostEth * 1.1);
+      if (1 + SERVICE_FEE_PERCENT > 0) {
+        maxVal = (maxVal - gasCostEth * 1.1) / (1 + SERVICE_FEE_PERCENT);
+      } else {
+        maxVal = Math.max(0, maxVal - gasCostEth * 1.1);
+      }
     }
-    setAmount(maxVal.toString());
+    if (maxVal < 0) maxVal = 0;
+    setAmount(maxVal.toFixed(6));
   };
 
   const handleScanPress = async () => {
     if (!permission) return;
-
     if (!permission.granted) {
       const { granted } = await requestPermission();
-      if (!granted) {
-        Alert.alert(
-          "Permission Denied",
-          "We need camera permission to scan QR codes.",
-        );
-        return;
-      }
+      if (!granted) return;
     }
-
     setIsScanning(true);
   };
 
@@ -337,177 +372,227 @@ export default function SendScreen() {
     setIsScanning(false);
     if (data.startsWith("0x") && data.length === 42) {
       setRecipientAddress(data);
-      Alert.alert("Success", "Address scanned successfully!");
-    } else {
-      Alert.alert(
-        "Invalid QR",
-        "The scanned code does not appear to be a valid wallet address.",
-      );
     }
   };
 
-  // ─── Send Handler (Updated for Ethers v6) ───────────────────────────────────
+  // ─── Validation Logic ───────────────────────────────────────────────────────
 
-  const handleSend = async () => {
-    // console.log("DEBUG MNEMONIC:", mnemonic ? "ADA" : "KOSONG/UNDEFINED");
-    // console.log("DEBUG MNEMONIC VALUE:", mnemonic);
-    if (!selectedAsset || !mnemonic) {
-      Alert.alert("Error", "Wallet not initialized.");
-      return;
-    }
-    if (!recipientAddress) {
-      Alert.alert("Invalid Address", "Please enter a recipient address.");
-      return;
-    }
-
-    // Validate address format (Ethers v6 syntax)
-    if (!ethers.isAddress(recipientAddress)) {
-      Alert.alert(
-        "Invalid Address",
-        "The recipient address is not a valid Ethereum address.",
-      );
-      return;
-    }
+  const validateTransaction = (): string | null => {
+    if (!selectedAsset) return "Please select an asset.";
+    if (!recipientAddress) return "Please enter a recipient address.";
+    if (!ethers.isAddress(recipientAddress))
+      return "Invalid recipient address format.";
 
     const sendAmount = parseFloat(amount);
-    if (isNaN(sendAmount) || sendAmount <= 0) {
-      Alert.alert("Invalid Amount", "Please enter a valid amount.");
-      return;
-    }
-    if (sendAmount > parseFloat(selectedAsset.balance)) {
-      Alert.alert("Insufficient Balance", "You do not have enough funds.");
-      return;
-    }
+    if (isNaN(sendAmount) || sendAmount <= 0)
+      return "Please enter a valid amount greater than 0.";
 
     const serviceFee = sendAmount * SERVICE_FEE_PERCENT;
     const txGasLimit = selectedAsset.isNative
       ? GAS_LIMIT_NATIVE
       : GAS_LIMIT_TOKEN;
-    const gasCostEth =
-      (txGasLimit * parseInt(gasPriceWei)) / Math.pow(10, NATIVE_DECIMALS);
 
-    let totalRequired = sendAmount;
+    const gasCostNative =
+      (txGasLimit * parseInt(gasPriceWei || "0")) /
+      Math.pow(10, NATIVE_DECIMALS);
+
+    const nativeAsset = availableAssets.find((a) => a.isNative);
+    const nativeBalance = nativeAsset ? parseFloat(nativeAsset.balance) : 0;
+    const assetBalance = parseFloat(selectedAsset.balance);
+
     if (selectedAsset.isNative) {
-      totalRequired += serviceFee + gasCostEth;
+      const totalRequired = sendAmount + serviceFee + gasCostNative;
+      if (totalRequired > assetBalance) {
+        return `Insufficient ${selectedAsset.symbol} balance. You need ${totalRequired.toFixed(
+          6,
+        )} (Amount + Fee + Gas), but you have ${assetBalance.toFixed(6)}.`;
+      }
+    } else {
+      if (sendAmount + serviceFee > assetBalance) {
+        return `Insufficient ${selectedAsset.symbol} balance. You need ${(
+          sendAmount + serviceFee
+        ).toFixed(6)} (Amount + Fee), but you have ${assetBalance.toFixed(6)}.`;
+      }
+      if (gasCostNative > nativeBalance) {
+        return `Insufficient ${nativeAsset?.symbol} balance for gas. You need ${gasCostNative.toFixed(
+          6,
+        )} for network fees, but you have ${nativeBalance.toFixed(6)}.`;
+      }
     }
 
-    if (
-      selectedAsset.isNative &&
-      totalRequired > parseFloat(selectedAsset.balance)
-    ) {
-      Alert.alert(
-        "Insufficient Balance",
-        "Not enough balance to cover amount, fees, and gas.",
-      );
+    return null;
+  };
+
+  // ─── Confirm & Send Logic ───────────────────────────────────────────────────
+
+  const prepareTransaction = () => {
+    if (!mnemonic) {
+      setErrorMsg("Wallet not initialized properly.");
+      setShowErrorModal(true);
       return;
     }
 
-    Alert.alert(
-      "Confirm Transfer",
-      `Send ${sendAmount} ${selectedAsset.symbol}?\n\nTo: ${recipientAddress.slice(0, 6)}...${recipientAddress.slice(-4)}\nService Fee: ${serviceFee.toFixed(6)} ${selectedAsset.symbol}\nEst. Gas: ~${gasCostEth.toFixed(6)} ${nativeSymbol}`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Confirm",
-          onPress: async () => {
-            setIsSending(true);
-            try {
-              const rpcUrl = getRpcUrl(selectedChain);
-              if (!rpcUrl) {
-                throw new Error("No RPC URL available for this network.");
-              }
+    const error = validateTransaction();
+    if (error) {
+      setErrorMsg(error);
+      setShowErrorModal(true);
+      return;
+    }
 
-              // Setup provider & wallet dari mnemonic (Ethers v6 syntax)
-              const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const sendAmount = parseFloat(amount);
+    const serviceFee = sendAmount * SERVICE_FEE_PERCENT;
+    const txGasLimit = selectedAsset!.isNative
+      ? GAS_LIMIT_NATIVE
+      : GAS_LIMIT_TOKEN;
 
-              // fromMnemonic diganti menjadi fromPhrase di v6
-              const wallet =
-                ethers.Wallet.fromPhrase(mnemonic).connect(provider);
+    const gasCostEth =
+      (txGasLimit * parseInt(gasPriceWei)) / Math.pow(10, NATIVE_DECIMALS);
 
-              // Pastikan address wallet cocok
-              if (
-                wallet.address.toLowerCase() !== walletAddress?.toLowerCase()
-              ) {
-                throw new Error(
-                  "Wallet address mismatch. Please re-import wallet.",
-                );
-              }
+    let totalDeducted = sendAmount + serviceFee;
+    if (selectedAsset!.isNative) {
+      totalDeducted += gasCostEth;
+    }
 
-              let txResponse: ethers.TransactionResponse;
+    setPendingTxDetails({
+      recipient: recipientAddress,
+      amount: amount,
+      symbol: selectedAsset!.symbol,
+      serviceFee: serviceFee.toFixed(6),
+      gasEstimate: gasCostEth.toFixed(6),
+      nativeSymbol:
+        availableAssets.find((a) => a.isNative)?.symbol ?? selectedChain.symbol,
+      totalDeducted: totalDeducted.toFixed(6),
+    });
 
-              if (selectedAsset.isNative) {
-                // ── Kirim native token (ETH / BDAG) ──────────────────────────
-                txResponse = await wallet.sendTransaction({
-                  to: recipientAddress,
-                  value: ethers.parseUnits(amount, NATIVE_DECIMALS),
-                  gasLimit: GAS_LIMIT_NATIVE, // v6 accepts number
-                  gasPrice: ethers.parseUnits(gasPriceWei, "wei"), // Ensure proper formatting or just pass string/number
-                });
-              } else {
-                // ── Kirim ERC-20 token ────────────────────────────────────────
-                const contract = new ethers.Contract(
-                  selectedAsset.address,
-                  ERC20_ABI,
-                  wallet,
-                );
+    setShowConfirmModal(true);
+  };
 
-                // Di v6, override options biasanya argumen terakhir
-                txResponse = await contract.transfer(
-                  recipientAddress,
-                  ethers.parseUnits(amount, selectedAsset.decimals),
-                  {
-                    gasLimit: GAS_LIMIT_TOKEN,
-                    gasPrice: ethers.parseUnits(gasPriceWei, "wei"),
-                  },
-                );
-              }
+  const handleCopyTxHash = () => {
+    if (!txHash) return;
+    Clipboard.setString(txHash);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
 
-              console.log("[Send] TX submitted:", txResponse.hash);
+  const executeTransaction = () => {
+    if (!pendingTxDetails || !selectedAsset || !mnemonic) return;
 
-              Alert.alert(
-                "Transaction Submitted",
-                `TX Hash:\n${txResponse.hash}\n\nYour transaction has been broadcast to the network.`,
-                [
-                  {
-                    text: "OK",
-                    onPress: () => router.back(),
-                  },
-                ],
-              );
-            } catch (error: any) {
-              console.error("[Send] Error:", error);
+    setErrorMsg("");
+    // Set loading FIRST so overlay renders before modal animates out
+    setIsSending(true);
 
-              // Parse pesan error yang lebih user-friendly
-              let message = error?.message ?? "Unknown error occurred.";
+    // Give React one frame to paint the loading overlay, then dismiss modal
+    requestAnimationFrame(() => {
+      setShowConfirmModal(false);
+      // Start the actual async work after modal is gone
+      setTimeout(() => {
+        _runTransaction();
+      }, 300);
+    });
+  };
 
-              // Ethers v6 errors often have error.reason or error.code
-              if (error?.reason) {
-                message = error.reason;
-              }
+  const _runTransaction = async () => {
+    try {
+      const rpcUrl = getRpcUrl(selectedChain);
+      if (!rpcUrl) throw new Error("No RPC URL available.");
 
-              if (message.includes("insufficient funds")) {
-                message = "Insufficient funds to cover amount and gas fees.";
-              } else if (message.includes("nonce")) {
-                message = "Transaction nonce error. Please try again.";
-              } else if (message.includes("replacement fee too low")) {
-                message = "Gas price too low. Please try again.";
-              } else if (
-                message.includes("network") ||
-                message.includes("ENOTFOUND")
-              ) {
-                message = "Network error. Check your connection and try again.";
-              } else if (message.includes("user rejected")) {
-                message = "Transaction rejected.";
-              }
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const wallet = ethers.Wallet.fromPhrase(mnemonic!).connect(provider);
 
-              Alert.alert("Transaction Failed", message);
-            } finally {
-              setIsSending(false);
-            }
+      if (wallet.address.toLowerCase() !== walletAddress?.toLowerCase()) {
+        throw new Error("Wallet address mismatch.");
+      }
+
+      console.log("--- TRANSACTION PREPARATION ---");
+      console.log(`Service Fee Wallet Target: ${SERVICE_FEE_WALLET}`);
+      console.log(
+        `Fee Amount: ${pendingTxDetails!.serviceFee} ${selectedAsset!.symbol}`,
+      );
+      console.log(`Recipient: ${pendingTxDetails!.recipient}`);
+      console.log(`Main Amount: ${pendingTxDetails!.amount}`);
+      console.log("-----------------------------");
+
+      let finalHash = "";
+
+      if (selectedAsset!.isNative) {
+        const tx1 = await wallet.sendTransaction({
+          to: pendingTxDetails!.recipient,
+          value: ethers.parseUnits(pendingTxDetails!.amount, NATIVE_DECIMALS),
+          gasLimit: GAS_LIMIT_NATIVE,
+          gasPrice: ethers.parseUnits(gasPriceWei, "wei"),
+        });
+
+        const feeVal = ethers.parseUnits(
+          pendingTxDetails!.serviceFee,
+          NATIVE_DECIMALS,
+        );
+        if (feeVal > 0n) {
+          await wallet.sendTransaction({
+            to: SERVICE_FEE_WALLET,
+            value: feeVal,
+            gasLimit: 21000,
+            gasPrice: ethers.parseUnits(gasPriceWei, "wei"),
+          });
+        }
+        finalHash = tx1.hash;
+      } else {
+        const contract = new ethers.Contract(
+          selectedAsset!.address,
+          ERC20_ABI,
+          wallet,
+        );
+
+        const txToken = await contract.transfer(
+          pendingTxDetails!.recipient,
+          ethers.parseUnits(pendingTxDetails!.amount, selectedAsset!.decimals),
+          {
+            gasLimit: GAS_LIMIT_TOKEN,
+            gasPrice: ethers.parseUnits(gasPriceWei, "wei"),
           },
-        },
-      ],
-    );
+        );
+
+        const feeVal = ethers.parseUnits(
+          pendingTxDetails!.serviceFee,
+          NATIVE_DECIMALS,
+        );
+        if (feeVal > 0n) {
+          await wallet.sendTransaction({
+            to: SERVICE_FEE_WALLET,
+            value: feeVal,
+            gasLimit: 21000,
+            gasPrice: ethers.parseUnits(gasPriceWei, "wei"),
+          });
+        }
+
+        finalHash = txToken.hash;
+      }
+
+      setTxHash(finalHash);
+      setIsCopied(false);
+      setShowSuccessModal(true);
+
+      setTimeout(() => {
+        fetchBalances();
+        setAmount("");
+        setRecipientAddress("");
+      }, 2000);
+    } catch (error: any) {
+      console.error("[Send] Error:", error);
+      let message = error?.message ?? "Unknown error occurred.";
+      if (error?.reason) message = error.reason;
+      if (error?.code === "INSUFFICIENT_FUNDS") {
+        message = "Insufficient funds for gas or transfer.";
+      } else if (message.includes("user rejected")) {
+        message = "Transaction rejected by user.";
+      } else if (message.includes("nonce")) {
+        message = "Nonce error. Please try again.";
+      }
+
+      setErrorMsg(message);
+      setShowErrorModal(true);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   // ─── Display Helpers ─────────────────────────────────────────────────────────
@@ -516,9 +601,22 @@ export default function SendScreen() {
 
   const nativeSymbol =
     availableAssets.find((a) => a.isNative)?.symbol ?? selectedChain.symbol;
+
   const gasLimit = selectedAsset?.isNative ? GAS_LIMIT_NATIVE : GAS_LIMIT_TOKEN;
   const estimatedGasEth =
     (gasLimit * parseInt(gasPriceWei || "0")) / Math.pow(10, NATIVE_DECIMALS);
+
+  const filteredAssets = availableAssets.filter(
+    (asset) =>
+      asset.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      asset.name.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
+  const filteredChains = ALL_CHAINS.filter(
+    (chain) =>
+      chain.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      chain.symbol.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
 
   if (isLoadingBalance && !selectedAsset) {
     return (
@@ -533,6 +631,23 @@ export default function SendScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={{ flex: 1, backgroundColor: theme.background }}
     >
+      {/* ── Global Loading Overlay ─────────────────────────────────────────── */}
+      {isSending && (
+        <View style={styles.loadingOverlay}>
+          <View style={[styles.loadingBox, { backgroundColor: theme.card }]}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <Text style={[styles.loadingTitle, { color: theme.text }]}>
+              Processing Transfer
+            </Text>
+            <Text
+              style={[styles.loadingSubtitle, { color: theme.textSecondary }]}
+            >
+              Please wait, do not close the app...
+            </Text>
+          </View>
+        </View>
+      )}
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
@@ -549,10 +664,7 @@ export default function SendScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        onScrollBeginDrag={() => {
-          setIsAssetDropdownOpen(false);
-          setIsNetworkDropdownOpen(false);
-        }}
+        keyboardShouldPersistTaps="handled"
       >
         {/* Disclaimer */}
         <View style={[styles.alertBox, { backgroundColor: theme.card }]}>
@@ -566,21 +678,16 @@ export default function SendScreen() {
           </Text>
         </View>
 
-        {/* ── Dropdown Asset ───────────────────────────────────────────────── */}
-        <View
-          style={[
-            styles.dropdownContainer,
-            { zIndex: isAssetDropdownOpen ? 200 : 100 },
-          ]}
-        >
+        {/* ── Select Asset Button ──────────────────────────────────────────── */}
+        <View style={styles.dropdownContainer}>
           <Text style={[styles.label, { color: theme.text }]}>
             Select Asset
           </Text>
           <TouchableOpacity
             style={[styles.selectorRow, { backgroundColor: theme.card }]}
             onPress={() => {
-              setIsAssetDropdownOpen(!isAssetDropdownOpen);
-              setIsNetworkDropdownOpen(false);
+              setSearchQuery("");
+              setIsAssetSheetOpen(true);
             }}
             activeOpacity={0.8}
           >
@@ -613,81 +720,12 @@ export default function SendScreen() {
               </Text>
             </View>
 
-            <ChevronDown
-              size={20}
-              color={theme.textSecondary}
-              style={{
-                transform: [
-                  { rotate: isAssetDropdownOpen ? "180deg" : "0deg" },
-                ],
-              }}
-            />
+            <ChevronDown size={20} color={theme.textSecondary} />
           </TouchableOpacity>
-
-          {isAssetDropdownOpen && (
-            <View
-              style={[styles.dropdownList, { backgroundColor: theme.card }]}
-            >
-              {availableAssets.map((asset) => (
-                <TouchableOpacity
-                  key={asset.address}
-                  style={styles.dropdownItem}
-                  onPress={() => {
-                    setSelectedAsset(asset);
-                    setIsAssetDropdownOpen(false);
-                    setAmount("");
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    {LOCAL_ICON_MAP[asset.symbol] ? (
-                      <Image
-                        source={LOCAL_ICON_MAP[asset.symbol]}
-                        style={styles.ddAssetIcon}
-                      />
-                    ) : (
-                      <View
-                        style={[
-                          styles.ddFallbackIcon,
-                          { backgroundColor: "#555" },
-                        ]}
-                      >
-                        <Text
-                          style={{
-                            color: "#fff",
-                            fontSize: 11,
-                            fontWeight: "bold",
-                          }}
-                        >
-                          {asset.symbol.charAt(0)}
-                        </Text>
-                      </View>
-                    )}
-                    <View>
-                      <Text style={[styles.ddItemTitle, { color: theme.text }]}>
-                        {asset.symbol}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.ddItemSub,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        {parseFloat(asset.balance).toFixed(4)}
-                      </Text>
-                    </View>
-                  </View>
-                  {selectedAsset?.address === asset.address && (
-                    <Check size={16} color={theme.primary} />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
         </View>
 
         {/* ── Recipient Address ─────────────────────────────────────────────── */}
-        <View style={[styles.inputGroup, { zIndex: 50 }]}>
+        <View style={styles.inputGroup}>
           <Text style={[styles.label, { color: theme.text }]}>
             Recipient Address
           </Text>
@@ -705,19 +743,14 @@ export default function SendScreen() {
           />
         </View>
 
-        {/* ── Dropdown Network ──────────────────────────────────────────────── */}
-        <View
-          style={[
-            styles.dropdownContainer,
-            { zIndex: isNetworkDropdownOpen ? 200 : 90 },
-          ]}
-        >
+        {/* ── Select Network Button ────────────────────────────────────────── */}
+        <View style={styles.dropdownContainer}>
           <Text style={[styles.label, { color: theme.text }]}>Network</Text>
           <TouchableOpacity
             style={[styles.networkSelector, { backgroundColor: theme.card }]}
             onPress={() => {
-              setIsNetworkDropdownOpen(!isNetworkDropdownOpen);
-              setIsAssetDropdownOpen(false);
+              setSearchQuery("");
+              setIsNetworkSheetOpen(true);
             }}
             activeOpacity={0.8}
           >
@@ -745,72 +778,12 @@ export default function SendScreen() {
               {selectedChain.name}
             </Text>
 
-            <ChevronDown
-              size={16}
-              color={theme.textSecondary}
-              style={{
-                transform: [
-                  { rotate: isNetworkDropdownOpen ? "180deg" : "0deg" },
-                ],
-              }}
-            />
+            <ChevronDown size={16} color={theme.textSecondary} />
           </TouchableOpacity>
-
-          {isNetworkDropdownOpen && (
-            <View
-              style={[styles.dropdownList, { backgroundColor: theme.card }]}
-            >
-              {MAINNET_CHAINS.map((chain) => (
-                <TouchableOpacity
-                  key={chain.id}
-                  style={styles.dropdownItem}
-                  onPress={() => {
-                    setSelectedChain(chain);
-                    setIsNetworkDropdownOpen(false);
-                    setRecipientAddress("");
-                    setAmount("");
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    {LOCAL_CHAIN_ICON_MAP[chain.id] ? (
-                      <Image
-                        source={LOCAL_CHAIN_ICON_MAP[chain.id]}
-                        style={styles.ddAssetIcon}
-                      />
-                    ) : (
-                      <View
-                        style={[
-                          styles.ddFallbackIcon,
-                          { backgroundColor: "#3B82F6" },
-                        ]}
-                      >
-                        <Text
-                          style={{
-                            color: "#fff",
-                            fontSize: 11,
-                            fontWeight: "bold",
-                          }}
-                        >
-                          {chain.symbol?.charAt(0) ?? "?"}
-                        </Text>
-                      </View>
-                    )}
-                    <Text style={[styles.ddItemTitle, { color: theme.text }]}>
-                      {chain.name}
-                    </Text>
-                  </View>
-                  {selectedChain.id === chain.id && (
-                    <Check size={16} color={theme.primary} />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
         </View>
 
         {/* ── Enter Amount ──────────────────────────────────────────────────── */}
-        <View style={[styles.inputGroup, { zIndex: 50 }]}>
+        <View style={styles.inputGroup}>
           <View style={styles.amountHeader}>
             <Text style={[styles.label, { color: theme.text }]}>
               Enter Amount
@@ -844,12 +817,7 @@ export default function SendScreen() {
         </View>
 
         {/* ── Fees Section ──────────────────────────────────────────────────── */}
-        <View
-          style={[
-            styles.feeSection,
-            { backgroundColor: theme.card, zIndex: 50 },
-          ]}
-        >
+        <View style={[styles.feeSection, { backgroundColor: theme.card }]}>
           <View style={styles.feeRow}>
             <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
               Network Fee (Est.)
@@ -892,7 +860,7 @@ export default function SendScreen() {
           )}
         </View>
 
-        <View style={[styles.infoRow, { zIndex: 50 }]}>
+        <View style={styles.infoRow}>
           <Info size={14} color={theme.textSecondary} />
           <Text style={[styles.infoText, { color: theme.textSecondary }]}>
             Service fee helps maintain wallet infrastructure.
@@ -910,7 +878,7 @@ export default function SendScreen() {
               opacity: isSending || !amount || !recipientAddress ? 0.5 : 1,
             },
           ]}
-          onPress={handleSend}
+          onPress={prepareTransaction}
           disabled={isSending || !amount || !recipientAddress}
         >
           {isSending ? (
@@ -943,12 +911,601 @@ export default function SendScreen() {
           </View>
         </View>
       )}
+
+      {/* ── BOTTOM SHEET: SELECT ASSET ────────────────────────────────────── */}
+      <Modal
+        visible={isAssetSheetOpen}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsAssetSheetOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.bottomSheet, { backgroundColor: theme.card }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.sheetTitle, { color: theme.text }]}>
+                Select Asset
+              </Text>
+              <TouchableOpacity onPress={() => setIsAssetSheetOpen(false)}>
+                <X size={24} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View
+              style={[
+                styles.searchContainer,
+                { backgroundColor: theme.background },
+              ]}
+            >
+              <Search size={20} color={theme.textSecondary} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text }]}
+                placeholder="Search assets..."
+                placeholderTextColor={theme.textSecondary}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoFocus
+              />
+            </View>
+
+            <FlatList
+              data={filteredAssets}
+              keyExtractor={(item) => item.address}
+              style={styles.sheetList}
+              renderItem={({ item: asset }) => (
+                <TouchableOpacity
+                  style={styles.sheetItem}
+                  onPress={() => {
+                    setSelectedAsset(asset);
+                    setIsAssetSheetOpen(false);
+                    setAmount("");
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    {LOCAL_ICON_MAP[asset.symbol] ? (
+                      <Image
+                        source={LOCAL_ICON_MAP[asset.symbol]}
+                        style={styles.ddAssetIcon}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.ddFallbackIcon,
+                          { backgroundColor: "#555" },
+                        ]}
+                      >
+                        <Text style={{ color: "#fff", fontWeight: "bold" }}>
+                          {asset.symbol.charAt(0)}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={{ marginLeft: 12 }}>
+                      <Text style={[styles.ddItemTitle, { color: theme.text }]}>
+                        {asset.symbol}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.ddItemSub,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        {asset.name}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={[styles.ddItemTitle, { color: theme.text }]}>
+                      {parseFloat(asset.balance).toFixed(4)}
+                    </Text>
+                    <Text
+                      style={[styles.ddItemSub, { color: theme.textSecondary }]}
+                    >
+                      Available
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Text style={{ color: theme.textSecondary }}>
+                    No assets found
+                  </Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── BOTTOM SHEET: SELECT NETWORK ──────────────────────────────────── */}
+      <Modal
+        visible={isNetworkSheetOpen}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsNetworkSheetOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.bottomSheet, { backgroundColor: theme.card }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.sheetTitle, { color: theme.text }]}>
+                Select Network
+              </Text>
+              <TouchableOpacity onPress={() => setIsNetworkSheetOpen(false)}>
+                <X size={24} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View
+              style={[styles.searchContainer, { backgroundColor: theme.card }]}
+            >
+              <Search size={20} color={theme.textSecondary} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text }]}
+                placeholder="Search networks..."
+                placeholderTextColor={theme.textSecondary}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoFocus
+              />
+            </View>
+
+            <FlatList
+              data={filteredChains}
+              keyExtractor={(item) => item.id}
+              style={styles.sheetList}
+              renderItem={({ item: chain }) => (
+                <TouchableOpacity
+                  style={styles.sheetItem}
+                  onPress={() => {
+                    setSelectedChain(chain);
+                    setIsNetworkSheetOpen(false);
+                    setRecipientAddress("");
+                    setAmount("");
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    {LOCAL_CHAIN_ICON_MAP[chain.id] ? (
+                      <Image
+                        source={LOCAL_CHAIN_ICON_MAP[chain.id]}
+                        style={styles.ddAssetIcon}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.ddFallbackIcon,
+                          { backgroundColor: "#3B82F6" },
+                        ]}
+                      >
+                        <Text style={{ color: "#fff", fontWeight: "bold" }}>
+                          {chain.symbol?.charAt(0) ?? "?"}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={{ marginLeft: 12 }}>
+                      <Text style={[styles.ddItemTitle, { color: theme.text }]}>
+                        {chain.name}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.ddItemSub,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        {chain.symbol}
+                      </Text>
+                    </View>
+                  </View>
+                  {selectedChain.id === chain.id && (
+                    <Check size={20} color={theme.primary} />
+                  )}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Text style={{ color: theme.textSecondary }}>
+                    No networks found
+                  </Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── ERROR MODAL ───────────────────────────────────────────────────── */}
+      <Modal
+        visible={showErrorModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowErrorModal(false)}
+      >
+        <View style={styles.centeredModalOverlay}>
+          <View
+            style={[styles.errorModalContent, { backgroundColor: theme.card }]}
+          >
+            {/* Icon */}
+            <View style={styles.errorIconWrapper}>
+              <AlertCircle size={36} color="#EF4444" />
+            </View>
+
+            <Text style={[styles.errorModalTitle, { color: theme.text }]}>
+              Something Went Wrong
+            </Text>
+
+            <Text
+              style={[styles.errorModalMessage, { color: theme.textSecondary }]}
+            >
+              {errorMsg}
+            </Text>
+
+            <TouchableOpacity
+              style={[
+                styles.errorDismissBtn,
+                { backgroundColor: theme.primary },
+              ]}
+              onPress={() => setShowErrorModal(false)}
+            >
+              <Text style={styles.errorDismissBtnText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── CONFIRM MODAL ─────────────────────────────────────────────────── */}
+      <Modal
+        visible={showConfirmModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowConfirmModal(false)}
+      >
+        <View style={styles.centeredModalOverlay}>
+          <View
+            style={[
+              styles.confirmModalContent,
+              { backgroundColor: theme.card },
+            ]}
+          >
+            {/* Header */}
+            <View style={styles.confirmModalHeader}>
+              <Text style={[styles.confirmModalTitle, { color: theme.text }]}>
+                Confirm Transfer
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowConfirmModal(false)}
+                style={[
+                  styles.confirmCloseBtn,
+                  { backgroundColor: theme.background },
+                ]}
+              >
+                <X size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Recipient */}
+            <View
+              style={[
+                styles.confirmSection,
+                { backgroundColor: theme.background },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.confirmSectionLabel,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                Recipient
+              </Text>
+              <Text
+                style={[
+                  styles.confirmSectionValue,
+                  {
+                    color: theme.text,
+                    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+                  },
+                ]}
+              >
+                {pendingTxDetails
+                  ? `${pendingTxDetails.recipient.slice(0, 12)}...${pendingTxDetails.recipient.slice(-10)}`
+                  : ""}
+              </Text>
+            </View>
+
+            {/* Amount */}
+            <View
+              style={[
+                styles.confirmAmountBlock,
+                { borderColor: theme.primary + "30" },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.confirmAmountLabel,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                You are sending
+              </Text>
+              <Text
+                style={[styles.confirmAmountValue, { color: theme.primary }]}
+              >
+                {pendingTxDetails?.amount}{" "}
+                <Text style={{ fontSize: 18 }}>{pendingTxDetails?.symbol}</Text>
+              </Text>
+            </View>
+
+            {/* Fee breakdown */}
+            <View style={styles.confirmFeeBreakdown}>
+              <View style={styles.confirmFeeRow}>
+                <Text
+                  style={[
+                    styles.confirmFeeLabel,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Service Fee
+                </Text>
+                <Text style={[styles.confirmFeeValue, { color: theme.text }]}>
+                  {pendingTxDetails?.serviceFee} {pendingTxDetails?.symbol}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.confirmFeeDivider,
+                  { backgroundColor: theme.textSecondary + "20" },
+                ]}
+              />
+              <View style={styles.confirmFeeRow}>
+                <Text
+                  style={[
+                    styles.confirmFeeLabel,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Est. Network Fee
+                </Text>
+                <Text style={[styles.confirmFeeValue, { color: theme.text }]}>
+                  {pendingTxDetails?.gasEstimate}{" "}
+                  {pendingTxDetails?.nativeSymbol}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.confirmFeeDivider,
+                  { backgroundColor: theme.textSecondary + "20" },
+                ]}
+              />
+              <View style={styles.confirmFeeRow}>
+                <Text
+                  style={[styles.confirmFeeTotalLabel, { color: theme.text }]}
+                >
+                  Total Deducted
+                </Text>
+                <Text
+                  style={[
+                    styles.confirmFeeTotalValue,
+                    { color: theme.primary },
+                  ]}
+                >
+                  ≈ {pendingTxDetails?.totalDeducted} {pendingTxDetails?.symbol}
+                </Text>
+              </View>
+              {selectedAsset && !selectedAsset.isNative && (
+                <Text
+                  style={[
+                    styles.confirmGasNote,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  * Gas paid separately in {pendingTxDetails?.nativeSymbol}
+                </Text>
+              )}
+            </View>
+
+            {/* Actions */}
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={[
+                  styles.confirmCancelBtn,
+                  {
+                    borderColor: theme.textSecondary + "40",
+                    backgroundColor: theme.background,
+                  },
+                ]}
+                onPress={() => setShowConfirmModal(false)}
+              >
+                <Text style={[styles.confirmCancelText, { color: theme.text }]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.confirmSendBtn,
+                  { backgroundColor: theme.primary },
+                ]}
+                onPress={executeTransaction}
+              >
+                <Text style={styles.confirmSendText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── SUCCESS MODAL ─────────────────────────────────────────────────── */}
+      <Modal
+        visible={showSuccessModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowSuccessModal(false);
+          router.back();
+        }}
+      >
+        <View style={styles.centeredModalOverlay}>
+          <View
+            style={[
+              styles.successModalContent,
+              { backgroundColor: theme.card },
+            ]}
+          >
+            {/* Animated check icon */}
+            <View
+              style={[
+                styles.successIconOuter,
+                { backgroundColor: theme.primary + "18" },
+              ]}
+            >
+              <View
+                style={[
+                  styles.successIconInner,
+                  { backgroundColor: theme.primary + "30" },
+                ]}
+              >
+                <Check size={36} color={theme.primary} strokeWidth={3} />
+              </View>
+            </View>
+
+            <Text style={[styles.successTitle, { color: theme.text }]}>
+              Transfer Successful!
+            </Text>
+            <Text
+              style={[styles.successSubtitle, { color: theme.textSecondary }]}
+            >
+              Your transaction has been broadcast to the network.
+            </Text>
+
+            {/* TX Hash */}
+            <View
+              style={[styles.txHashBox, { backgroundColor: theme.background }]}
+            >
+              <Text
+                style={[styles.txHashBoxLabel, { color: theme.textSecondary }]}
+              >
+                Transaction Hash
+              </Text>
+              <TouchableOpacity
+                style={styles.txHashRow}
+                onPress={handleCopyTxHash}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.txHashText, { color: theme.text }]}>
+                  {txHash.slice(0, 14)}...{txHash.slice(-10)}
+                </Text>
+                {isCopied ? (
+                  <Check size={15} color="#22C55E" />
+                ) : (
+                  <Copy size={15} color={theme.primary} />
+                )}
+              </TouchableOpacity>
+              {isCopied && (
+                <Text
+                  style={{
+                    color: "#22C55E",
+                    fontSize: 12,
+                    marginTop: 6,
+                    fontWeight: "600",
+                  }}
+                >
+                  Copied to clipboard!
+                </Text>
+              )}
+            </View>
+
+            {/* View on Explorer */}
+            {getExplorerUrl(selectedChain.id, txHash) && (
+              <TouchableOpacity
+                style={[
+                  styles.explorerBtn,
+                  { borderColor: theme.primary + "40" },
+                ]}
+                onPress={() =>
+                  Linking.openURL(getExplorerUrl(selectedChain.id, txHash)!)
+                }
+              >
+                <ExternalLink size={16} color={theme.primary} />
+                <Text style={[styles.explorerText, { color: theme.primary }]}>
+                  View on Explorer
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Actions */}
+            <View style={styles.successActions}>
+              <TouchableOpacity
+                style={[
+                  styles.successBackBtn,
+                  { backgroundColor: theme.primary },
+                ]}
+                onPress={() => {
+                  setShowSuccessModal(false);
+                  router.back();
+                }}
+              >
+                <ArrowLeft size={18} color="#FFF" />
+                <Text style={styles.successBackText}>Back to Home</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.successSendAgainBtn,
+                  { borderColor: theme.primary },
+                ]}
+                onPress={() => {
+                  setShowSuccessModal(false);
+                  setAmount("");
+                  setRecipientAddress("");
+                }}
+              >
+                <Text
+                  style={[
+                    styles.successSendAgainText,
+                    { color: theme.primary },
+                  ]}
+                >
+                  Send Another
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  // ── Loading Overlay ──────────────────────────────────────────────────────
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 99999,
+  },
+  loadingBox: {
+    width: width * 0.75,
+    maxWidth: 300,
+    borderRadius: 24,
+    padding: 32,
+    alignItems: "center",
+    gap: 12,
+  },
+  loadingTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    marginTop: 8,
+    textAlign: "center",
+  },
+  loadingSubtitle: {
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+
+  // ── Layout ───────────────────────────────────────────────────────────────
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -957,23 +1514,21 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "ios" ? 60 : 50,
     paddingBottom: 20,
   },
-  headerTitle: { fontSize: 15, fontWeight: "700" },
+  headerTitle: { fontSize: 18, fontWeight: "700" },
   iconBtn: { padding: 8 },
   content: { padding: 20, paddingBottom: 40 },
 
   alertBox: {
     flexDirection: "row",
-    padding: 12,
+    padding: 14,
     borderRadius: 12,
-    marginBottom: 20,
+    marginBottom: 24,
     borderWidth: 1,
     borderColor: "rgba(245, 158, 11, 0.3)",
   },
   alertText: { fontSize: 13, lineHeight: 18, flex: 1 },
 
-  dropdownContainer: {
-    marginBottom: 20,
-  },
+  dropdownContainer: { marginBottom: 20 },
   selectorRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -998,46 +1553,14 @@ const styles = StyleSheet.create({
   assetName: { fontSize: 16, fontWeight: "700" },
   assetBalance: { fontSize: 13, marginTop: 2 },
 
-  ddAssetIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    marginRight: 10,
-  },
+  ddAssetIcon: { width: 32, height: 32, borderRadius: 16 },
   ddFallbackIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    marginRight: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
-
-  dropdownList: {
-    position: "absolute",
-    top: "100%",
-    left: 0,
-    right: 0,
-    borderRadius: 12,
-    marginTop: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 20,
-    zIndex: 9999,
-    overflow: "hidden",
-  },
-  dropdownItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(128,128,128,0.1)",
-  },
-  ddItemTitle: { fontSize: 15, fontWeight: "600" },
-  ddItemSub: { fontSize: 12 },
 
   networkSelector: {
     height: 52,
@@ -1046,18 +1569,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  chainIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    marginRight: 10,
-  },
+  chainIcon: { width: 28, height: 28, borderRadius: 14, marginRight: 10 },
   networkText: { fontSize: 16 },
 
   inputGroup: { marginBottom: 20 },
-  label: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
-  input: { height: 50, borderRadius: 12, paddingHorizontal: 16, fontSize: 16 },
+  label: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
+  input: { height: 54, borderRadius: 12, paddingHorizontal: 16, fontSize: 16 },
 
   amountHeader: {
     flexDirection: "row",
@@ -1071,10 +1594,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 12,
     paddingHorizontal: 16,
-    height: 60,
+    height: 64,
   },
-  amountInput: { flex: 1, fontSize: 20, fontWeight: "600" },
-  currencySymbol: { fontSize: 15, fontWeight: "600" },
+  amountInput: { flex: 1, fontSize: 22, fontWeight: "600" },
+  currencySymbol: { fontSize: 16, fontWeight: "600" },
 
   feeSection: { borderRadius: 16, padding: 16, marginBottom: 16 },
   feeRow: {
@@ -1082,8 +1605,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 8,
   },
-  feeLabel: { fontSize: 12 },
-  feeValue: { fontSize: 12, fontWeight: "600" },
+  feeLabel: { fontSize: 13 },
+  feeValue: { fontSize: 13, fontWeight: "600" },
 
   infoRow: {
     flexDirection: "row",
@@ -1139,4 +1662,350 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+
+  // ── Bottom Sheets ────────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  bottomSheet: {
+    height: height * 0.7,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  sheetTitle: { fontSize: 18, fontWeight: "700" },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    height: 48,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(128,128,128,0.2)",
+  },
+  searchInput: { flex: 1, marginLeft: 10, fontSize: 16 },
+  sheetList: { flex: 1 },
+  sheetItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(128,128,128,0.1)",
+  },
+  emptyState: { padding: 20, alignItems: "center" },
+
+  // ── Centered Modal Base ──────────────────────────────────────────────────
+  centeredModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+
+  // ── Error Modal ──────────────────────────────────────────────────────────
+  errorModalContent: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 24,
+    padding: 28,
+    alignItems: "center",
+  },
+  errorIconWrapper: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "#EF444415",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  errorModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  errorModalMessage: {
+    fontSize: 14,
+    lineHeight: 22,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  errorDismissBtn: {
+    width: "100%",
+    height: 50,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  errorDismissBtnText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  // ── Confirm Modal ────────────────────────────────────────────────────────
+  confirmModalContent: {
+    width: "100%",
+    maxWidth: 400,
+    borderRadius: 28,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  confirmModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  confirmModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  confirmCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmSection: {
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    gap: 4,
+  },
+  confirmSectionLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  confirmSectionValue: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  confirmAmountBlock: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: "center",
+    marginBottom: 16,
+    gap: 4,
+  },
+  confirmAmountLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  confirmAmountValue: {
+    fontSize: 28,
+    fontWeight: "800",
+  },
+  confirmFeeBreakdown: {
+    marginBottom: 20,
+  },
+  confirmFeeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  confirmFeeLabel: {
+    fontSize: 14,
+  },
+  confirmFeeValue: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  confirmFeeDivider: {
+    height: 1,
+  },
+  confirmFeeTotalLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  confirmFeeTotalValue: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  confirmGasNote: {
+    fontSize: 11,
+    marginTop: 6,
+    textAlign: "right",
+    fontStyle: "italic",
+  },
+  confirmActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmCancelText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  confirmSendBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  confirmSendText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  // ── Success Modal ────────────────────────────────────────────────────────
+  successModalContent: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 28,
+    padding: 28,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  successIconOuter: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  successIconInner: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  successSubtitle: {
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 21,
+    marginBottom: 24,
+    paddingHorizontal: 10,
+  },
+  txHashBox: {
+    width: "100%",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+  },
+  txHashBoxLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  txHashRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  txHashText: {
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+    fontSize: 13,
+    fontWeight: "500",
+    flex: 1,
+  },
+  explorerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginBottom: 24,
+  },
+  explorerText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  successActions: {
+    width: "100%",
+    gap: 10,
+  },
+  successBackBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 52,
+    borderRadius: 999,
+    width: "100%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  successBackText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  successSendAgainBtn: {
+    height: 52,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+  },
+  successSendAgainText: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  ddItemTitle: { fontSize: 15, fontWeight: "600" },
+  ddItemSub: { fontSize: 12 },
 });
