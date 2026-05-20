@@ -1,5 +1,5 @@
 // app/(tabs)/history.tsx
-import { SUPPORTED_CHAINS } from "@/config/chains";
+import { ChainConfig, SUPPORTED_CHAINS } from "@/config/chains";
 import {
   BlockchainService,
   ChainId,
@@ -16,6 +16,7 @@ import {
 import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -38,24 +39,26 @@ interface TxEntity {
   hash: string;
   from: string;
   to: string;
-  value: string; // Formatted value (e.g., "0.5")
-  symbol: string; // e.g., "ETH"
-  timestamp: number; // Unix timestamp
+  value: string;
+  symbol: string;
+  timestamp: number;
   status: TxStatus;
   type: TxType;
   blockNumber?: number;
+  chainId?: number;
+  chainName?: string;
+  chainIcon?: string;
 }
 
 interface DisplayTransaction extends TxEntity {
-  displayDate?: string; // e.g., "Today", "Yesterday"
-  displayTime?: string; // e.g., "14:30"
+  displayDate?: string;
+  displayTime?: string;
 }
 
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
 
-// Helper: Format Relative Date (English)
 const getRelativeDate = (timestamp: number) => {
   const now = new Date();
   const txDate = new Date(timestamp * 1000);
@@ -92,7 +95,6 @@ const formatTime = (timestamp: number) => {
   });
 };
 
-// Helper: Truncate Address/Hash
 const truncate = (str: string, start = 6, end = 4) => {
   if (!str) return "";
   return `${str.substring(0, start)}...${str.substring(str.length - end)}`;
@@ -190,11 +192,35 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
           </Text>
         </View>
 
-        {/* Bottom: Date & Status */}
+        {/* Bottom: Date, Status & Chain Info */}
         <View style={styles.txBottomRow}>
-          <Text style={[styles.txDate, { color: theme.textSecondary }]}>
-            {tx.displayTime} • {tx.displayDate}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={[styles.txDate, { color: theme.textSecondary }]}>
+              {tx.displayTime} • {tx.displayDate}
+            </Text>
+
+            {/* Chain Indicator */}
+            {tx.chainIcon && tx.chainName && (
+              <View
+                style={[
+                  styles.chainBadge,
+                  { backgroundColor: theme.background },
+                ]}
+              >
+                <Image
+                  source={{ uri: tx.chainIcon }}
+                  style={{ width: 12, height: 12, marginRight: 4 }}
+                  resizeMode="contain"
+                />
+                <Text
+                  style={[styles.chainText, { color: theme.textSecondary }]}
+                >
+                  {tx.chainName}
+                </Text>
+              </View>
+            )}
+          </View>
+
           <StatusBadge status={tx.status} />
         </View>
       </View>
@@ -217,27 +243,71 @@ export default function HistoryScreen() {
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchHistory = useCallback(async () => {
-    if (!walletAddress) return;
+    if (!walletAddress) {
+      console.log("No wallet address found");
+      return;
+    }
+
     setIsLoading(true);
+    console.log("Fetching history for all chains...");
 
     try {
-      // ✅ Use the fast API-based method from BlockchainService
-      const primaryChain = SUPPORTED_CHAINS[0].id as ChainId;
-      const txs = await BlockchainService.getTransactionHistory(
-        primaryChain,
-        walletAddress,
-      );
+      // ✅ Fetch from ALL supported chains (Mainnet & Testnet)
+      const chainPromises = SUPPORTED_CHAINS.map(async (chain: ChainConfig) => {
+        // Skip disabled chains
+        if (chain.disabled) {
+          console.log(`Skipping disabled chain: ${chain.name}`);
+          return [];
+        }
 
-      // Enrich with display data
-      const enriched = txs.map((tx) => ({
-        ...tx,
-        displayDate: getRelativeDate(tx.timestamp),
-        displayTime: formatTime(tx.timestamp),
-      }));
+        try {
+          console.log(`Fetching ${chain.name}...`);
+          const txs = await BlockchainService.getTransactionHistory(
+            chain.id as ChainId,
+            walletAddress,
+          );
 
-      setTransactions(enriched);
+          console.log(`Found ${txs.length} txs on ${chain.name}`);
+
+          // Enrich with chain data
+          return txs.map((tx) => ({
+            ...tx,
+            chainId: chain.chainId,
+            chainName: chain.name,
+            chainIcon: chain.icon,
+            displayDate: getRelativeDate(tx.timestamp),
+            displayTime: formatTime(tx.timestamp),
+          }));
+        } catch (error) {
+          // Log error but don't crash the whole screen
+          console.warn(`Failed to fetch history for ${chain.name}:`, error);
+          return [];
+        }
+      });
+
+      // Wait for all promises to settle (success or failure)
+      const results = await Promise.allSettled(chainPromises);
+
+      // Flatten the results into a single array
+      let allTxs: DisplayTransaction[] = [];
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          allTxs = [...allTxs, ...result.value];
+        } else {
+          console.error(
+            `Promise rejected for chain index ${index}:`,
+            result.reason,
+          );
+        }
+      });
+
+      // Sort by timestamp descending (newest first)
+      allTxs.sort((a, b) => b.timestamp - a.timestamp);
+
+      console.log(`Total transactions loaded: ${allTxs.length}`);
+      setTransactions(allTxs);
     } catch (error) {
-      console.error("Failed to fetch history:", error);
+      console.error("Failed to fetch global history:", error);
       setTransactions([]);
     } finally {
       setIsLoading(false);
@@ -267,7 +337,8 @@ export default function HistoryScreen() {
           tx.symbol.toLowerCase().includes(lowerSearch) ||
           tx.hash.toLowerCase().includes(lowerSearch) ||
           tx.from.toLowerCase().includes(lowerSearch) ||
-          tx.to.toLowerCase().includes(lowerSearch),
+          tx.to.toLowerCase().includes(lowerSearch) ||
+          (tx.chainName && tx.chainName.toLowerCase().includes(lowerSearch)),
       );
     }
 
@@ -326,7 +397,7 @@ export default function HistoryScreen() {
           <Search size={18} color={theme.textSecondary} strokeWidth={2} />
           <TextInput
             style={[styles.searchInput, { color: theme.text }]}
-            placeholder="Search hash, address, or token..."
+            placeholder="Search hash, address, token, or chain..."
             placeholderTextColor={theme.textSecondary}
             value={search}
             onChangeText={setSearch}
@@ -387,7 +458,7 @@ export default function HistoryScreen() {
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={theme.text} />
             <Text style={{ color: theme.textSecondary, marginTop: 10 }}>
-              Loading history...
+              Loading history from all chains...
             </Text>
           </View>
         ) : filteredTx.length === 0 ? (
@@ -401,7 +472,7 @@ export default function HistoryScreen() {
               No transactions yet
             </Text>
             <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>
-              Your transaction history will appear here.
+              Your transaction history across all networks will appear here.
             </Text>
           </View>
         ) : (
@@ -581,11 +652,28 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginTop: 2,
+    flexWrap: "wrap",
+    gap: 8,
   },
   txDate: {
     fontSize: 12,
     fontWeight: "400",
     opacity: 0.6,
+  },
+
+  // New Styles for Chain Badge
+  chainBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(128,128,128,0.1)",
+  },
+  chainText: {
+    fontSize: 10,
+    fontWeight: "600",
   },
 
   statusBadge: {

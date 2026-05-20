@@ -118,6 +118,12 @@ eas build -p ios --profile production
 
 ---
 
+## Donations
+
+Support this project by sending donations to the following EVM address:
+
+`0x70d96B6463533741669cd6fC871a7761e88c50c8`
+
 ## License
 
 MIT License © 2026 Nafalabs Indonesia

@@ -1,5 +1,6 @@
 // app/send.tsx
 import { ChainConfig, SUPPORTED_CHAINS } from "@/config/chains";
+import { WalletRepository } from "@/modules/wallet/infrastructure/WalletRepository";
 import {
   BlockchainService,
   ChainId,
@@ -24,7 +25,10 @@ import {
   ChevronLeft,
   Copy,
   ExternalLink,
+  Eye,
+  EyeOff,
   Info,
+  LockKeyhole,
   ScanLine,
   Search,
   X,
@@ -158,6 +162,11 @@ export default function SendScreen() {
   const [isSending, setIsSending] = useState(false);
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [showPasswordText, setShowPasswordText] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [txHash, setTxHash] = useState<string>("");
@@ -474,21 +483,56 @@ export default function SendScreen() {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
+  // Step 1: Confirm modal → open password modal
   const executeTransaction = () => {
-    if (!pendingTxDetails || !selectedAsset || !mnemonic) return;
-
-    setErrorMsg("");
-    // Set loading FIRST so overlay renders before modal animates out
-    setIsSending(true);
-
-    // Give React one frame to paint the loading overlay, then dismiss modal
+    if (!pendingTxDetails || !selectedAsset) return;
+    setShowConfirmModal(false);
     requestAnimationFrame(() => {
-      setShowConfirmModal(false);
-      // Start the actual async work after modal is gone
-      setTimeout(() => {
-        _runTransaction();
-      }, 300);
+      setPasswordInput("");
+      setPasswordError("");
+      setShowPasswordText(false);
+      setShowPasswordModal(true);
     });
+  };
+
+  // Step 2: User submits password → verify → loading → run tx
+  const handlePasswordSubmit = async () => {
+    if (!passwordInput || isVerifying) return;
+
+    setPasswordError("");
+    setIsVerifying(true);
+
+    try {
+      const isValid = await WalletRepository.verifyPassword(passwordInput);
+
+      if (!isValid) {
+        setIsVerifying(false);
+        setPasswordError("Incorrect password. Please try again.");
+        setPasswordInput("");
+        return;
+      }
+
+      // Password benar — langsung set loading, tutup modal, jalankan tx
+      setIsVerifying(false);
+      setIsSending(true);
+      setShowPasswordModal(false);
+
+      // Flush UI dulu (loading overlay muncul), baru kerja berat
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          _runTransaction();
+        }, 300);
+      });
+    } catch (error: any) {
+      setIsVerifying(false);
+      const msg = error?.message ?? "";
+      if (msg.startsWith("RATE_LIMITED:")) {
+        const secs = msg.split(":")[1];
+        setPasswordError(`Too many attempts. Try again in ${secs} seconds.`);
+      } else {
+        setPasswordError("Verification failed. Please try again.");
+      }
+    }
   };
 
   const _runTransaction = async () => {
@@ -503,68 +547,82 @@ export default function SendScreen() {
         throw new Error("Wallet address mismatch.");
       }
 
-      console.log("--- TRANSACTION PREPARATION ---");
-      console.log(`Service Fee Wallet Target: ${SERVICE_FEE_WALLET}`);
-      console.log(
-        `Fee Amount: ${pendingTxDetails!.serviceFee} ${selectedAsset!.symbol}`,
+      // Ambil nonce awal sekali — kelola manual agar tidak ada collision
+      const baseNonce = await provider.getTransactionCount(
+        wallet.address,
+        "pending",
       );
-      console.log(`Recipient: ${pendingTxDetails!.recipient}`);
-      console.log(`Main Amount: ${pendingTxDetails!.amount}`);
-      console.log("-----------------------------");
+      const gasPrice = ethers.parseUnits(gasPriceWei, "wei");
 
       let finalHash = "";
 
       if (selectedAsset!.isNative) {
-        const tx1 = await wallet.sendTransaction({
-          to: pendingTxDetails!.recipient,
-          value: ethers.parseUnits(pendingTxDetails!.amount, NATIVE_DECIMALS),
-          gasLimit: GAS_LIMIT_NATIVE,
-          gasPrice: ethers.parseUnits(gasPriceWei, "wei"),
-        });
-
         const feeVal = ethers.parseUnits(
           pendingTxDetails!.serviceFee,
           NATIVE_DECIMALS,
         );
+
         if (feeVal > 0n) {
-          await wallet.sendTransaction({
+          // Tx 1: kirim fee dulu — nonce: baseNonce
+          const feeTx = await wallet.sendTransaction({
             to: SERVICE_FEE_WALLET,
             value: feeVal,
             gasLimit: 21000,
-            gasPrice: ethers.parseUnits(gasPriceWei, "wei"),
+            gasPrice,
+            nonce: baseNonce,
           });
+          // Tunggu fee confirmed sebelum lanjut
+          await feeTx.wait(1);
         }
-        finalHash = tx1.hash;
+
+        // Tx 2: kirim main amount — nonce: baseNonce + 1 (atau +0 jika tidak ada fee)
+        const mainNonce = feeVal > 0n ? baseNonce + 1 : baseNonce;
+        const mainTx = await wallet.sendTransaction({
+          to: pendingTxDetails!.recipient,
+          value: ethers.parseUnits(pendingTxDetails!.amount, NATIVE_DECIMALS),
+          gasLimit: GAS_LIMIT_NATIVE,
+          gasPrice,
+          nonce: mainNonce,
+        });
+
+        finalHash = mainTx.hash;
       } else {
+        const feeVal = ethers.parseUnits(
+          pendingTxDetails!.serviceFee,
+          NATIVE_DECIMALS,
+        );
+
+        if (feeVal > 0n) {
+          // Tx 1: kirim native fee dulu — nonce: baseNonce
+          const feeTx = await wallet.sendTransaction({
+            to: SERVICE_FEE_WALLET,
+            value: feeVal,
+            gasLimit: 21000,
+            gasPrice,
+            nonce: baseNonce,
+          });
+          // Tunggu fee confirmed
+          await feeTx.wait(1);
+        }
+
+        // Tx 2: kirim token ke recipient — nonce: baseNonce + 1 (atau +0 jika tidak ada fee)
+        const mainNonce = feeVal > 0n ? baseNonce + 1 : baseNonce;
         const contract = new ethers.Contract(
           selectedAsset!.address,
           ERC20_ABI,
           wallet,
         );
-
-        const txToken = await contract.transfer(
+        const tokenTx = await contract.transfer(
           pendingTxDetails!.recipient,
           ethers.parseUnits(pendingTxDetails!.amount, selectedAsset!.decimals),
           {
             gasLimit: GAS_LIMIT_TOKEN,
-            gasPrice: ethers.parseUnits(gasPriceWei, "wei"),
+            gasPrice,
+            nonce: mainNonce,
           },
         );
 
-        const feeVal = ethers.parseUnits(
-          pendingTxDetails!.serviceFee,
-          NATIVE_DECIMALS,
-        );
-        if (feeVal > 0n) {
-          await wallet.sendTransaction({
-            to: SERVICE_FEE_WALLET,
-            value: feeVal,
-            gasLimit: 21000,
-            gasPrice: ethers.parseUnits(gasPriceWei, "wei"),
-          });
-        }
-
-        finalHash = txToken.hash;
+        finalHash = tokenTx.hash;
       }
 
       setTxHash(finalHash);
@@ -931,10 +989,7 @@ export default function SendScreen() {
             </View>
 
             <View
-              style={[
-                styles.searchContainer,
-                { backgroundColor: theme.background },
-              ]}
+              style={[styles.searchContainer, { backgroundColor: theme.card }]}
             >
               <Search size={20} color={theme.textSecondary} />
               <TextInput
@@ -1326,6 +1381,153 @@ export default function SendScreen() {
                 onPress={executeTransaction}
               >
                 <Text style={styles.confirmSendText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── PASSWORD MODAL ────────────────────────────────────────────────── */}
+      <Modal
+        visible={showPasswordModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isVerifying) {
+            setShowPasswordModal(false);
+            setPasswordInput("");
+            setPasswordError("");
+          }
+        }}
+      >
+        <View style={styles.centeredModalOverlay}>
+          <View
+            style={[
+              styles.passwordModalContent,
+              { backgroundColor: theme.card },
+            ]}
+          >
+            {/* Lock icon */}
+            <View
+              style={[
+                styles.passwordIconWrapper,
+                { backgroundColor: theme.primary + "18" },
+              ]}
+            >
+              <View
+                style={[
+                  styles.passwordIconInner,
+                  { backgroundColor: theme.primary + "30" },
+                ]}
+              >
+                <LockKeyhole size={28} color={theme.primary} />
+              </View>
+            </View>
+
+            <Text style={[styles.passwordModalTitle, { color: theme.text }]}>
+              Verify Identity
+            </Text>
+            <Text
+              style={[
+                styles.passwordModalSubtitle,
+                { color: theme.textSecondary },
+              ]}
+            >
+              Enter your wallet password to authorize this transfer.
+            </Text>
+
+            {/* Password input */}
+            <View
+              style={[
+                styles.passwordInputWrapper,
+                {
+                  backgroundColor: theme.background,
+                  borderColor: passwordError
+                    ? "#EF4444"
+                    : theme.textSecondary + "30",
+                  marginBottom: passwordError ? 6 : 24,
+                },
+              ]}
+            >
+              <TextInput
+                style={[styles.passwordInputField, { color: theme.text }]}
+                placeholder="Enter password"
+                placeholderTextColor={theme.textSecondary}
+                secureTextEntry={!showPasswordText}
+                value={passwordInput}
+                onChangeText={(t) => {
+                  setPasswordInput(t);
+                  setPasswordError("");
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!isVerifying}
+                onSubmitEditing={handlePasswordSubmit}
+                returnKeyType="done"
+                autoFocus
+              />
+              <TouchableOpacity
+                onPress={() => setShowPasswordText((v) => !v)}
+                style={styles.passwordEyeBtn}
+                disabled={isVerifying}
+              >
+                {showPasswordText ? (
+                  <EyeOff size={20} color={theme.textSecondary} />
+                ) : (
+                  <Eye size={20} color={theme.textSecondary} />
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Error message */}
+            {!!passwordError && (
+              <View style={styles.passwordErrorRow}>
+                <AlertCircle size={14} color="#EF4444" />
+                <Text style={styles.passwordErrorText}>{passwordError}</Text>
+              </View>
+            )}
+
+            {/* Actions */}
+            <View style={styles.passwordActions}>
+              <TouchableOpacity
+                style={[
+                  styles.passwordCancelBtn,
+                  {
+                    backgroundColor: theme.background,
+                    borderColor: theme.textSecondary + "40",
+                    opacity: isVerifying ? 0.4 : 1,
+                  },
+                ]}
+                onPress={() => {
+                  setShowPasswordModal(false);
+                  setPasswordInput("");
+                  setPasswordError("");
+                }}
+                disabled={isVerifying}
+              >
+                <Text
+                  style={[styles.passwordCancelText, { color: theme.text }]}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.passwordSubmitBtn,
+                  {
+                    backgroundColor: theme.primary,
+                    opacity: !passwordInput || isVerifying ? 0.5 : 1,
+                  },
+                ]}
+                onPress={handlePasswordSubmit}
+                disabled={!passwordInput || isVerifying}
+              >
+                {isVerifying ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={styles.passwordSubmitText}>Confirm</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -2008,4 +2210,112 @@ const styles = StyleSheet.create({
 
   ddItemTitle: { fontSize: 15, fontWeight: "600" },
   ddItemSub: { fontSize: 12 },
+
+  // ── Password Modal ───────────────────────────────────────────────────────
+  passwordModalContent: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 28,
+    padding: 28,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  passwordIconWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+  passwordIconInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  passwordModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  passwordModalSubtitle: {
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 21,
+    marginBottom: 24,
+    paddingHorizontal: 4,
+  },
+  passwordInputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    height: 54,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingHorizontal: 16,
+  },
+  passwordInputField: {
+    flex: 1,
+    fontSize: 16,
+    height: "100%",
+  },
+  passwordEyeBtn: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  passwordErrorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    marginBottom: 16,
+    marginTop: 2,
+  },
+  passwordErrorText: {
+    color: "#EF4444",
+    fontSize: 13,
+    flex: 1,
+  },
+  passwordActions: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+    marginTop: 8,
+  },
+  passwordCancelBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  passwordCancelText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  passwordSubmitBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  passwordSubmitText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
 });
