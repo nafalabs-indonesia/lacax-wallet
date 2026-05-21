@@ -74,7 +74,7 @@ export class BlockchainService {
     decimals: number,
   ): Promise<string> {
     const provider = this.getProvider(chainId);
-    
+
     if (this.isNativeToken(tokenAddress)) {
       const balanceBigInt = await provider.getBalance(walletAddress);
       return parseFloat(ethers.formatEther(balanceBigInt)).toFixed(6);
@@ -87,7 +87,8 @@ export class BlockchainService {
 
   static getChainConfig(chainId: string): ChainConfig {
     const config = getChainById(chainId);
-    if (!config) throw new Error(`Config untuk chain ${chainId} tidak ditemukan`);
+    if (!config)
+      throw new Error(`Config untuk chain ${chainId} tidak ditemukan`);
     return config;
   }
 
@@ -100,12 +101,14 @@ export class BlockchainService {
   ): Promise<any[]> {
     const apiKey = ETHERSCAN_API_KEY;
     const config = getChainById(chainId);
-    
+
     if (!config) return [];
 
     // 1. Handle BNB (BSC) - Not supported on Free V2
     if (config.chainId === 56 || config.chainId === 97) {
-      console.log(`ℹ️ Skipping ${config.name}: BNB Chain history requires Paid API or custom integration.`);
+      console.log(
+        `ℹ️ Skipping ${config.name}: BNB Chain history requires Paid API or custom integration.`,
+      );
       return [];
     }
 
@@ -129,7 +132,7 @@ export class BlockchainService {
 
       if (data.status === "0") {
         if (data.message === "NOTOK") {
-           console.warn(`⚠️ API Error ${config.name}: ${data.result}`);
+          console.warn(`⚠️ API Error ${config.name}: ${data.result}`);
         }
         return [];
       }
@@ -152,10 +155,10 @@ export class BlockchainService {
    */
   private static async getBlockDAGHistory(
     config: ChainConfig,
-    address: string
+    address: string,
   ): Promise<any[]> {
     let baseUrl = "";
-    
+
     if (config.chainId === 1404) {
       // Mainnet
       baseUrl = "https://api.bdagscan.com/";
@@ -168,32 +171,37 @@ export class BlockchainService {
 
     try {
       const url = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=50&sort=desc`;
-      
+
       console.log(`🔍 Fetching BlockDAG History: ${url.substring(0, 80)}...`);
-      
+
       const response = await fetch(url);
-      
+
       // Cek apakah respons bukan JSON (misal HTML error page)
       const contentType = response.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
-         console.warn(`⚠️ BlockDAG Explorer returned non-JSON response for ${config.name}`);
-         // Coba baca text untuk debug
-         const text = await response.text();
-         console.warn(`Response preview: ${text.substring(0, 100)}`);
-         return [];
+        console.warn(
+          `⚠️ BlockDAG Explorer returned non-JSON response for ${config.name}`,
+        );
+        // Coba baca text untuk debug
+        const text = await response.text();
+        console.warn(`Response preview: ${text.substring(0, 100)}`);
+        return [];
       }
 
       const data = await response.json();
+      // console.log(
+      //   `📦 BlockDAG API Response Status: ${data.status}, Message: ${data.message}`,
+      // );
 
       if (data.status === "1" && data.result && Array.isArray(data.result)) {
         return this.parseTransactions(data.result, address, config);
       }
-      
+
       // Jika status 0 tapi result adalah string error, itu biasa terjadi jika address belum punya tx
       if (data.status === "0") {
-         // console.log(`ℹ️ BlockDAG API returned status 0: ${data.result}`);
+        // console.log(`ℹ️ BlockDAG API returned status 0: ${data.result}`);
       }
-      
+
       return [];
     } catch (error) {
       console.warn(`⚠️ Failed to fetch BlockDAG history:`, error);
@@ -207,7 +215,7 @@ export class BlockchainService {
   private static parseTransactions(
     result: any[],
     address: string,
-    config: ChainConfig
+    config: ChainConfig,
   ): any[] {
     return result.map((tx: any) => {
       const isSend = tx.from.toLowerCase() === address.toLowerCase();

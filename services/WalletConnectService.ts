@@ -32,6 +32,50 @@ const IGNORABLE_WC_ERRORS = [
 const isIgnorableWcError = (msg: string): boolean =>
   IGNORABLE_WC_ERRORS.some((pattern) => msg?.includes(pattern));
 
+// ─── Definisi Chain Custom (BlockDAG) ────────────────────────────────────────
+// Karena BlockDAG belum ada di viem/chains default, kita definisikan manual
+// sesuai dengan config/chains.ts kamu.
+
+const blockdagMainnet = {
+  id: 1404,
+  name: "BlockDAG Mainnet",
+  network: "blockdag-mainnet",
+  nativeCurrency: {
+    decimals: 18,
+    name: "BlockDAG",
+    symbol: "BDAG",
+  },
+  rpcUrls: {
+    // Menggunakan proxy RPC dari config kamu agar bypass Cloudflare/limitasi
+    default: { http: ["https://lacakoin.vercel.app/api/rpc/1404"] },
+    public: { http: ["https://lacakoin.vercel.app/api/rpc/1404"] },
+  },
+  blockExplorers: {
+    default: { name: "BlockDAG Explorer", url: "https://bdagscan.com/" },
+  },
+} as const;
+
+const blockdagTestnet = {
+  id: 1043,
+  name: "BlockDAG Awakening Testnet",
+  network: "blockdag-testnet",
+  nativeCurrency: {
+    decimals: 18,
+    name: "BlockDAG",
+    symbol: "BDAG",
+  },
+  rpcUrls: {
+    default: { http: ["https://rpc.awakening.bdagscan.com"] },
+    public: { http: ["https://rpc.awakening.bdagscan.com"] },
+  },
+  blockExplorers: {
+    default: {
+      name: "BlockDAG Testnet Explorer",
+      url: "https://awakening.bdagscan.com",
+    },
+  },
+} as const;
+
 // ─── Chain registry ──────────────────────────────────────────────────────────
 
 const CHAIN_MAP: Record<number, any> = {
@@ -42,10 +86,13 @@ const CHAIN_MAP: Record<number, any> = {
   42161: arbitrum,
   10: optimism,
   8453: base,
+  1404: blockdagMainnet, // <--- ADDED: BlockDAG Mainnet
+  1043: blockdagTestnet, // <--- ADDED: BlockDAG Testnet
 };
 
 const getChainById = (chainId: number) => CHAIN_MAP[chainId] ?? mainnet;
 
+// Pastikan EIP155_CHAINS mencakup semua chain di CHAIN_MAP
 const EIP155_CHAINS = Object.keys(CHAIN_MAP).map((id) => `eip155:${id}`);
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -70,9 +117,6 @@ export const initWalletConnect = async (): Promise<IWeb3Wallet> => {
     });
 
     // ── Bersihkan proposal & pairing yang sudah expired saat init ─────────
-    // Ini mencegah error "Missing or invalid / Record was recently deleted"
-    // yang muncul ketika WC's expirer mencoba memproses proposal lama
-    // (terutama setelah HMR reload atau restart app).
     await _cleanupExpiredRecords();
 
     console.log("✅ WalletConnect Initialized");
@@ -90,10 +134,6 @@ export const initWalletConnect = async (): Promise<IWeb3Wallet> => {
 };
 
 // ─── Bersihkan records expired ───────────────────────────────────────────────
-// Proposal WalletConnect punya TTL ~5 menit. Jika app di-restart / HMR
-// setelah proposal masuk tapi belum di-approve/reject, proposal lama itu
-// masih ada di AsyncStorage tapi sudah dianggap deleted oleh expirer WC.
-// Fungsi ini secara proaktif menghapusnya.
 
 const _cleanupExpiredRecords = async (): Promise<void> => {
   if (!web3Wallet) return;
@@ -124,7 +164,6 @@ const _cleanupExpiredRecords = async (): Promise<void> => {
       }
     }
   } catch (e) {
-    // Cleanup bersifat best-effort; jangan crash init karena ini
     console.warn("⚠️ _cleanupExpiredRecords encountered an issue:", e);
   }
 };
@@ -262,12 +301,6 @@ export const registerEventListeners = () => {
 };
 
 // ─── Respond to Request ───────────────────────────────────────────────────────
-//
-// BEHAVIOUR CONTRACT:
-//   - Reject  → selalu resolve (tidak throw).
-//   - Approve → berhasil → resolve.
-//               gagal    → throw Error (setelah respond ke dApp & clear state).
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const respondToWcRequest = async (
   isApproved: boolean,
@@ -315,7 +348,11 @@ export const respondToWcRequest = async (
     if (!privateKey) throw new Error("Wallet is locked. Please unlock first.");
 
     const account = privateKeyToAccount(privateKey as Hex);
+
+    // Gunakan chain yang sesuai dengan request, fallback ke mainnet jika tidak dikenali
+    // Namun karena CHAIN_MAP sudah diupdate, chainId 1404 sekarang akan valid.
     const chain = getChainById(chainId ?? 1);
+
     const client = createWalletClient({ account, chain, transport: http() });
 
     let result: string = "0x";
@@ -383,9 +420,12 @@ export const respondToWcRequest = async (
       case "wallet_switchEthereumChain": {
         const requestedChainIdHex = params?.[0]?.chainId;
         const requestedChainId = parseInt(requestedChainIdHex, 16);
+
+        // Cek kembali apakah chain didukung (sekarang 1404 harusnya lolos)
         if (!CHAIN_MAP[requestedChainId]) {
           throw new Error(`Chain ${requestedChainId} is not supported`);
         }
+
         result = "null";
         console.log("✅ wallet_switchEthereumChain to", requestedChainId);
         break;

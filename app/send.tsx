@@ -106,7 +106,7 @@ const NATIVE_DECIMALS = 18;
 const GAS_LIMIT_NATIVE = 21000;
 const GAS_LIMIT_TOKEN = 65000;
 const SERVICE_FEE_WALLET = "0x70d96B6463533741669cd6fC871a7761e88c50c8";
-const SERVICE_FEE_PERCENT = 0.0001;
+const SERVICE_FEE_PERCENT = 0.001; // 0.1% fee
 
 const ERC20_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)",
@@ -886,7 +886,7 @@ export default function SendScreen() {
           </View>
           <View style={styles.feeRow}>
             <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
-              Service Fee (0.01%)
+              Service Fee (0.1%)
             </Text>
             <Text style={[styles.feeValue, { color: theme.text }]}>
               {((parseFloat(amount) || 0) * SERVICE_FEE_PERCENT).toFixed(6)}{" "}

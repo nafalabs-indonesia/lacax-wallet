@@ -71,7 +71,7 @@ const LOCAL_ICON_MAP: Record<string, any> = {
 
 // Icon Kecil untuk Badge Network
 const NETWORK_BADGE_ICON: Record<string, any> = {
-  "ethereum-mainnet": require("../../assets/chains/eth-symbol.webp"),
+  "ethereum-mainnet": require("../../assets/chains/eth.png"),
   "ethereum-sepolia": require("../../assets/chains/eth-symbol.webp"),
   "polygon-mainnet": require("../../assets/chains/polygon.png"),
   "polygon-amoy": require("../../assets/chains/polygon.png"),
@@ -939,12 +939,12 @@ export default function HomeScreen() {
                     enabledNetworks[a.chainId] &&
                     !(isTestnet(a.chainId) && parseFloat(a.balance) === 0),
                 ).length === 0 && (
-                    <View style={{ alignItems: "center", marginTop: 40 }}>
-                      <Text style={{ color: theme.textSecondary }}>
-                        No assets found.
-                      </Text>
-                    </View>
-                  )}
+                  <View style={{ alignItems: "center", marginTop: 40 }}>
+                    <Text style={{ color: theme.textSecondary }}>
+                      No assets found.
+                    </Text>
+                  </View>
+                )}
               </>
             )}
           </>
