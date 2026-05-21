@@ -1,27 +1,27 @@
 // components/WcConfirmationModal.tsx
 import {
-    AlertTriangle,
-    ArrowLeftRight,
-    CheckCircle2,
-    ChevronDown,
-    ChevronUp,
-    Coins,
-    FileSignature,
-    Layers,
-    Send,
-    X,
-    Zap,
+  AlertTriangle,
+  ArrowLeftRight,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Coins,
+  FileSignature,
+  Layers,
+  Send,
+  X,
+  Zap,
 } from "lucide-react-native";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    Animated,
-    Modal,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Animated,
+  Modal,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { respondToWcRequest } from "../services/WalletConnectService";
 import { useAppStore } from "../store/appStore";
@@ -155,6 +155,8 @@ export const WcConfirmationModal = () => {
   const [resultState, setResultState] = useState<
     "idle" | "success" | "rejected" | "error"
   >("idle");
+
+  // State untuk menyimpan pesan error lengkap
   const [errorMessage, setErrorMessage] = useState<string>("");
 
   const slideAnim = useRef(new Animated.Value(60)).current;
@@ -167,7 +169,7 @@ export const WcConfirmationModal = () => {
       setResultState("idle");
       setIsLoading(false);
       setShowRawData(false);
-      setErrorMessage("");
+      setErrorMessage(""); // Reset error message
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
@@ -229,20 +231,23 @@ export const WcConfirmationModal = () => {
     : "No payload data";
 
   // ── Handler Approve ────────────────────────────────────────────────────
-  // respondToWcRequest(true) sekarang benar-benar mengeksekusi signing /
-  // transaksi dan MELEMPAR error jika gagal, sehingga kita bisa membedakan
-  // antara "benar-benar berhasil" dan "gagal eksekusi".
   const handleApprove = async () => {
     setIsLoading(true);
     setErrorMessage("");
     try {
+      // Respond true akan memicu eksekusi transaksi/signing
       await respondToWcRequest(true);
-      // Hanya sampai sini jika eksekusi BENAR-BENAR berhasil
+
+      // Jika berhasil sampai sini, artinya transaksi terkirim/signed
       setResultState("success");
     } catch (err: any) {
-      // Eksekusi gagal (wallet locked, RPC error, method tidak support, dll.)
+      // Jika gagal (misal: insufficient funds, user reject di wallet, rpc error)
+      console.error("❌ Execution Error:", err);
+
+      // Ambil pesan error yang detail
       const msg: string =
         err?.message ?? "An unknown error occurred. Please try again.";
+
       setErrorMessage(msg);
       setResultState("error");
     } finally {
@@ -481,7 +486,7 @@ export const WcConfirmationModal = () => {
                 s.btnApprove,
                 {
                   backgroundColor: theme.primary,
-                  // Sedikit redup saat loading atau setelah error (bisa coba lagi)
+                  // Sedikit redup saat loading
                   opacity: isLoading ? 0.6 : 1,
                   borderRadius: 999,
                 },

@@ -1,7 +1,15 @@
 // app/scan.tsx
+import { ethers } from "ethers"; // Import ethers untuk validasi address
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
-import { Check, Flashlight, FlashlightOff, Link, X } from "lucide-react-native";
+import {
+  AlertCircle,
+  Check,
+  Flashlight,
+  FlashlightOff,
+  Link,
+  X,
+} from "lucide-react-native";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,8 +24,7 @@ import {
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
-// Import Service yang kita buat (Pastikan path sesuai)
-// Jika Anda belum membuat filenya, kode ini akan error sampai Anda membuatnya.
+// Import Service WalletConnect
 import {
   initWalletConnect,
   pairWithURI,
@@ -66,7 +73,10 @@ function CustomAlert({
         <View
           style={[
             styles.alertBox,
-            { backgroundColor: theme.card, borderColor: theme.border },
+            {
+              backgroundColor: theme.card,
+              borderColor: theme.border || "#333",
+            },
           ]}
         >
           <View
@@ -80,7 +90,7 @@ function CustomAlert({
             ) : type === "success" ? (
               <Check size={24} color="#10B981" strokeWidth={2.5} />
             ) : type === "error" ? (
-              <X size={24} color="#EF4444" strokeWidth={2.5} />
+              <AlertCircle size={24} color="#EF4444" strokeWidth={2.5} />
             ) : (
               <Link size={24} color={theme.primary} strokeWidth={2.5} />
             )}
@@ -200,6 +210,7 @@ export default function ScanScreen() {
       if (scanned) return;
       setScanned(true);
 
+      // 1. Cek apakah ini WalletConnect URI
       if (data.startsWith("wc:")) {
         setAlertConfig({
           visible: true,
@@ -223,7 +234,6 @@ export default function ScanScreen() {
             );
 
             try {
-              // INI FUNGSI YANG SEBENARNYA MELAKUKAN KONEKSI
               await pairWithURI(data);
 
               setAlertConfig((prev) =>
@@ -242,15 +252,18 @@ export default function ScanScreen() {
                     }
                   : null,
               );
-            } catch (error) {
+            } catch (error: any) {
+              // Tampilkan error detail di modal
+              const errorMsg = error?.message || "Unknown error occurred";
               setAlertConfig((prev) =>
                 prev
                   ? {
                       ...prev,
                       title: "Connection Failed",
-                      message: "Invalid URI or network error.",
+                      message: errorMsg,
                       type: "error",
                       primaryLabel: "Retry",
+                      secondaryLabel: "Close",
                       onPrimary: closeAlert,
                       onSecondary: closeAlert,
                     }
@@ -259,14 +272,40 @@ export default function ScanScreen() {
             }
           },
         });
-      } else {
-        // Handle Address or other QR
+      }
+      // 2. Cek apakah ini Alamat Ethereum (0x...)
+      else if (ethers.isAddress(data)) {
         setAlertConfig({
           visible: true,
-          title: "QR Detected",
-          message: data,
+          title: "Wallet Address Detected",
+          message: `Send funds to:\n${data.slice(0, 10)}...${data.slice(-8)}`,
           type: "info",
-          primaryLabel: "OK",
+          primaryLabel: "Send Now",
+          secondaryLabel: "Copy",
+          onSecondary: async () => {
+            // Opsional: Copy ke clipboard jika ingin, lalu tutup
+            // await Clipboard.setStringAsync(data);
+            closeAlert();
+          },
+          onPrimary: () => {
+            closeAlert();
+            // Arahkan ke halaman Send dengan membawa alamat recipient
+            router.push({
+              pathname: "/send",
+              params: { recipient: data },
+            });
+          },
+        });
+      }
+      // 3. Format Tidak Dikenal
+      else {
+        setAlertConfig({
+          visible: true,
+          title: "Invalid QR Code",
+          message:
+            "The scanned code is not a valid WalletConnect URI or Ethereum address.",
+          type: "error",
+          primaryLabel: "Try Again",
           onPrimary: closeAlert,
         });
       }

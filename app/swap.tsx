@@ -43,8 +43,7 @@ const { width } = Dimensions.get("window");
 
 // Wallet penerima fee affiliate
 const AFFILIATE_FEE_RECIPIENT = "0x70d96B6463533741669cd6fC871a7761e88c50c8";
-// Default fee dalam Basis Points (100 bps = 1%)
-const DEFAULT_AFFILIATE_FEE_BPS = 100;
+const DEFAULT_AFFILIATE_FEE_BPS = 80; // 0.8% fee
 
 // Mapping Chain ID integer untuk 0x API
 const CHAIN_ID_MAP: Record<string, number> = {
