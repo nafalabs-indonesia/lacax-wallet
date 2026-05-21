@@ -19,19 +19,23 @@ export interface ChainConfig {
   symbol: string;
   decimals: number;
   type: "evm";
-  disabled?: boolean; // Tandai chain yang RPC-nya belum tersedia
-  disabledReason?: string; // Pesan untuk ditampilkan di UI
+  disabled?: boolean;
+  disabledReason?: string;
   tokens?: TokenConfig[];
 }
 
 const getAlchemyRpc = (network: string) => {
   const key = ALCHEMY_API_KEY || "";
+  if (!key) {
+    console.warn("⚠️ ALCHEMY_API_KEY is missing in .env");
+  }
   return `https://${network}.g.alchemy.com/v2/${key}`;
 };
 
 const PROXY_BASE_URL = "https://lacakoin.vercel.app/api/rpc";
 
 export const SUPPORTED_CHAINS: ChainConfig[] = [
+  // --- Existing Chains ---
   {
     id: "ethereum-mainnet",
     name: "Ethereum Mainnet",
@@ -99,21 +103,12 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
         address: "0x55d398326f99059fF775485246999027B3197955",
         decimals: 18,
       },
-      {
-        name: "USD Coin",
-        symbol: "USDC",
-        address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
-        decimals: 18,
-      },
     ],
   },
   {
     id: "blockdag-mainnet",
     name: "BlockDAG Mainnet",
     chainId: 1404,
-    // rpc.bdagscan.com (resmi) diblokir Cloudflare untuk akses programmatic.
-    // Semua provider third-party (NOWNodes dll) hanya tersedia untuk testnet (chainId 1043).
-    // Chain ini di-disable sampai ada RPC publik mainnet yang accessible.
     rpcUrl: `${PROXY_BASE_URL}/1404`,
     explorerUrl: "https://bdagscan.com/",
     icon: "/assets/chains/bdag.png",
@@ -164,6 +159,60 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     explorerUrl: "https://awakening.bdagscan.com",
     icon: "/assets/chains/bdag.png",
     symbol: "BDAG",
+    decimals: 18,
+    type: "evm",
+  },
+
+  // --- NEW CHAINS: ARBITRUM & MONAD ---
+
+  // Arbitrum One Mainnet
+  {
+    id: "arbitrum-mainnet",
+    name: "Arbitrum One",
+    chainId: 42161,
+    rpcUrl: getAlchemyRpc("arb-mainnet"),
+    explorerUrl: "https://arbiscan.io",
+    icon: "/assets/chains/arbitrum.png",
+    symbol: "ARB",
+    decimals: 18,
+    type: "evm",
+  },
+
+  // Arbitrum Sepolia Testnet
+  {
+    id: "arbitrum-sepolia",
+    name: "Arbitrum Sepolia",
+    chainId: 421614,
+    rpcUrl: getAlchemyRpc("arb-sepolia"),
+    explorerUrl: "https://sepolia.arbiscan.io",
+    icon: "/assets/chains/arbitrum.png",
+    symbol: "ETH",
+    decimals: 18,
+    type: "evm",
+  },
+
+  // Monad Mainnet
+  {
+    id: "monad-mainnet",
+    name: "Monad Mainnet",
+    chainId: 143,
+    rpcUrl: getAlchemyRpc("monad-mainnet"),
+    explorerUrl: "https://monadvision.com/",
+    icon: "/assets/chains/monad.png",
+    symbol: "MON",
+    decimals: 18,
+    type: "evm",
+  },
+
+  // Monad Testnet
+  {
+    id: "monad-testnet",
+    name: "Monad Testnet",
+    chainId: 10143,
+    rpcUrl: getAlchemyRpc("monad-testnet"),
+    explorerUrl: "https://testnet.monadvision.com/",
+    icon: "/assets/chains/monad.png",
+    symbol: "MON",
     decimals: 18,
     type: "evm",
   },

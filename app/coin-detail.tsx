@@ -46,6 +46,10 @@ const LOCAL_ICON_MAP: Record<string, any> = {
   blockdag: require("../assets/chains/bdag.png"),
   usdt: require("../assets/coins/usdt.png"),
   usdc: require("../assets/coins/usdc.png"),
+  bnb: require("../assets/chains/bnb.png"),
+  polygon: require("../assets/chains/polygon.png"),
+  arbitrum: require("../assets/chains/arbitrum.png"),
+  monad: require("../assets/chains/monad.png"),
 };
 
 const COINGECKO_ID_MAP: Record<string, string> = {
@@ -53,6 +57,10 @@ const COINGECKO_ID_MAP: Record<string, string> = {
   blockdag: "blockdag",
   usdt: "tether",
   usdc: "usd-coin",
+  bnb: "binancecoin",
+  polygon: "polygon-ecosystem-token",
+  arbitrum: "arbitrum",
+  monad: "monad",
 };
 
 const TF_DAYS: Record<string, string> = {

@@ -27,7 +27,6 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  Info,
   LockKeyhole,
   ScanLine,
   Search,
@@ -46,6 +45,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -54,25 +54,40 @@ import {
 
 const { width, height } = Dimensions.get("window");
 
+// ─────────────────────────────────────────────
+// Icon Mapping (Updated with New Chains)
+// ─────────────────────────────────────────────
 const LOCAL_ICON_MAP: Record<string, any> = {
+  // Native Tokens
   ETH: require("../assets/chains/eth.png"),
-  USDT: require("../assets/coins/usdt.png"),
-  USDC: require("../assets/coins/usdc.png"),
-  BDAG: require("../assets/chains/bdag.png"),
+  SepoliaETH: require("../assets/chains/eth-sepolia.png"),
   POL: require("../assets/chains/polygon.png"),
   BNB: require("../assets/chains/bnb.png"),
-  SepoliaETH: require("../assets/chains/eth-sepolia.png"),
+  tBNB: require("../assets/chains/bnb.png"),
+  BDAG: require("../assets/chains/bdag.png"),
+  MON: require("../assets/chains/monad.png"),
+  ARB: require("../assets/chains/arbitrum.png"),
+
+  // ERC20 Tokens
+  USDT: require("../assets/coins/usdt.png"),
+  USDC: require("../assets/coins/usdc.png"),
 };
 
 const LOCAL_CHAIN_ICON_MAP: Record<string, any> = {
   "ethereum-mainnet": require("../assets/chains/eth.png"),
   "ethereum-sepolia": require("../assets/chains/eth-sepolia.png"),
-  "blockdag-mainnet": require("../assets/chains/bdag.png"),
-  "blockdag-testnet": require("../assets/chains/bdag.png"),
   "polygon-mainnet": require("../assets/chains/polygon.png"),
   "polygon-amoy": require("../assets/chains/polygon.png"),
   "bnb-mainnet": require("../assets/chains/bnb.png"),
   "bnb-testnet": require("../assets/chains/bnb.png"),
+  "blockdag-mainnet": require("../assets/chains/bdag.png"),
+  "blockdag-testnet": require("../assets/chains/bdag.png"),
+
+  // New Chains
+  "arbitrum-mainnet": require("../assets/chains/arbitrum.png"),
+  "arbitrum-sepolia": require("../assets/chains/arbitrum.png"),
+  "monad-mainnet": require("../assets/chains/monad.png"),
+  "monad-testnet": require("../assets/chains/monad.png"),
 };
 
 const ALL_CHAINS = SUPPORTED_CHAINS;
@@ -85,21 +100,31 @@ const PUBLIC_RPC_MAP: Record<string, string[]> = {
     "https://eth.llamarpc.com",
   ],
   "ethereum-sepolia": ["https://rpc.sepolia.org"],
-  "blockdag-mainnet": ["https://rpc.primordial.bdagscan.com"],
-  "blockdag-testnet": ["https://rpc.testnet.bdagscan.com"],
   "polygon-mainnet": ["https://polygon-rpc.com"],
   "polygon-amoy": ["https://rpc-amoy.polygon.technology"],
   "bnb-mainnet": ["https://bsc-dataseed.binance.org"],
   "bnb-testnet": ["https://data-seed-prebsc-1-s1.binance.org"],
+  "blockdag-mainnet": ["https://rpc.primordial.bdagscan.com"],
+  "blockdag-testnet": ["https://rpc.testnet.bdagscan.com"],
+
+  // New Chains Public RPCs (Fallback if Alchemy fails or for specific needs)
+  "arbitrum-mainnet": ["https://arb1.arbitrum.io/rpc"],
+  "arbitrum-sepolia": ["https://sepolia-rollup.arbitrum.io/rpc"],
+  "monad-mainnet": ["https://rpc.monad.xyz"], // Placeholder, update when live
+  "monad-testnet": ["https://testnet-rpc.monad.xyz"],
 };
 
 const HARDCODED_GAS_FALLBACK: Record<string, string> = {
   "ethereum-mainnet": "20000000000",
   "ethereum-sepolia": "2000000000",
-  "blockdag-mainnet": "1000000000",
-  "blockdag-testnet": "1000000000",
   "polygon-mainnet": "30000000000",
   "bnb-mainnet": "5000000000",
+  "blockdag-mainnet": "1000000000",
+  "blockdag-testnet": "1000000000",
+  "arbitrum-mainnet": "100000000", // Arbitrum gas is usually lower
+  "arbitrum-sepolia": "100000000",
+  "monad-mainnet": "1000000000",
+  "monad-testnet": "1000000000",
 };
 
 const NATIVE_DECIMALS = 18;
@@ -176,6 +201,11 @@ export default function SendScreen() {
     null,
   );
 
+  // State for Fee Info Modals & Toggle
+  const [showServiceFeeInfo, setShowServiceFeeInfo] = useState(false);
+  const [showNetworkFeeInfo, setShowNetworkFeeInfo] = useState(false);
+  const [serviceFeeEnabled, setServiceFeeEnabled] = useState(true);
+
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
   const getRpcUrl = useCallback((chain: ChainConfig): string => {
@@ -244,13 +274,9 @@ export default function SendScreen() {
   );
 
   const fetchGasPrice = useCallback(async () => {
-    const chainIdMap: Record<string, number> = {
-      "ethereum-mainnet": 1,
-      "blockdag-mainnet": 1404,
-    };
-    const cid = chainIdMap[selectedChain.id];
-
-    if (ZEROEX_API_KEY && cid) {
+    // Try 0x API for EVM chains that support it (Eth, Polygon, BNB, Arbitrum)
+    const supported0xChains = [1, 137, 56, 42161];
+    if (ZEROEX_API_KEY && supported0xChains.includes(selectedChain.chainId)) {
       try {
         const response = await axios.get(`https://api.0x.org/swap/v1/price`, {
           params: {
@@ -281,7 +307,12 @@ export default function SendScreen() {
 
     const fallback = HARDCODED_GAS_FALLBACK[selectedChain.id] ?? "5000000000";
     setGasPriceWei(fallback);
-  }, [selectedChain.id, walletAddress, fetchGasFromPublicRpc]);
+  }, [
+    selectedChain.id,
+    selectedChain.chainId,
+    walletAddress,
+    fetchGasFromPublicRpc,
+  ]);
 
   // ─── Balance Fetching ────────────────────────────────────────────────────────
 
@@ -354,12 +385,15 @@ export default function SendScreen() {
     if (!selectedAsset) return;
     let maxVal = parseFloat(selectedAsset.balance);
 
+    // Calculate current effective fee percent
+    const currentFeePercent = serviceFeeEnabled ? SERVICE_FEE_PERCENT : 0;
+
     if (selectedAsset.isNative) {
       const gasCostEth =
         (GAS_LIMIT_NATIVE * parseInt(gasPriceWei)) /
         Math.pow(10, NATIVE_DECIMALS);
-      if (1 + SERVICE_FEE_PERCENT > 0) {
-        maxVal = (maxVal - gasCostEth * 1.1) / (1 + SERVICE_FEE_PERCENT);
+      if (1 + currentFeePercent > 0) {
+        maxVal = (maxVal - gasCostEth * 1.1) / (1 + currentFeePercent);
       } else {
         maxVal = Math.max(0, maxVal - gasCostEth * 1.1);
       }
@@ -396,7 +430,9 @@ export default function SendScreen() {
     if (isNaN(sendAmount) || sendAmount <= 0)
       return "Please enter a valid amount greater than 0.";
 
-    const serviceFee = sendAmount * SERVICE_FEE_PERCENT;
+    const currentFeePercent = serviceFeeEnabled ? SERVICE_FEE_PERCENT : 0;
+    const serviceFee = sendAmount * currentFeePercent;
+
     const txGasLimit = selectedAsset.isNative
       ? GAS_LIMIT_NATIVE
       : GAS_LIMIT_TOKEN;
@@ -449,7 +485,9 @@ export default function SendScreen() {
     }
 
     const sendAmount = parseFloat(amount);
-    const serviceFee = sendAmount * SERVICE_FEE_PERCENT;
+    const currentFeePercent = serviceFeeEnabled ? SERVICE_FEE_PERCENT : 0;
+    const serviceFee = sendAmount * currentFeePercent;
+
     const txGasLimit = selectedAsset!.isNative
       ? GAS_LIMIT_NATIVE
       : GAS_LIMIT_TOKEN;
@@ -877,22 +915,41 @@ export default function SendScreen() {
         {/* ── Fees Section ──────────────────────────────────────────────────── */}
         <View style={[styles.feeSection, { backgroundColor: theme.card }]}>
           <View style={styles.feeRow}>
-            <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
-              Network Fee (Est.)
-            </Text>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            >
+              <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
+                Network Fee (Est.)
+              </Text>
+              <TouchableOpacity onPress={() => setShowNetworkFeeInfo(true)}>
+                <AlertCircle size={14} color={theme.text} />
+              </TouchableOpacity>
+            </View>
             <Text style={[styles.feeValue, { color: theme.text }]}>
               ~{estimatedGasEth.toFixed(6)} {nativeSymbol}
             </Text>
           </View>
+
           <View style={styles.feeRow}>
-            <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
-              Service Fee (0.1%)
-            </Text>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            >
+              <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
+                Service Fee {serviceFeeEnabled ? "(0.1%)" : "(Disabled)"}
+              </Text>
+              <TouchableOpacity onPress={() => setShowServiceFeeInfo(true)}>
+                <AlertCircle size={14} color={theme.text} />
+              </TouchableOpacity>
+            </View>
             <Text style={[styles.feeValue, { color: theme.text }]}>
-              {((parseFloat(amount) || 0) * SERVICE_FEE_PERCENT).toFixed(6)}{" "}
+              {(
+                (parseFloat(amount) || 0) *
+                (serviceFeeEnabled ? SERVICE_FEE_PERCENT : 0)
+              ).toFixed(6)}{" "}
               {selectedAsset?.symbol}
             </Text>
           </View>
+
           {selectedAsset && !selectedAsset.isNative && (
             <View
               style={[
@@ -918,12 +975,7 @@ export default function SendScreen() {
           )}
         </View>
 
-        <View style={styles.infoRow}>
-          <Info size={14} color={theme.textSecondary} />
-          <Text style={[styles.infoText, { color: theme.textSecondary }]}>
-            Service fee helps maintain wallet infrastructure.
-          </Text>
-        </View>
+        {/* Info text removed as requested, handled by modal now */}
       </ScrollView>
 
       {/* ── Footer Button ─────────────────────────────────────────────────── */}
@@ -1672,6 +1724,169 @@ export default function SendScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ── NETWORK FEE INFO MODAL ────────────────────────────────────────── */}
+      <Modal
+        visible={showNetworkFeeInfo}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowNetworkFeeInfo(false)}
+      >
+        <View style={styles.centeredModalOverlay}>
+          <View
+            style={[
+              styles.confirmModalContent,
+              { backgroundColor: theme.card },
+            ]}
+          >
+            <View style={styles.confirmModalHeader}>
+              <Text style={[styles.confirmModalTitle, { color: theme.text }]}>
+                Network Fee Info
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowNetworkFeeInfo(false)}
+                style={[
+                  styles.confirmCloseBtn,
+                  { backgroundColor: theme.background },
+                ]}
+              >
+                <X size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ padding: 10, alignItems: "center" }}>
+              <AlertCircle
+                size={40}
+                color={theme.primary}
+                style={{ marginBottom: 16 }}
+              />
+              <Text
+                style={[
+                  styles.errorModalMessage,
+                  { color: theme.textSecondary, textAlign: "center" },
+                ]}
+              >
+                Network fees (Gas) are paid to validators/miners to process your
+                transaction on the blockchain. This fee varies based on network
+                congestion and complexity.
+              </Text>
+
+              <TouchableOpacity
+                style={[
+                  styles.confirmSendBtn,
+                  {
+                    backgroundColor: theme.primary,
+                    marginTop: 10,
+                  },
+                ]}
+                onPress={() => setShowNetworkFeeInfo(false)}
+              >
+                <Text
+                  style={{
+                    color: "#FFF",
+                    fontSize: 16,
+                    fontWeight: "700",
+                  }}
+                >
+                  Understood
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── SERVICE FEE INFO MODAL ────────────────────────────────────────── */}
+      <Modal
+        visible={showServiceFeeInfo}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowServiceFeeInfo(false)}
+      >
+        <View style={styles.centeredModalOverlay}>
+          <View
+            style={[
+              styles.serviceFeeModalContent,
+              { backgroundColor: theme.card },
+            ]}
+          >
+            {/* Header */}
+            <View style={styles.confirmModalHeader}>
+              <Text style={[styles.confirmModalTitle, { color: theme.text }]}>
+                Service Fee
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowServiceFeeInfo(false)}
+                style={[
+                  styles.confirmCloseBtn,
+                  { backgroundColor: theme.background },
+                ]}
+              >
+                <X size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Icon + description */}
+            <View style={styles.serviceFeeIconWrapper}>
+              <AlertCircle size={36} color={theme.primary} />
+            </View>
+
+            <Text
+              style={[
+                styles.serviceFeeDescription,
+                { color: theme.textSecondary },
+              ]}
+            >
+              The service fee (0.1%) helps us maintain wallet infrastructure,
+              ensure security, and provide seamless transactions.
+            </Text>
+
+            {/* ── Toggle Row ── */}
+            <View
+              style={[
+                styles.serviceFeeToggleRow,
+                { backgroundColor: theme.background },
+              ]}
+            >
+              <View style={styles.serviceFeeToggleLeft}>
+                <Text
+                  style={[styles.serviceFeeToggleTitle, { color: theme.text }]}
+                >
+                  Service Fee
+                </Text>
+                <Text
+                  style={[
+                    styles.serviceFeeToggleStatus,
+                    {
+                      color: serviceFeeEnabled ? "#22C55E" : "#EF4444",
+                    },
+                  ]}
+                >
+                  {serviceFeeEnabled ? "Enabled (0.1%)" : "Disabled"}
+                </Text>
+              </View>
+              <Switch
+                value={serviceFeeEnabled}
+                onValueChange={(val) => setServiceFeeEnabled(val)}
+                trackColor={{ false: "#EF444440", true: "#22C55E40" }}
+                thumbColor={serviceFeeEnabled ? "#22C55E" : "#EF4444"}
+                ios_backgroundColor="#EF444440"
+              />
+            </View>
+
+            {/* Close button */}
+            <TouchableOpacity
+              style={[
+                styles.serviceFeeCloseBtn,
+                { backgroundColor: theme.primary },
+              ]}
+              onPress={() => setShowServiceFeeInfo(false)}
+            >
+              <Text style={styles.serviceFeeCloseBtnText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -2314,6 +2529,67 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   passwordSubmitText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  // ── Service Fee Modal ────────────────────────────────────────────────────
+  serviceFeeModalContent: {
+    width: "100%",
+    maxWidth: 400,
+    borderRadius: 28,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  serviceFeeIconWrapper: {
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  serviceFeeDescription: {
+    fontSize: 14,
+    lineHeight: 22,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  serviceFeeToggleRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+  },
+  serviceFeeToggleLeft: {
+    gap: 2,
+  },
+  serviceFeeToggleTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  serviceFeeToggleStatus: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  serviceFeeCloseBtn: {
+    width: "100%",
+    height: 52,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  serviceFeeCloseBtnText: {
     color: "#FFF",
     fontSize: 16,
     fontWeight: "700",

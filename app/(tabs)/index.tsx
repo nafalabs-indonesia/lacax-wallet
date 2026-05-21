@@ -4,6 +4,7 @@ import {
   BlockchainService,
   ChainId,
 } from "@/services/blockchain/BlockchainService";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
@@ -41,6 +42,12 @@ import { Colors } from "../../theme/colors";
 
 const { width: W } = Dimensions.get("window");
 
+// Keys for AsyncStorage
+const STORAGE_KEYS = {
+  ENABLED_NETWORKS: "@wallet_enabled_networks",
+  ENABLED_ASSETS: "@wallet_enabled_assets",
+};
+
 // ─────────────────────────────────────────────
 // Helper: Detect Testnet
 // ─────────────────────────────────────────────
@@ -64,6 +71,12 @@ const LOCAL_ICON_MAP: Record<string, any> = {
   "bnb-mainnet": require("../../assets/chains/bnb.png"),
   "bnb-testnet": require("../../assets/chains/bnb.png"),
 
+  // New Chains
+  "arbitrum-mainnet": require("../../assets/chains/arbitrum.png"),
+  "arbitrum-sepolia": require("../../assets/chains/arbitrum.png"),
+  "monad-mainnet": require("../../assets/chains/monad.png"),
+  "monad-testnet": require("../../assets/chains/monad.png"),
+
   // Tokens
   USDT: require("../../assets/coins/usdt.png"),
   USDC: require("../../assets/coins/usdc.png"),
@@ -77,6 +90,12 @@ const NETWORK_BADGE_ICON: Record<string, any> = {
   "polygon-amoy": require("../../assets/chains/polygon.png"),
   "bnb-mainnet": require("../../assets/chains/bnb.png"),
   "bnb-testnet": require("../../assets/chains/bnb.png"),
+
+  // New Chains Badges
+  "arbitrum-mainnet": require("../../assets/chains/arbitrum.png"),
+  "arbitrum-sepolia": require("../../assets/chains/arbitrum.png"),
+  "monad-mainnet": require("../../assets/chains/monad.png"),
+  "monad-testnet": require("../../assets/chains/monad.png"),
 };
 
 // ─────────────────────────────────────────────
@@ -85,8 +104,18 @@ const NETWORK_BADGE_ICON: Record<string, any> = {
 const COINGECKO_IDS: Record<string, string> = {
   "ethereum-mainnet": "ethereum",
   "blockdag-mainnet": "blockdag",
-  "polygon-mainnet": "polygon-ecosystem-token", // Polygon native token price often tracked via MATIC or POL
+  "polygon-mainnet": "polygon-ecosystem-token",
   "bnb-mainnet": "binancecoin",
+  "arbitrum-mainnet": "arbitrum",
+  "monad-mainnet": "monad",
+
+  // Testnets usually don't have price, mapped to native for safety or ignored
+  "ethereum-sepolia": "ethereum",
+  "polygon-amoy": "polygon-ecosystem-token",
+  "bnb-testnet": "binancecoin",
+  "arbitrum-sepolia": "ethereum",
+  "monad-testnet": "monad",
+
   USDT: "tether",
   USDC: "usd-coin",
 };
@@ -124,8 +153,6 @@ interface BalanceSnapshot {
 
 // ─────────────────────────────────────────────
 // Helper: Format balance dengan presisi adaptif
-// Jika balance < 0.00001 tampilkan "< 0.00001"
-// Jika balance >= 0.00001 tampilkan 4 desimal
 // ─────────────────────────────────────────────
 const formatBalance = (balanceStr: string, symbol: string): string => {
   const val = parseFloat(balanceStr);
@@ -327,22 +354,27 @@ export default function HomeScreen() {
 
   // State for Modals
   const [showNetworkSheet, setShowNetworkSheet] = useState(false);
-  const [showAssetSheet, setShowAssetSheet] = useState(false); // New state for Asset Sheet
+  const [showAssetSheet, setShowAssetSheet] = useState(false);
   const [showTestnetAlert, setShowTestnetAlert] = useState(false);
 
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
 
-  // State untuk menyimpan history saldo (untuk kalkulasi PnL personal)
-  const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
-
-  // State for Enabled Networks
+  // State for Enabled Networks (Persisted)
+  // Default: Mainnet = true, Testnet = false
   const [enabledNetworks, setEnabledNetworks] = useState<
     Record<string, boolean>
   >(
-    SUPPORTED_CHAINS.reduce((acc, chain) => ({ ...acc, [chain.id]: true }), {}),
+    SUPPORTED_CHAINS.reduce(
+      (acc, chain) => {
+        acc[chain.id] = !isTestnet(chain.id);
+        return acc;
+      },
+      {} as Record<string, boolean>,
+    ),
   );
 
-  // State for Enabled Assets (by ID) - Default all true
+  // State for Enabled Assets (Persisted)
+  // Default: Empty (will be populated on load)
   const [enabledAssets, setEnabledAssets] = useState<Record<string, boolean>>(
     {},
   );
@@ -350,23 +382,68 @@ export default function HomeScreen() {
   // State for Network Search
   const [networkSearch, setNetworkSearch] = useState("");
 
-  const activeChainConfig =
-    SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
+  // Load Preferences from AsyncStorage
+  useEffect(() => {
+    const loadPreferences = async () => {
+      try {
+        const [savedNetworks, savedAssets] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEYS.ENABLED_NETWORKS),
+          AsyncStorage.getItem(STORAGE_KEYS.ENABLED_ASSETS),
+        ]);
+
+        if (savedNetworks) {
+          setEnabledNetworks(JSON.parse(savedNetworks));
+        }
+
+        if (savedAssets) {
+          setEnabledAssets(JSON.parse(savedAssets));
+        }
+      } catch (e) {
+        console.warn("Failed to load preferences", e);
+      }
+    };
+    loadPreferences();
+  }, []);
+
+  // Save Network Preferences when changed
+  useEffect(() => {
+    AsyncStorage.setItem(
+      STORAGE_KEYS.ENABLED_NETWORKS,
+      JSON.stringify(enabledNetworks),
+    );
+  }, [enabledNetworks]);
+
+  // Save Asset Preferences when changed
+  useEffect(() => {
+    AsyncStorage.setItem(
+      STORAGE_KEYS.ENABLED_ASSETS,
+      JSON.stringify(enabledAssets),
+    );
+  }, [enabledAssets]);
 
   // Initialize enabledAssets when displayAssets changes
+  // Logic: If asset is new, enable it ONLY if it's Native AND its Network is Enabled.
   useEffect(() => {
     if (displayAssets.length > 0) {
       setEnabledAssets((prev) => {
         const next = { ...prev };
+        let hasChanges = false;
+
         displayAssets.forEach((asset) => {
           if (next[asset.id] === undefined) {
-            next[asset.id] = true; // Default to visible
+            // Default logic: Enable only if Native AND Network is Enabled
+            const isNetworkEnabled = enabledNetworks[asset.chainId];
+            const shouldEnable = asset.isNative && isNetworkEnabled;
+
+            next[asset.id] = shouldEnable;
+            hasChanges = true;
           }
         });
-        return next;
+
+        return hasChanges ? next : prev;
       });
     }
-  }, [displayAssets]);
+  }, [displayAssets, enabledNetworks]);
 
   // ─── Hitung Total Balance Fiat (IDR) Kumulatif Semua Aset (mainnet only) ───
   const totalFiat = displayAssets.reduce((sum, asset) => {
@@ -380,8 +457,6 @@ export default function HomeScreen() {
   }, 0);
 
   // ─── Kalkulasi % Perubahan Kumulatif Berdasarkan Market change24h ───
-  // Bobot tiap aset = nilai fiat-nya, perubahan = change24h masing-masing aset
-  // Hasil: persentase perubahan portfolio secara kumulatif (weighted average)
   const { portfolioChangePercent, totalFiatChange } = (() => {
     let weightedChangeSum = 0;
     let totalWeight = 0;
@@ -402,7 +477,6 @@ export default function HomeScreen() {
     });
 
     const pct = totalWeight > 0 ? weightedChangeSum / totalWeight : 0;
-    // Hitung perubahan absolut IDR dari persentase tertimbang
     const absChange = totalFiat * (pct / 100);
 
     return { portfolioChangePercent: pct, totalFiatChange: absChange };
@@ -463,7 +537,6 @@ export default function HomeScreen() {
     if (!walletAddress) return;
     setIsLoading(true);
 
-    // Reset provider cache agar tidak pakai koneksi lama yang stale/rusak
     BlockchainService.resetProviders();
 
     const newAssets: DisplayAsset[] = [];
@@ -471,11 +544,7 @@ export default function HomeScreen() {
     try {
       await Promise.all(
         SUPPORTED_CHAINS.map(async (chain) => {
-          // Skip chain yang RPC-nya tidak tersedia
           if (chain.disabled) {
-            console.log(
-              `⏭️ [${chain.id}] dilewati: ${chain.disabledReason ?? "disabled"}`,
-            );
             return;
           }
 
@@ -485,9 +554,6 @@ export default function HomeScreen() {
             nativeBal = await BlockchainService.getBalance(
               chain.id as ChainId,
               walletAddress,
-            );
-            console.log(
-              `✅ [${chain.id}] native: ${nativeBal} ${chain.symbol}`,
             );
           } catch (e: any) {
             console.error(`❌ [${chain.id}] native FAILED: ${e?.message ?? e}`);
@@ -514,7 +580,6 @@ export default function HomeScreen() {
                     token.address,
                     token.decimals,
                   );
-                  console.log(`✅ [${chain.id}] ${token.symbol}: ${tokenBal}`);
                 } catch (e: any) {
                   console.error(
                     `❌ [${chain.id}] ${token.symbol} FAILED: ${e?.message ?? e}`,
@@ -565,10 +630,17 @@ export default function HomeScreen() {
   };
 
   const toggleNetwork = (chainId: string) => {
-    setEnabledNetworks((prev) => ({
-      ...prev,
-      [chainId]: !prev[chainId],
-    }));
+    setEnabledNetworks((prev) => {
+      const newState = {
+        ...prev,
+        [chainId]: !prev[chainId],
+      };
+
+      // Optional: If disabling a network, you might want to disable all its assets too?
+      // For now, we keep asset state independent, but they won't show if network is off.
+
+      return newState;
+    });
   };
 
   const toggleAssetVisibility = (assetId: string) => {
@@ -606,9 +678,9 @@ export default function HomeScreen() {
     );
   }
 
-  // Filter assets for display based on enabled state
+  // Filter assets for display based on enabled state AND network state
   const visibleAssets = displayAssets.filter(
-    (asset) => enabledAssets[asset.id],
+    (asset) => enabledAssets[asset.id] && enabledNetworks[asset.chainId],
   );
 
   // Sort assets: Highest Fiat Value first
@@ -616,21 +688,18 @@ export default function HomeScreen() {
     const isTestA = isTestnet(a.chainId);
     const isTestB = isTestnet(b.chainId);
 
-    // Calculate Fiat Value for A
     const priceKeyA = a.isNative ? a.chainId : a.symbol;
     const priceDataA = prices[priceKeyA];
     const valueA = isTestA
       ? 0
       : parseFloat(a.balance || "0") * (priceDataA?.idr || 0);
 
-    // Calculate Fiat Value for B
     const priceKeyB = b.isNative ? b.chainId : b.symbol;
     const priceDataB = prices[priceKeyB];
     const valueB = isTestB
       ? 0
       : parseFloat(b.balance || "0") * (priceDataB?.idr || 0);
 
-    // Sort descending (Highest first)
     return valueB - valueA;
   });
 
@@ -669,7 +738,6 @@ export default function HomeScreen() {
             imageStyle={{ borderRadius: 24 }}
           >
             <View style={styles.cardContent}>
-              {/* Header: Address & Toggle Eye */}
               <View style={styles.cardHeaderRow}>
                 <WalletAddressBar address={walletAddress} />
                 <TouchableOpacity
@@ -684,7 +752,6 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               </View>
 
-              {/* Center block: Balance + change */}
               <View style={styles.balanceCenterBlock}>
                 <Text style={styles.balanceAmount}>
                   {isLoading && !refreshing
@@ -816,7 +883,6 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* ── Skeleton Loading atau Asset List ── */}
             {isLoading && !refreshing ? (
               Array.from({ length: SKELETON_COUNT }).map((_, i) => (
                 <SkeletonAssetRow
@@ -827,17 +893,11 @@ export default function HomeScreen() {
             ) : (
               <>
                 {sortedVisibleAssets.map((asset) => {
-                  // Additional check: if network is disabled, don't show even if asset is enabled
-                  if (!enabledNetworks[asset.chainId]) return null;
-
                   const bal = parseFloat(asset.balance);
 
-                  // Untuk testnet: sembunyikan jika saldo benar-benar 0
-                  // Jika ada saldo (walau sangat kecil), tetap tampilkan
+                  // For testnet: hide if balance is 0
                   if (isTestnet(asset.chainId) && bal === 0) return null;
 
-                  // Untuk mainnet: sembunyikan jika saldo 0 dan tidak punya harga
-                  // (aset seperti USDT/USDC yang 0 tetap muncul karena punya harga)
                   const priceKey = asset.isNative
                     ? asset.chainId
                     : asset.symbol;
@@ -845,7 +905,7 @@ export default function HomeScreen() {
                   const isTest = isTestnet(asset.chainId);
                   const displayPriceData = isTest ? null : priceData;
 
-                  // Sembunyikan aset mainnet yang saldo 0 dan tidak ada harga market
+                  // Hide mainnet assets with 0 balance and no market price
                   if (!isTest && bal === 0 && !displayPriceData) return null;
 
                   const assetFiatVal = isTest
@@ -934,14 +994,11 @@ export default function HomeScreen() {
                   );
                 })}
 
-                {sortedVisibleAssets.filter(
-                  (a) =>
-                    enabledNetworks[a.chainId] &&
-                    !(isTestnet(a.chainId) && parseFloat(a.balance) === 0),
-                ).length === 0 && (
+                {sortedVisibleAssets.length === 0 && (
                   <View style={{ alignItems: "center", marginTop: 40 }}>
                     <Text style={{ color: theme.textSecondary }}>
-                      No assets found.
+                      No assets visible. Try enabling more networks or assets in
+                      Manage.
                     </Text>
                   </View>
                 )}
@@ -985,7 +1042,7 @@ export default function HomeScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ── Asset Management Bottom Sheet (NEW) ── */}
+      {/* ── Asset Management Bottom Sheet ── */}
       <Modal
         visible={showAssetSheet}
         transparent
@@ -1015,6 +1072,11 @@ export default function HomeScreen() {
               ) : (
                 displayAssets.map((asset) => {
                   const isEnabled = enabledAssets[asset.id];
+                  const isNetworkEnabled = enabledNetworks[asset.chainId];
+
+                  // Disable switch if network is disabled
+                  const isSwitchDisabled = !isNetworkEnabled;
+
                   return (
                     <View key={asset.id} style={styles.networkRow}>
                       <View style={styles.networkRowLeft}>
@@ -1038,11 +1100,17 @@ export default function HomeScreen() {
                             {asset.symbol} •{" "}
                             {asset.chainId.replace("-mainnet", "")}
                           </Text>
+                          {!isNetworkEnabled && (
+                            <Text style={{ color: "#ff9500", fontSize: 10 }}>
+                              Network Disabled
+                            </Text>
+                          )}
                         </View>
                       </View>
 
                       <Switch
                         value={isEnabled}
+                        disabled={isSwitchDisabled}
                         onValueChange={() => toggleAssetVisibility(asset.id)}
                         trackColor={{
                           false: "#767577",
@@ -1087,7 +1155,6 @@ export default function HomeScreen() {
               Network Settings
             </Text>
 
-            {/* Search Network Input */}
             <View style={styles.searchContainer}>
               <Search
                 size={18}

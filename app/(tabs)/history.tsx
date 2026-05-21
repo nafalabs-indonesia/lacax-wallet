@@ -48,6 +48,10 @@ const CHAIN_ICONS: Record<number, any> = {
   1404: require("../../assets/chains/bdag.png"),
   1043: require("../../assets/chains/bdag.png"),
   80002: require("../../assets/chains/polygon.png"),
+  42161: require("../../assets/chains/arbitrum.png"),
+  421614: require("../../assets/chains/arbitrum.png"),
+  143: require("../../assets/chains/monad.png"),
+  10143: require("../../assets/chains/monad.png"),
 };
 
 // ────────────────────────────────────────────
@@ -85,7 +89,11 @@ const getRelativeDate = (ts: number) => {
 
   // Reset time parts for accurate date comparison
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const transactionDay = new Date(txDate.getFullYear(), txDate.getMonth(), txDate.getDate());
+  const transactionDay = new Date(
+    txDate.getFullYear(),
+    txDate.getMonth(),
+    txDate.getDate(),
+  );
 
   const diffTime = today.getTime() - transactionDay.getTime();
   const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24));
@@ -97,13 +105,15 @@ const getRelativeDate = (ts: number) => {
   return txDate.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
-    year: "numeric"
+    year: "numeric",
   });
 };
 
 const formatTime = (ts: number) =>
   new Date(ts * 1000).toLocaleTimeString("en-US", {
-    hour: "2-digit", minute: "2-digit", hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
 
 const truncate = (str: string, s = 6, e = 4) =>
@@ -124,9 +134,9 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
   let isIncoming = false;
 
   // Cek tipe transaksi terlebih dahulu jika ada field 'type'
-  if (tx.type === 'receive') {
+  if (tx.type === "receive") {
     isIncoming = true;
-  } else if (tx.type === 'send') {
+  } else if (tx.type === "send") {
     isIncoming = false;
   } else {
     // Jika type swap atau tidak jelas, cek tanda + / - di string value
@@ -134,19 +144,19 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
     // Untuk sekarang kita asumsikan: jika ada '+' di string, maka incoming.
     // Jika tidak ada tanda, kita lihat tipenya atau default ke outgoing jika ragu.
     const rawVal = tx.value.trim();
-    if (rawVal.startsWith('+')) {
+    if (rawVal.startsWith("+")) {
       isIncoming = true;
-    } else if (rawVal.startsWith('-')) {
+    } else if (rawVal.startsWith("-")) {
       isIncoming = false;
     } else {
       // Fallback: Jika tidak ada tanda, dan typenya 'swap', biasanya swap out (-) atau in (+) tergantung konteks.
-      // Namun, berdasarkan gambar, Received selalu hijau. 
+      // Namun, berdasarkan gambar, Received selalu hijau.
       // Kita paksa logic: Jika type 'receive' pasti hijau. Jika 'send' pasti oranye.
       // Jika 'swap', kita biarkan mengikuti tanda jika ada, atau default ke oranye (out) jika tidak ada tanda minus.
-      if (tx.type === 'swap') {
-        // Opsional: Logic swap bisa kompleks. 
+      if (tx.type === "swap") {
+        // Opsional: Logic swap bisa kompleks.
         // Untuk keamanan visual sesuai gambar, kita cek tanda saja.
-        // Jika tidak ada tanda, anggap sebagai pengeluaran (outgoing) agar aman, 
+        // Jika tidak ada tanda, anggap sebagai pengeluaran (outgoing) agar aman,
         // ATAU tambahkan logic khusus jika backend mengirim data swap secara spesifik.
         isIncoming = false;
       }
@@ -155,12 +165,12 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
 
   // Pastikan string value memiliki tanda + atau - untuk ditampilkan
   // Hapus tanda lama jika ada, lalu tambahkan yang baru sesuai status
-  const cleanValue = displayValue.replace(/^[-+]/, '').trim();
+  const cleanValue = displayValue.replace(/^[-+]/, "").trim();
 
   // Logika Parsing untuk Memisahkan Angka dan Simbol Token
   // Asumsi format input: "0.0820 SepoliaETH" atau "100 USDT" (tanpa tanda +/- di cleanValue)
   // Kita cari spasi pertama untuk memisahkan amount dan symbol
-  const spaceIndex = cleanValue.indexOf(' ');
+  const spaceIndex = cleanValue.indexOf(" ");
   let amountPart = cleanValue;
   let symbolPart = "";
 
@@ -168,7 +178,7 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
     amountPart = cleanValue.substring(0, spaceIndex);
     symbolPart = cleanValue.substring(spaceIndex + 1);
   } else {
-    // Jika tidak ada spasi, coba ambil symbol dari tx.symbol jika tersedia, 
+    // Jika tidak ada spasi, coba ambil symbol dari tx.symbol jika tersedia,
     // atau biarkan kosong jika semua adalah amount
     // Namun biasanya value string sudah lengkap.
     symbolPart = tx.symbol || "";
@@ -202,13 +212,13 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
   let IconComponent = ArrowDownLeft;
   let BadgeComponent: React.ElementType | null = null;
 
-  if (tx.type === 'send') {
+  if (tx.type === "send") {
     IconComponent = ArrowUpRight;
     BadgeComponent = ArrowUpRight; // Badge arrow upright
-  } else if (tx.type === 'swap') {
+  } else if (tx.type === "swap") {
     IconComponent = Repeat;
     BadgeComponent = null; // Will be handled by chain icon below
-  } else if (tx.type === 'receive') {
+  } else if (tx.type === "receive") {
     IconComponent = ArrowDownLeft;
     BadgeComponent = ArrowDownLeft; // Badge arrow left down
   }
@@ -216,10 +226,10 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
   let title = "Transaction";
   let subtitle = "";
 
-  if (tx.type === 'swap') {
+  if (tx.type === "swap") {
     title = "Swapped";
     subtitle = tx.chainName ? shortChainName(tx.chainName) : "Uniswap";
-  } else if (tx.type === 'send') {
+  } else if (tx.type === "send") {
     title = "Sent";
     subtitle = `To ${truncate(tx.to)}`;
   } else {
@@ -230,7 +240,7 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
   // Determine Badge Content
   // If Swap, show network icon. If Send/Receive, show direction arrow.
   let BadgeContent = null;
-  if (tx.type === 'swap') {
+  if (tx.type === "swap") {
     if (tx.chainId && CHAIN_ICONS[tx.chainId]) {
       BadgeContent = (
         <Image
@@ -241,7 +251,9 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
       );
     }
   } else if (BadgeComponent) {
-    BadgeContent = <BadgeComponent size={8} color={theme.text} strokeWidth={3} />;
+    BadgeContent = (
+      <BadgeComponent size={8} color={theme.text} strokeWidth={3} />
+    );
   }
 
   return (
@@ -262,7 +274,12 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
 
         {/* Badge Circle Bottom Right */}
         {BadgeContent && (
-          <View style={[styles.badgeContainer, { backgroundColor: theme.card, borderColor: theme.text }]}>
+          <View
+            style={[
+              styles.badgeContainer,
+              { backgroundColor: theme.card, borderColor: theme.text },
+            ]}
+          >
             {BadgeContent}
           </View>
         )}
@@ -270,9 +287,7 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
 
       {/* Middle Content */}
       <View style={styles.contentContainer}>
-        <Text style={[styles.txTitle, { color: theme.text }]}>
-          {title}
-        </Text>
+        <Text style={[styles.txTitle, { color: theme.text }]}>{title}</Text>
         <Text style={[styles.txSubtitle, { color: theme.textSecondary }]}>
           {subtitle}
         </Text>
@@ -280,7 +295,13 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
 
       {/* Right Value - Modified to show Amount and Symbol side-by-side */}
       <View style={styles.valueContainer}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "flex-end",
+          }}
+        >
           <Text
             style={[styles.txValue, { color: valueTextColor }]}
             numberOfLines={1}
@@ -292,7 +313,8 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
               style={[styles.txSymbol, { color: valueTextColor }]}
               numberOfLines={1}
             >
-              {" "}{symbolPart}
+              {" "}
+              {symbolPart}
             </Text>
           ) : null}
         </View>
@@ -308,8 +330,8 @@ export default function HistoryScreen() {
   const { walletAddress, isDarkMode } = useAppStore();
   // Merge theme colors with a flag for easy access in components
   const theme = {
-    ...isDarkMode ? Colors.dark : Colors.light,
-    isDarkMode: isDarkMode
+    ...(isDarkMode ? Colors.dark : Colors.light),
+    isDarkMode: isDarkMode,
   };
 
   const [transactions, setTransactions] = useState<DisplayTransaction[]>([]);
@@ -319,7 +341,7 @@ export default function HistoryScreen() {
   const [isLoading, setIsLoading] = useState(false);
 
   const slideAnim = useRef(
-    new Animated.Value(Dimensions.get("window").height)
+    new Animated.Value(Dimensions.get("window").height),
   ).current;
 
   // ── Fetch ────────────────────────────────
@@ -366,14 +388,22 @@ export default function HistoryScreen() {
     }
   }, [walletAddress, selectedChain]);
 
-  useFocusEffect(useCallback(() => { fetchHistory(); }, [fetchHistory]));
-  useEffect(() => { setFilteredTx(transactions); }, [transactions]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchHistory();
+    }, [fetchHistory]),
+  );
+  useEffect(() => {
+    setFilteredTx(transactions);
+  }, [transactions]);
 
   // ── Modal ──────────────────────────────────
   const openModal = () => {
     setIsModalVisible(true);
     Animated.spring(slideAnim, {
-      toValue: 0, useNativeDriver: true, bounciness: 4,
+      toValue: 0,
+      useNativeDriver: true,
+      bounciness: 4,
     }).start();
   };
 
@@ -391,11 +421,14 @@ export default function HistoryScreen() {
   };
 
   // ── Group by date ──────────────────────────
-  const grouped = filteredTx.reduce((acc, tx) => {
-    const key = tx.displayDate ?? "Unknown";
-    (acc[key] = acc[key] ?? []).push(tx);
-    return acc;
-  }, {} as Record<string, DisplayTransaction[]>);
+  const grouped = filteredTx.reduce(
+    (acc, tx) => {
+      const key = tx.displayDate ?? "Unknown";
+      (acc[key] = acc[key] ?? []).push(tx);
+      return acc;
+    },
+    {} as Record<string, DisplayTransaction[]>,
+  );
 
   // ────────────────────────────────────────────
   return (
@@ -413,7 +446,10 @@ export default function HistoryScreen() {
         <View style={styles.toolbar}>
           {/* Chain picker pill */}
           <TouchableOpacity
-            style={[styles.pill, { backgroundColor: theme.card, borderColor: theme.border }]}
+            style={[
+              styles.pill,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}
             onPress={openModal}
             activeOpacity={0.75}
           >
@@ -421,7 +457,9 @@ export default function HistoryScreen() {
               <>
                 <Image
                   source={
-                    CHAIN_ICONS[selectedChain.chainId] ?? { uri: selectedChain.icon }
+                    CHAIN_ICONS[selectedChain.chainId] ?? {
+                      uri: selectedChain.icon,
+                    }
                   }
                   style={styles.pillIcon}
                   resizeMode="contain"
@@ -431,21 +469,27 @@ export default function HistoryScreen() {
                 </Text>
               </>
             ) : (
-              <Text style={[styles.pillLabel, { color: theme.text }]}>All Chains</Text>
+              <Text style={[styles.pillLabel, { color: theme.text }]}>
+                All Chains
+              </Text>
             )}
             <ChevronDown size={14} color={theme.textSecondary} />
           </TouchableOpacity>
 
           {/* Refresh */}
           <TouchableOpacity
-            style={[styles.iconBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+            style={[
+              styles.iconBtn,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}
             onPress={fetchHistory}
             activeOpacity={0.75}
           >
-            {isLoading
-              ? <ActivityIndicator size="small" color={theme.text} />
-              : <RefreshCw size={15} color={theme.text} strokeWidth={2.2} />
-            }
+            {isLoading ? (
+              <ActivityIndicator size="small" color={theme.text} />
+            ) : (
+              <RefreshCw size={15} color={theme.text} strokeWidth={2.2} />
+            )}
           </TouchableOpacity>
         </View>
 
@@ -475,15 +519,27 @@ export default function HistoryScreen() {
           <View style={{ gap: 24 }}>
             {Object.entries(grouped).map(([date, txs]) => (
               <View key={date}>
-                <Text style={[styles.dateLabel, { color: theme.textSecondary }]}>
+                <Text
+                  style={[styles.dateLabel, { color: theme.textSecondary }]}
+                >
                   {date}
                 </Text>
-                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View
+                  style={[
+                    styles.card,
+                    { backgroundColor: theme.card, borderColor: theme.border },
+                  ]}
+                >
                   {txs.map((tx, i) => (
                     <React.Fragment key={tx.hash + i}>
                       <TxRow tx={tx} theme={theme} />
                       {i < txs.length - 1 && (
-                        <View style={[styles.sep, { backgroundColor: theme.border }]} />
+                        <View
+                          style={[
+                            styles.sep,
+                            { backgroundColor: theme.border },
+                          ]}
+                        />
                       )}
                     </React.Fragment>
                   ))}
@@ -508,11 +564,16 @@ export default function HistoryScreen() {
             <Animated.View
               style={[
                 styles.sheet,
-                { backgroundColor: theme.card, transform: [{ translateY: slideAnim }] },
+                {
+                  backgroundColor: theme.card,
+                  transform: [{ translateY: slideAnim }],
+                },
               ]}
             >
               {/* Sheet header */}
-              <View style={[styles.sheetHead, { borderBottomColor: theme.border }]}>
+              <View
+                style={[styles.sheetHead, { borderBottomColor: theme.border }]}
+              >
                 <Text style={[styles.sheetTitle, { color: theme.text }]}>
                   Filter by Chain
                 </Text>
@@ -525,7 +586,7 @@ export default function HistoryScreen() {
                 {/* All chains option */}
                 <ChainRow
                   label="All Chains"
-                  subLabel={`${SUPPORTED_CHAINS.filter(c => !c.disabled).length} networks`}
+                  subLabel={`${SUPPORTED_CHAINS.filter((c) => !c.disabled).length} networks`}
                   isSelected={!selectedChain}
                   onPress={() => selectChain(null)}
                   theme={theme}
@@ -559,7 +620,12 @@ export default function HistoryScreen() {
 // ChainRow helper
 // ─────────────────────────────────────────────
 function ChainRow({
-  label, subLabel, icon, isSelected, onPress, theme,
+  label,
+  subLabel,
+  icon,
+  isSelected,
+  onPress,
+  theme,
 }: {
   label: string;
   subLabel?: string;
@@ -579,18 +645,32 @@ function ChainRow({
       activeOpacity={0.7}
     >
       {/* Icon */}
-      <View style={[styles.chainIconWrap, { backgroundColor: theme.background }]}>
-        {icon
-          ? <Image source={icon} style={styles.chainIconMd} resizeMode="contain" />
-          : <View style={[styles.chainIconMd, { borderRadius: 12, backgroundColor: theme.border }]} />
-        }
+      <View
+        style={[styles.chainIconWrap, { backgroundColor: theme.background }]}
+      >
+        {icon ? (
+          <Image
+            source={icon}
+            style={styles.chainIconMd}
+            resizeMode="contain"
+          />
+        ) : (
+          <View
+            style={[
+              styles.chainIconMd,
+              { borderRadius: 12, backgroundColor: theme.border },
+            ]}
+          />
+        )}
       </View>
 
       {/* Labels */}
       <View style={{ flex: 1 }}>
         <Text style={[styles.chainLabel, { color: theme.text }]}>{label}</Text>
         {subLabel && (
-          <Text style={[styles.chainSub, { color: theme.textSecondary }]}>{subLabel}</Text>
+          <Text style={[styles.chainSub, { color: theme.textSecondary }]}>
+            {subLabel}
+          </Text>
         )}
       </View>
 
@@ -629,7 +709,8 @@ const styles = StyleSheet.create({
   pillLabel: { fontSize: 14, fontWeight: "600" },
 
   iconBtn: {
-    width: 36, height: 36,
+    width: 36,
+    height: 36,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
@@ -669,7 +750,7 @@ const styles = StyleSheet.create({
 
   // Wrapper for Icon + Badge
   iconWrapper: {
-    position: 'relative',
+    position: "relative",
     width: 44,
     height: 44,
   },
@@ -687,18 +768,19 @@ const styles = StyleSheet.create({
   chainIconInside: {
     width: 50,
     height: 50,
+    overflow: "hidden",
   },
 
   // Badge Style
   badgeContainer: {
-    position: 'absolute',
+    position: "absolute",
     right: -2,
     bottom: -2,
     width: 16,
     height: 16,
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     zIndex: 10,
   },
@@ -756,7 +838,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyCircle: {
-    width: 60, height: 60,
+    width: 60,
+    height: 60,
     borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
@@ -796,7 +879,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   chainIconWrap: {
-    width: 36, height: 36,
+    width: 36,
+    height: 36,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",

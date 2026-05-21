@@ -41,6 +41,10 @@ const CHAIN_LOGO_MAP: Record<string, any> = {
   "polygon-amoy": require("../assets/chains/polygon.png"),
   "bnb-mainnet": require("../assets/chains/bnb.png"),
   "bnb-testnet": require("../assets/chains/bnb.png"),
+  "arbitrum-mainnet": require("../assets/chains/arbitrum.png"),
+  "arbitrum-sepolia": require("../assets/chains/arbitrum.png"),
+  "monad-mainnet": require("../assets/chains/monad.png"),
+  "monad-testnet": require("../assets/chains/monad.png"),
 };
 
 // Definisi Token per Chain
@@ -85,22 +89,12 @@ const TOKEN_CONFIG: Record<string, any[]> = {
       name: "BlockDAG",
       logo: require("../assets/chains/bdag.png"),
     },
-    {
-      symbol: "USDT",
-      name: "Tether USD",
-      logo: require("../assets/coins/usdt.png"),
-    },
   ],
   "blockdag-testnet": [
     {
       symbol: "BDAG",
       name: "BlockDAG Test",
       logo: require("../assets/chains/bdag.png"),
-    },
-    {
-      symbol: "USDT",
-      name: "Test USDT",
-      logo: require("../assets/coins/usdt.png"),
     },
   ],
   "polygon-mainnet": [
@@ -126,16 +120,6 @@ const TOKEN_CONFIG: Record<string, any[]> = {
       name: "Polygon Amoy",
       logo: require("../assets/chains/polygon.png"),
     },
-    {
-      symbol: "USDT",
-      name: "Test USDT",
-      logo: require("../assets/coins/usdt.png"),
-    },
-    {
-      symbol: "USDC",
-      name: "Test USDC",
-      logo: require("../assets/coins/usdc.png"),
-    },
   ],
   "bnb-mainnet": [
     {
@@ -148,11 +132,6 @@ const TOKEN_CONFIG: Record<string, any[]> = {
       name: "Tether USD",
       logo: require("../assets/coins/usdt.png"),
     },
-    {
-      symbol: "USDC",
-      name: "USD Coin",
-      logo: require("../assets/coins/usdc.png"),
-    },
   ],
   "bnb-testnet": [
     {
@@ -160,15 +139,33 @@ const TOKEN_CONFIG: Record<string, any[]> = {
       name: "BNB Testnet",
       logo: require("../assets/chains/bnb.png"),
     },
+  ],
+  "arbitrum-mainnet": [
     {
-      symbol: "USDT",
-      name: "Test USDT",
-      logo: require("../assets/coins/usdt.png"),
+      symbol: "ARB",
+      name: "Arbitrum",
+      logo: require("../assets/chains/arbitrum.png"),
     },
+  ],
+  "arbitrum-sepolia": [
     {
-      symbol: "USDC",
-      name: "Test USDC",
-      logo: require("../assets/coins/usdc.png"),
+      symbol: "ETH",
+      name: "Arbitrum Sepolia",
+      logo: require("../assets/chains/arbitrum.png"),
+    },
+  ],
+  "monad-mainnet": [
+    {
+      symbol: "MON",
+      name: "Monad",
+      logo: require("../assets/chains/monad.png"),
+    },
+  ],
+  "monad-testnet": [
+    {
+      symbol: "MON",
+      name: "Monad Testnet",
+      logo: require("../assets/chains/monad.png"),
     },
   ],
 };

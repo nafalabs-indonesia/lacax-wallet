@@ -4,7 +4,7 @@ import {
   BlockchainService,
   ChainId,
 } from "@/services/blockchain/BlockchainService";
-import { ZeroExService } from "@/services/swap/ZeroExService";
+import { ZEROEX_API_KEY } from "@env";
 import { ethers } from "ethers";
 import { router, useLocalSearchParams } from "expo-router";
 import {
@@ -12,6 +12,7 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
+  Info,
   SlidersHorizontal,
   X,
 } from "lucide-react-native";
@@ -36,18 +37,55 @@ import { Colors } from "../theme/colors";
 
 const { width } = Dimensions.get("window");
 
+// ─────────────────────────────────────────────
+// Configuration & Constants
+// ─────────────────────────────────────────────
+
+// Wallet penerima fee affiliate
+const AFFILIATE_FEE_RECIPIENT = "0x70d96B6463533741669cd6fC871a7761e88c50c8";
+// Default fee dalam Basis Points (100 bps = 1%)
+const DEFAULT_AFFILIATE_FEE_BPS = 100;
+
+// Mapping Chain ID integer untuk 0x API
+const CHAIN_ID_MAP: Record<string, number> = {
+  "ethereum-mainnet": 1,
+  "polygon-mainnet": 137,
+  "bnb-mainnet": 56,
+  "arbitrum-mainnet": 42161,
+  "base-mainnet": 8453,
+  "optimism-mainnet": 10,
+  "avalanche-mainnet": 43114,
+
+  // Testnets (Tidak didukung 0x Production API, tapi kita map untuk UI)
+  "ethereum-sepolia": 11155111,
+  "polygon-amoy": 80002,
+  "arbitrum-sepolia": 421614,
+};
+
 // Mapping Icon Lokal untuk Token
 const TOKEN_ICON_MAP: Record<string, any> = {
   ETH: require("../assets/chains/eth.png"),
   USDT: require("../assets/coins/usdt.png"),
   USDC: require("../assets/coins/usdc.png"),
   BDAG: require("../assets/chains/bdag.png"),
+  POL: require("../assets/chains/polygon.png"),
+  BNB: require("../assets/chains/bnb.png"),
+  WETH: require("../assets/chains/eth.png"),
+  ARB: require("../assets/chains/arbitrum.png"),
 };
 
-// Mapping Icon Lokal untuk Network (Digunakan di Sheet)
+// Mapping Icon Lokal untuk Network
 const NETWORK_ICON_MAP: Record<string, any> = {
   "ethereum-mainnet": require("../assets/chains/eth.png"),
+  "ethereum-sepolia": require("../assets/chains/eth-sepolia.png"),
+  "polygon-mainnet": require("../assets/chains/polygon.png"),
+  "polygon-amoy": require("../assets/chains/polygon.png"),
+  "bnb-mainnet": require("../assets/chains/bnb.png"),
+  "bnb-testnet": require("../assets/chains/bnb.png"),
   "blockdag-mainnet": require("../assets/chains/bdag.png"),
+  "blockdag-testnet": require("../assets/chains/bdag.png"),
+  "arbitrum-mainnet": require("../assets/chains/arbitrum.png"),
+  "arbitrum-sepolia": require("../assets/chains/arbitrum.png"),
 };
 
 // Helper: Get harga USD dari CoinGecko
@@ -64,19 +102,18 @@ const fetchCoinPrice = async (coinId: string): Promise<number> => {
   }
 };
 
-// ✅ Helper: Get Kurs USD to IDR Realtime
+// Helper: Get Kurs USD to IDR Realtime
 const fetchUsdToIdrRate = async (): Promise<number> => {
   try {
-    // Menggunakan API open exchange rates yang gratis dan publik
     const response = await fetch("https://open.er-api.com/v6/latest/USD");
     const data = await response.json();
     if (data && data.rates && data.rates.IDR) {
       return data.rates.IDR;
     }
-    return 15000; // Fallback jika gagal
+    return 15000;
   } catch (error) {
     console.warn("Failed to fetch USD to IDR rate", error);
-    return 15000; // Fallback
+    return 15000;
   }
 };
 
@@ -84,26 +121,34 @@ const fetchUsdToIdrRate = async (): Promise<number> => {
 interface SwapToken {
   symbol: string;
   name: string;
-  address: string; // Contract Address (Native is '0xeeee...')
+  address: string;
   decimals: number;
   balance: string;
-  price: number; // USD Price
+  price: number;
   coingeckoId: string | null;
 }
 
-// Map chainId ke chainId integer untuk 0x API
-const CHAIN_ID_MAP: Record<string, number> = {
-  "ethereum-mainnet": 1,
-  "ethereum-sepolia": 11155111,
+// Map Symbol ke Coingecko ID
+const getCoingeckoId = (symbol: string): string | null => {
+  const s = symbol.toUpperCase().trim();
+  if (s === "ETH" || s === "WETH") return "ethereum";
+  if (s === "USDT") return "tether";
+  if (s === "USDC") return "usd-coin";
+  if (s === "BDAG") return "blockdag";
+  if (s === "POL" || s === "MATIC") return "polygon-ecosystem-token";
+  if (s === "BNB") return "binancecoin";
+  return null;
 };
 
 export default function SwapScreen() {
-  // ✅ Ambil mnemonic dari store (privateKey dihapus)
   const { walletAddress, isDarkMode, mnemonic } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
   const params = useLocalSearchParams();
-  const initialChainId = (params.chainId as string) || "ethereum-mainnet";
+  // Trim chainId dari params untuk menghindari spasi
+  const initialChainId = (
+    (params.chainId as string) || "ethereum-mainnet"
+  ).trim();
 
   // State
   const [selectedChainId, setSelectedChainId] = useState<ChainId>(
@@ -128,48 +173,43 @@ export default function SwapScreen() {
 
   // Settings
   const [slippage, setSlippage] = useState("0.5");
+  const [affiliateFeeBps, setAffiliateFeeBps] = useState(
+    DEFAULT_AFFILIATE_FEE_BPS.toString(),
+  );
 
-  // ✅ State untuk balance ERC-20 di token list sheet
+  // State untuk balance ERC-20 di token list sheet
   const [tokenBalances, setTokenBalances] = useState<Record<string, string>>(
     {},
   );
 
-  // ✅ State untuk Kurs USD ke IDR
+  // State untuk Kurs USD ke IDR
   const [usdToIdrRate, setUsdToIdrRate] = useState<number>(15000);
 
   // Helper: Get Config for Current Chain
   const currentChainConfig = SUPPORTED_CHAINS.find(
-    (c) => c.id === selectedChainId,
+    (c) => c.id.trim() === selectedChainId.trim(),
   );
 
   // Filter Mainnet Chains Only for Network Sheet
-  const mainnetChains = SUPPORTED_CHAINS.filter(
-    (chain) =>
-      chain.type === "evm" &&
-      !chain.id.toLowerCase().includes("testnet") &&
-      !chain.id.toLowerCase().includes("sepolia"),
-  );
-
-  // Helper to map Symbol to Coingecko ID
-  const getCoingeckoId = (symbol: string, chainId: string): string | null => {
-    const s = symbol.toUpperCase();
-    if (s === "ETH") return "ethereum";
-    if (s === "USDT") return "tether";
-    if (s === "USDC") return "usd-coin";
-    if (s === "BDAG") return "blockdag";
-    return null;
-  };
+  const mainnetChains = SUPPORTED_CHAINS.filter((chain) => {
+    const isTestnet =
+      chain.id.toLowerCase().includes("testnet") ||
+      chain.id.toLowerCase().includes("sepolia");
+    const isSupportedBy0x = CHAIN_ID_MAP[chain.id.trim()] !== undefined;
+    // Hanya tampilkan chain yang ada di mapping 0x untuk fitur swap
+    return !isTestnet && isSupportedBy0x;
+  });
 
   // Initialize Tokens when Chain Changes
   useEffect(() => {
     if (!currentChainConfig) return;
 
-    const nativeSymbol = currentChainConfig.symbol;
+    const nativeSymbol = currentChainConfig.symbol.trim();
     const tokens = currentChainConfig.tokens || [];
 
     let defaultToTokenConfig: TokenConfig | undefined =
-      tokens.find((t) => t.symbol === "USDT") ||
-      tokens.find((t) => t.symbol === "USDC") ||
+      tokens.find((t) => t.symbol.trim() === "USDT") ||
+      tokens.find((t) => t.symbol.trim() === "USDC") ||
       tokens[0];
 
     const initFrom: SwapToken = {
@@ -179,22 +219,19 @@ export default function SwapScreen() {
       decimals: currentChainConfig.decimals,
       balance: "0",
       price: 0,
-      coingeckoId: getCoingeckoId(nativeSymbol, selectedChainId),
+      coingeckoId: getCoingeckoId(nativeSymbol),
     };
 
     const initTo: SwapToken = defaultToTokenConfig
       ? {
-        symbol: defaultToTokenConfig.symbol,
-        name: defaultToTokenConfig.name,
-        address: defaultToTokenConfig.address,
-        decimals: defaultToTokenConfig.decimals,
-        balance: "0",
-        price: 0,
-        coingeckoId: getCoingeckoId(
-          defaultToTokenConfig.symbol,
-          selectedChainId,
-        ),
-      }
+          symbol: defaultToTokenConfig.symbol.trim(),
+          name: defaultToTokenConfig.name,
+          address: defaultToTokenConfig.address.trim(),
+          decimals: defaultToTokenConfig.decimals,
+          balance: "0",
+          price: 0,
+          coingeckoId: getCoingeckoId(defaultToTokenConfig.symbol.trim()),
+        }
       : initFrom;
 
     setFromToken(initFrom);
@@ -205,22 +242,20 @@ export default function SwapScreen() {
     setTokenBalances({});
   }, [selectedChainId, currentChainConfig]);
 
-  // ✅ Fetch Kurs USD to IDR saat pertama load
+  // Fetch Kurs USD to IDR
   useEffect(() => {
     const getRate = async () => {
       const rate = await fetchUsdToIdrRate();
       setUsdToIdrRate(rate);
     };
     getRate();
-    // Refresh kurs setiap 1 jam (3600000 ms)
     const interval = setInterval(getRate, 3600000);
     return () => clearInterval(interval);
   }, []);
 
-  // ✅ Fetch balance semua token ERC-20 di chain ini (untuk ditampilkan di sheet)
+  // Fetch balance semua token ERC-20 di chain ini
   const fetchAllTokenBalances = useCallback(async () => {
     if (!walletAddress || !currentChainConfig?.tokens) return;
-
     const balances: Record<string, string> = {};
 
     await Promise.all(
@@ -229,12 +264,12 @@ export default function SwapScreen() {
           const bal = await BlockchainService.getTokenBalance(
             selectedChainId,
             walletAddress,
-            tokenConf.address,
+            tokenConf.address.trim(),
             tokenConf.decimals,
           );
-          balances[tokenConf.address] = bal;
+          balances[tokenConf.address.trim()] = bal;
         } catch {
-          balances[tokenConf.address] = "0.0000";
+          balances[tokenConf.address.trim()] = "0.0000";
         }
       }),
     );
@@ -245,7 +280,6 @@ export default function SwapScreen() {
   // Fetch Prices Realtime
   useEffect(() => {
     if (!fromToken || !toToken) return;
-
     const updatePrices = async () => {
       setIsLoadingPrices(true);
       let newFromPrice = fromToken.price;
@@ -268,11 +302,10 @@ export default function SwapScreen() {
     return () => clearInterval(interval);
   }, [fromToken?.symbol, toToken?.symbol, selectedChainId]);
 
-  // Fetch Balances Realtime (fromToken & toToken)
+  // Fetch Balances Realtime
   const fetchBalances = useCallback(async () => {
     if (!walletAddress || !fromToken || !toToken || !currentChainConfig) return;
     setIsLoadingBalances(true);
-
     try {
       const nativeBal = await BlockchainService.getBalance(
         selectedChainId,
@@ -282,22 +315,20 @@ export default function SwapScreen() {
       let fBal = nativeBal;
       let tBal = "0";
 
-      // ✅ fromToken: gunakan getTokenBalance (sudah handle native ETH di BlockchainService)
-      if (fromToken.symbol !== currentChainConfig.symbol) {
+      if (fromToken.symbol !== currentChainConfig.symbol.trim()) {
         fBal = await BlockchainService.getTokenBalance(
           selectedChainId,
           walletAddress,
-          fromToken.address,
+          fromToken.address.trim(),
           fromToken.decimals,
         );
       }
 
-      // ✅ toToken: sama
-      if (toToken.symbol !== currentChainConfig.symbol) {
+      if (toToken.symbol !== currentChainConfig.symbol.trim()) {
         tBal = await BlockchainService.getTokenBalance(
           selectedChainId,
           walletAddress,
-          toToken.address,
+          toToken.address.trim(),
           toToken.decimals,
         );
       } else {
@@ -325,14 +356,13 @@ export default function SwapScreen() {
     return () => clearInterval(interval);
   }, [fetchBalances]);
 
-  // ✅ Fetch semua token balance saat sheet dibuka atau chain berubah
   useEffect(() => {
     fetchAllTokenBalances();
     const interval = setInterval(fetchAllTokenBalances, 30000);
     return () => clearInterval(interval);
   }, [fetchAllTokenBalances]);
 
-  // Calculate Swap Output (estimasi lokal via harga CoinGecko)
+  // Calculate Swap Output (Local Estimate via CoinGecko Price)
   useEffect(() => {
     if (
       !fromAmount ||
@@ -344,7 +374,6 @@ export default function SwapScreen() {
       setError(null);
       return;
     }
-
     const amount = parseFloat(fromAmount);
 
     if (amount > parseFloat(fromToken.balance)) {
@@ -386,15 +415,22 @@ export default function SwapScreen() {
     return currentChainConfig ? currentChainConfig.name : "Unknown Network";
   };
 
-  // ✅ Eksekusi Swap via 0x API
+  // ─────────────────────────────────────────────
+  // 0x API Integration (V2 - AllowanceHolder)
+  // ─────────────────────────────────────────────
   const handleSwap = async () => {
-    // 1. Validasi Dasar Input
+    // 1. Validasi Dasar
     if (!fromToken || !toToken) {
       Alert.alert("Error", "Please select tokens first.");
       return;
     }
-
-    // 2. Validasi Nominal (PENTING: Cek apakah > 0)
+    if (fromToken.address.toLowerCase() === toToken.address.toLowerCase()) {
+      Alert.alert(
+        "Invalid Swap",
+        "You cannot swap a token with itself.\nPlease choose different tokens.",
+      );
+      return;
+    }
     const numericAmount = parseFloat(fromAmount);
     if (!fromAmount || isNaN(numericAmount) || numericAmount <= 0) {
       Alert.alert(
@@ -403,24 +439,12 @@ export default function SwapScreen() {
       );
       return;
     }
-
-    // 3. Validasi Saldo
     if (numericAmount > parseFloat(fromToken.balance)) {
       Alert.alert("Insufficient Balance", "You do not have enough funds.");
       return;
     }
-
-    // 4. Validasi Wallet (Hanya dicek jika input sudah valid)
-    if (!walletAddress) {
-      Alert.alert("Wallet Error", "No wallet address found.");
-      return;
-    }
-
-    if (!mnemonic) {
-      Alert.alert(
-        "Wallet Locked",
-        "Wallet is locked or invalid. Please login again.",
-      );
+    if (!walletAddress || !mnemonic) {
+      Alert.alert("Wallet Error", "No wallet address or mnemonic found.");
       return;
     }
 
@@ -428,7 +452,20 @@ export default function SwapScreen() {
     if (!chainIdInt) {
       Alert.alert(
         "Unsupported Chain",
-        "This chain does not support swap via 0x yet.",
+        "This chain is not supported by 0x Swap API yet.",
+      );
+      return;
+    }
+
+    // Cek apakah chain didukung oleh 0x Production API (Hanya Mainnet)
+    const isMainnet =
+      !selectedChainId.toLowerCase().includes("testnet") &&
+      !selectedChainId.toLowerCase().includes("sepolia");
+
+    if (!isMainnet) {
+      Alert.alert(
+        "Testnet Not Supported",
+        "0x Swap API Production only supports Mainnets. Please switch to Ethereum, Polygon, Arbitrum, etc.",
       );
       return;
     }
@@ -437,28 +474,59 @@ export default function SwapScreen() {
     setError(null);
 
     try {
-      // Konversi amount ke unit terkecil (wei/satoshi) - V6 Syntax
-      const sellAmountWei = ethers.parseUnits(fromAmount, fromToken.decimals).toString();
+      // Convert amount to Wei/Base Unit
+      const sellAmountWei = ethers
+        .parseUnits(fromAmount, fromToken.decimals)
+        .toString();
 
-      // Ambil quote dari 0x
-      const quote = await ZeroExService.getSwapQuote({
-        sellToken: fromToken.address,
-        buyToken: toToken.address,
+      // Prepare Parameters for 0x API V2
+      const params = new URLSearchParams({
+        chainId: chainIdInt.toString(),
+        sellToken: fromToken.address.trim(),
+        buyToken: toToken.address.trim(),
         sellAmount: sellAmountWei,
-        takerAddress: walletAddress,
-        chainId: chainIdInt,
-        slippagePercentage: parseFloat(slippage) / 100, // 0.5% → 0.005
+        taker: walletAddress,
+        slippagePercentage: (parseFloat(slippage) / 100).toString(),
+
+        // Affiliate Fee Params
+        swapFeeRecipient: AFFILIATE_FEE_RECIPIENT,
+        swapFeeBps: affiliateFeeBps,
       });
 
-      // Konfirmasi ke user - V6 Syntax
-      const estimatedOut = ethers.formatUnits(
-        quote.buyAmount,
+      // Headers
+      const headers = {
+        "0x-api-key": ZEROEX_API_KEY || "",
+        "0x-version": "v2",
+      };
+
+      console.log("🔄 Fetching 0x Quote...", params.toString());
+
+      // 1. Get Quote
+      const quoteResponse = await fetch(
+        `https://api.0x.org/swap/allowance-holder/quote?${params.toString()}`,
+        { headers },
+      );
+
+      if (!quoteResponse.ok) {
+        const errData = await quoteResponse.json();
+        console.error("❌ 0x API Error:", errData);
+        throw new Error(
+          errData.reason || errData.message || "Failed to get quote",
+        );
+      }
+
+      const quoteData = await quoteResponse.json();
+      console.log("✅ Quote Received");
+
+      // Display Confirmation
+      const estimatedBuyAmount = ethers.formatUnits(
+        quoteData.buyAmount,
         toToken.decimals,
       );
 
       Alert.alert(
         "Confirm Swap",
-        `Swap ${fromAmount} ${fromToken.symbol}\n→ ~${parseFloat(estimatedOut).toFixed(6)} ${toToken.symbol}\n\nSlippage: ${slippage}%`,
+        `Swap ${fromAmount} ${fromToken.symbol}\n→ ~${parseFloat(estimatedBuyAmount).toFixed(6)} ${toToken.symbol}\n\nFee: ${affiliateFeeBps} bps to Integrator`,
         [
           { text: "Cancel", style: "cancel" },
           {
@@ -466,82 +534,77 @@ export default function SwapScreen() {
             onPress: async () => {
               try {
                 const provider = BlockchainService.getProvider(selectedChainId);
-
-                // ✅ GENERATE SIGNER DARI MNEMONIC DI SINI (V6 Syntax: fromPhrase)
                 const walletFromMnemonic = ethers.Wallet.fromPhrase(mnemonic);
                 const signer = walletFromMnemonic.connect(provider);
 
-                // Double check address match
                 if (
                   signer.address.toLowerCase() !== walletAddress.toLowerCase()
                 ) {
                   throw new Error("Address mismatch. Please re-login.");
                 }
 
-                // Jika fromToken adalah ERC-20, perlu approve dulu
+                // 2. Check Allowance & Approve if needed
                 if (
-                  !BlockchainService.isNativeToken(fromToken.address) &&
-                  quote.allowanceTarget &&
-                  quote.allowanceTarget !== ethers.ZeroAddress // ✅ V6 Syntax
+                  fromToken.address.toLowerCase() !==
+                    "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".toLowerCase() &&
+                  quoteData.transaction.to
                 ) {
-                  const ERC20_APPROVE_ABI = [
+                  const ERC20_ABI = [
                     "function allowance(address owner, address spender) view returns (uint256)",
                     "function approve(address spender, uint256 amount) returns (bool)",
                   ];
                   const tokenContract = new ethers.Contract(
-                    fromToken.address,
-                    ERC20_APPROVE_ABI,
+                    fromToken.address.trim(),
+                    ERC20_ABI,
                     signer,
                   );
 
-                  const allowance = await tokenContract.allowance(
+                  const currentAllowance = await tokenContract.allowance(
                     walletAddress,
-                    quote.allowanceTarget,
+                    quoteData.transaction.to,
                   );
 
-                  // ✅ V6 Syntax: allowance is bigint now
                   const sellAmountBN = BigInt(sellAmountWei);
 
-                  if (allowance < sellAmountBN) { // ✅ V6 Syntax: direct comparison
-                    console.log("🔑 Approving token spend...");
+                  if (currentAllowance < sellAmountBN) {
+                    console.log(
+                      "🔑 Approving token spend on AllowanceHolder...",
+                    );
                     const approveTx = await tokenContract.approve(
-                      quote.allowanceTarget,
-                      ethers.MaxUint256, // ✅ V6 Syntax
+                      quoteData.transaction.to,
+                      ethers.MaxUint256,
                     );
                     await approveTx.wait();
                     console.log("✅ Approved!");
                   }
                 }
 
-                // Kirim transaksi swap
+                // 3. Send Transaction
                 const tx = await signer.sendTransaction({
-                  to: quote.to,
-                  data: quote.data,
-                  value: BigInt(quote.value || "0"), // ✅ V6 Syntax: BigInt
-                  gasLimit: BigInt(quote.estimatedGas || "300000"), // ✅ V6 Syntax: BigInt
-                  gasPrice: BigInt(quote.gasPrice), // ✅ V6 Syntax: BigInt
+                  to: quoteData.transaction.to,
+                  data: quoteData.transaction.data,
+                  value: BigInt(quoteData.transaction.value || "0"),
+                  gasLimit: BigInt(quoteData.transaction.gas),
                 });
 
-                console.log("⏳ Swap tx sent:", tx.hash);
+                console.log("⏳ Swap tx sent: ", tx.hash);
                 Alert.alert(
                   "Swap Submitted!",
                   `Transaction is being processed.\nTx Hash: ${tx.hash}`,
                 );
 
-                // Reset form
                 setFromAmount("");
                 setToAmount("");
 
-                // Refresh balances
                 await tx.wait();
                 fetchBalances();
                 fetchAllTokenBalances();
               } catch (execError: any) {
-                console.error("Swap execution error:", execError);
+                console.error("Swap execution error: ", execError);
                 Alert.alert(
                   "Swap Failed",
                   execError?.message ||
-                  "An error occurred while sending the transaction.",
+                    "An error occurred while sending the transaction.",
                 );
               }
             },
@@ -549,8 +612,8 @@ export default function SwapScreen() {
         ],
       );
     } catch (quoteError: any) {
-      console.error("Quote error:", quoteError);
-      setError("Failed to get swap quote. Try again.");
+      console.error("Quote error: ", quoteError);
+      setError(quoteError.message || "Failed to get swap quote.");
     } finally {
       setIsSwapping(false);
     }
@@ -558,7 +621,7 @@ export default function SwapScreen() {
 
   // Component for Token Icon
   const TokenIcon = ({ symbol }: { symbol: string }) => {
-    const source = TOKEN_ICON_MAP[symbol.toUpperCase()];
+    const source = TOKEN_ICON_MAP[symbol.toUpperCase().trim()];
     if (source) {
       return (
         <Image
@@ -610,12 +673,11 @@ export default function SwapScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={{ flex: 1, backgroundColor: theme.background }}
     >
-      {/* ── Header  */}
+      {/* ── Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
           <ChevronLeft size={24} color={theme.text} />
         </TouchableOpacity>
-
         <Text style={[styles.headerTitle, { color: theme.text }]}>
           {getSelectedChainName()}
         </Text>
@@ -629,7 +691,7 @@ export default function SwapScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* ── From Card ─ */}
+        {/* ── From Card */}
         <View style={[styles.card, { backgroundColor: theme.card }]}>
           <View style={styles.cardHeader}>
             <Text style={[styles.label, { color: theme.textSecondary }]}>
@@ -681,7 +743,7 @@ export default function SwapScreen() {
           </View>
         </View>
 
-        {/* ── Swap Button ─ */}
+        {/* ── Swap Button */}
         <View style={styles.swapButtonContainer}>
           <TouchableOpacity
             onPress={handleSwapTokens}
@@ -691,7 +753,7 @@ export default function SwapScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ── To Card ─ */}
+        {/* ── To Card */}
         <View style={[styles.card, { backgroundColor: theme.card }]}>
           <View style={styles.cardHeader}>
             <Text style={[styles.label, { color: theme.textSecondary }]}>
@@ -739,14 +801,14 @@ export default function SwapScreen() {
           </View>
         </View>
 
-        {/* ── Error Message ─ */}
+        {/* ── Error Message */}
         {error && (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
 
-        {/* ── Action Button ─ */}
+        {/* ── Action Button */}
         <TouchableOpacity
           style={[
             styles.actionBtn,
@@ -765,7 +827,7 @@ export default function SwapScreen() {
           )}
         </TouchableOpacity>
 
-        {/* ── Select Network Button (Bottom) ─ */}
+        {/* ── Select Network Button (Bottom) */}
         <TouchableOpacity
           style={[styles.networkBtn, { borderColor: theme.text }]}
           onPress={() => setShowNetworkSheet(true)}
@@ -776,7 +838,7 @@ export default function SwapScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ── Network Bottom Sheet (Mainnet Only + Icons) ─ */}
+      {/* ── Network Bottom Sheet */}
       <Modal visible={showNetworkSheet} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
@@ -791,15 +853,15 @@ export default function SwapScreen() {
 
             <ScrollView>
               {mainnetChains.map((chain) => {
-                const isSelected = selectedChainId === chain.id;
-                const chainIcon = NETWORK_ICON_MAP[chain.id];
+                const isSelected = selectedChainId.trim() === chain.id.trim();
+                const chainIcon = NETWORK_ICON_MAP[chain.id.trim()];
 
                 return (
                   <TouchableOpacity
                     key={chain.id}
                     style={styles.networkItem}
                     onPress={() => {
-                      setSelectedChainId(chain.id as ChainId);
+                      setSelectedChainId(chain.id.trim() as ChainId);
                       setShowNetworkSheet(false);
                     }}
                   >
@@ -861,7 +923,7 @@ export default function SwapScreen() {
         </View>
       </Modal>
 
-      {/* ── From Token Selection Sheet ─ */}
+      {/* ── From Token Selection Sheet */}
       <Modal visible={showFromTokenSheet} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
@@ -881,15 +943,14 @@ export default function SwapScreen() {
                     style={styles.networkItem}
                     onPress={() => {
                       const nativeToken: SwapToken = {
-                        symbol: currentChainConfig.symbol,
+                        symbol: currentChainConfig.symbol.trim(),
                         name: currentChainConfig.name.split(" ")[0],
                         address: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                         decimals: currentChainConfig.decimals,
                         balance: fromToken.balance,
                         price: fromToken.price,
                         coingeckoId: getCoingeckoId(
-                          currentChainConfig.symbol,
-                          selectedChainId,
+                          currentChainConfig.symbol.trim(),
                         ),
                       };
                       setFromToken(nativeToken);
@@ -918,31 +979,31 @@ export default function SwapScreen() {
                     </View>
                     <View style={{ alignItems: "flex-end" }}>
                       <Text style={{ color: theme.text, fontWeight: "600" }}>
-                        {fromToken.symbol === currentChainConfig.symbol
+                        {fromToken.symbol === currentChainConfig.symbol.trim()
                           ? fromToken.balance
                           : "—"}
                       </Text>
                     </View>
                   </TouchableOpacity>
 
-                  {/* 2. ERC20 Tokens Items — ✅ balance sudah di-fetch */}
+                  {/* 2. ERC20 Tokens Items */}
                   {currentChainConfig.tokens?.map((tokenConf) => {
-                    const bal = tokenBalances[tokenConf.address] ?? "...";
+                    const bal =
+                      tokenBalances[tokenConf.address.trim()] ?? "...";
                     return (
                       <TouchableOpacity
                         key={tokenConf.address}
                         style={styles.networkItem}
                         onPress={() => {
                           const erc20Token: SwapToken = {
-                            symbol: tokenConf.symbol,
+                            symbol: tokenConf.symbol.trim(),
                             name: tokenConf.name,
-                            address: tokenConf.address,
+                            address: tokenConf.address.trim(),
                             decimals: tokenConf.decimals,
                             balance: bal !== "..." ? bal : "0",
                             price: 0,
                             coingeckoId: getCoingeckoId(
-                              tokenConf.symbol,
-                              selectedChainId,
+                              tokenConf.symbol.trim(),
                             ),
                           };
                           setFromToken(erc20Token);
@@ -973,7 +1034,6 @@ export default function SwapScreen() {
                           </View>
                         </View>
                         <View style={{ alignItems: "flex-end" }}>
-                          {/* ✅ Tampil balance nyata */}
                           <Text
                             style={{ color: theme.text, fontWeight: "600" }}
                           >
@@ -990,7 +1050,7 @@ export default function SwapScreen() {
         </View>
       </Modal>
 
-      {/* ── To Token Selection Sheet ─ */}
+      {/* ── To Token Selection Sheet */}
       <Modal visible={showToTokenSheet} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
@@ -1010,15 +1070,14 @@ export default function SwapScreen() {
                     style={styles.networkItem}
                     onPress={() => {
                       const nativeToken: SwapToken = {
-                        symbol: currentChainConfig.symbol,
+                        symbol: currentChainConfig.symbol.trim(),
                         name: currentChainConfig.name.split(" ")[0],
                         address: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                         decimals: currentChainConfig.decimals,
                         balance: toToken.balance,
                         price: toToken.price,
                         coingeckoId: getCoingeckoId(
-                          currentChainConfig.symbol,
-                          selectedChainId,
+                          currentChainConfig.symbol.trim(),
                         ),
                       };
                       setToToken(nativeToken);
@@ -1047,31 +1106,31 @@ export default function SwapScreen() {
                     </View>
                     <View style={{ alignItems: "flex-end" }}>
                       <Text style={{ color: theme.text, fontWeight: "600" }}>
-                        {toToken.symbol === currentChainConfig.symbol
+                        {toToken.symbol === currentChainConfig.symbol.trim()
                           ? toToken.balance
                           : "—"}
                       </Text>
                     </View>
                   </TouchableOpacity>
 
-                  {/* 2. ERC20 Tokens Items — ✅ balance sudah di-fetch */}
+                  {/* 2. ERC20 Tokens Items */}
                   {currentChainConfig.tokens?.map((tokenConf) => {
-                    const bal = tokenBalances[tokenConf.address] ?? "...";
+                    const bal =
+                      tokenBalances[tokenConf.address.trim()] ?? "...";
                     return (
                       <TouchableOpacity
                         key={tokenConf.address}
                         style={styles.networkItem}
                         onPress={() => {
                           const erc20Token: SwapToken = {
-                            symbol: tokenConf.symbol,
+                            symbol: tokenConf.symbol.trim(),
                             name: tokenConf.name,
-                            address: tokenConf.address,
+                            address: tokenConf.address.trim(),
                             decimals: tokenConf.decimals,
                             balance: bal !== "..." ? bal : "0",
                             price: 0,
                             coingeckoId: getCoingeckoId(
-                              tokenConf.symbol,
-                              selectedChainId,
+                              tokenConf.symbol.trim(),
                             ),
                           };
                           setToToken(erc20Token);
@@ -1102,7 +1161,6 @@ export default function SwapScreen() {
                           </View>
                         </View>
                         <View style={{ alignItems: "flex-end" }}>
-                          {/* ✅ Tampil balance nyata */}
                           <Text
                             style={{ color: theme.text, fontWeight: "600" }}
                           >
@@ -1119,7 +1177,7 @@ export default function SwapScreen() {
         </View>
       </Modal>
 
-      {/* ── Settings Bottom Sheet ─ */}
+      {/* ── Settings Bottom Sheet */}
       <Modal visible={showSettingsSheet} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
@@ -1171,6 +1229,53 @@ export default function SwapScreen() {
                   <Text style={{ color: theme.textSecondary }}>%</Text>
                 </View>
               </View>
+            </View>
+
+            <View style={styles.settingSection}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  marginBottom: 12,
+                }}
+              >
+                <Text style={[styles.settingLabel, { color: theme.text }]}>
+                  Affiliate Fee
+                </Text>
+                <Info
+                  size={14}
+                  color={theme.textSecondary}
+                  style={{ marginLeft: 6 }}
+                />
+              </View>
+              <View style={styles.slippageOptions}>
+                <View
+                  style={[
+                    styles.customSlippage,
+                    { borderColor: theme.textSecondary, flex: 1 },
+                  ]}
+                >
+                  <TextInput
+                    style={{ color: theme.text }}
+                    value={affiliateFeeBps}
+                    onChangeText={setAffiliateFeeBps}
+                    keyboardType="numeric"
+                    placeholder="100"
+                    placeholderTextColor={theme.textSecondary}
+                  />
+                  <Text style={{ color: theme.textSecondary }}>bps</Text>
+                </View>
+              </View>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: theme.textSecondary,
+                  marginTop: 8,
+                }}
+              >
+                Fee is sent to: {AFFILIATE_FEE_RECIPIENT.slice(0, 6)}...
+                {AFFILIATE_FEE_RECIPIENT.slice(-4)}
+              </Text>
             </View>
           </View>
         </View>
@@ -1273,7 +1378,7 @@ const styles = StyleSheet.create({
   actionBtn: {
     width: "100%",
     paddingVertical: 16,
-    borderRadius: 16,
+    borderRadius: 999,
     alignItems: "center",
     marginTop: 20,
   },
@@ -1352,11 +1457,11 @@ const styles = StyleSheet.create({
   settingLabel: {
     fontSize: 16,
     fontWeight: "600",
-    marginBottom: 12,
   },
   slippageOptions: {
     flexDirection: "row",
     gap: 10,
+    marginTop: 12,
   },
   slippageBtn: {
     paddingHorizontal: 16,
@@ -1372,7 +1477,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    paddingVertical: 0,
+    paddingVertical: 8,
     borderRadius: 12,
     borderWidth: 1,
     gap: 4,
