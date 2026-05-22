@@ -64,7 +64,7 @@ interface TxEntity {
   hash: string;
   from: string;
   to: string;
-  value: string; // e.g., "+3 ETH" or "-100 USDT"
+  value: string; // Format string siap tampil: "+1.23 BDAG" atau "-0.5 ETH"
   symbol: string;
   timestamp: number;
   status: TxStatus;
@@ -85,7 +85,7 @@ interface DisplayTransaction extends TxEntity {
 // ─────────────────────────────────────────────
 const getRelativeDate = (ts: number) => {
   const now = new Date();
-  const txDate = new Date(ts * 1000);
+  const txDate = new Date(ts); // ts sudah dalam ms dari service
 
   // Reset time parts for accurate date comparison
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -110,7 +110,7 @@ const getRelativeDate = (ts: number) => {
 };
 
 const formatTime = (ts: number) =>
-  new Date(ts * 1000).toLocaleTimeString("en-US", {
+  new Date(ts).toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -140,24 +140,14 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
     isIncoming = false;
   } else {
     // Jika type swap atau tidak jelas, cek tanda + / - di string value
-    // Atau cek apakah alamat 'from' sama dengan wallet user (logic tambahan bisa ditambahkan di sini)
-    // Untuk sekarang kita asumsikan: jika ada '+' di string, maka incoming.
-    // Jika tidak ada tanda, kita lihat tipenya atau default ke outgoing jika ragu.
     const rawVal = tx.value.trim();
     if (rawVal.startsWith("+")) {
       isIncoming = true;
     } else if (rawVal.startsWith("-")) {
       isIncoming = false;
     } else {
-      // Fallback: Jika tidak ada tanda, dan typenya 'swap', biasanya swap out (-) atau in (+) tergantung konteks.
-      // Namun, berdasarkan gambar, Received selalu hijau.
-      // Kita paksa logic: Jika type 'receive' pasti hijau. Jika 'send' pasti oranye.
-      // Jika 'swap', kita biarkan mengikuti tanda jika ada, atau default ke oranye (out) jika tidak ada tanda minus.
+      // Fallback
       if (tx.type === "swap") {
-        // Opsional: Logic swap bisa kompleks.
-        // Untuk keamanan visual sesuai gambar, kita cek tanda saja.
-        // Jika tidak ada tanda, anggap sebagai pengeluaran (outgoing) agar aman,
-        // ATAU tambahkan logic khusus jika backend mengirim data swap secara spesifik.
         isIncoming = false;
       }
     }
@@ -168,8 +158,6 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
   const cleanValue = displayValue.replace(/^[-+]/, "").trim();
 
   // Logika Parsing untuk Memisahkan Angka dan Simbol Token
-  // Asumsi format input: "0.0820 SepoliaETH" atau "100 USDT" (tanpa tanda +/- di cleanValue)
-  // Kita cari spasi pertama untuk memisahkan amount dan symbol
   const spaceIndex = cleanValue.indexOf(" ");
   let amountPart = cleanValue;
   let symbolPart = "";
@@ -178,9 +166,6 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
     amountPart = cleanValue.substring(0, spaceIndex);
     symbolPart = cleanValue.substring(spaceIndex + 1);
   } else {
-    // Jika tidak ada spasi, coba ambil symbol dari tx.symbol jika tersedia,
-    // atau biarkan kosong jika semua adalah amount
-    // Namun biasanya value string sudah lengkap.
     symbolPart = tx.symbol || "";
   }
 
@@ -196,14 +181,14 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
 
   if (isIncoming) {
     // Received / Swap In -> HIJAU
-    iconBgColor = theme.isDarkMode ? "#064E3B" : "#DCFCE7"; // Dark Green vs Light Green
-    iconTintColor = "#7ed957"; // Bright Green Icon
-    valueTextColor = "#7ed957"; // Bright Green Text
+    iconBgColor = theme.isDarkMode ? "#064E3B" : "#DCFCE7";
+    iconTintColor = "#7ed957";
+    valueTextColor = "#7ed957";
   } else {
     // Sent / Swap Out -> ORANYE/KREM
-    iconBgColor = theme.isDarkMode ? "#451A03" : "#FFEDD5"; // Dark Orange vs Light Orange
-    iconTintColor = "#F97316"; // Bright Orange Icon
-    valueTextColor = theme.isDarkMode ? "#FFFFFF" : "#1F2937"; // White vs Dark Gray Text
+    iconBgColor = theme.isDarkMode ? "#451A03" : "#FFEDD5";
+    iconTintColor = "#F97316";
+    valueTextColor = theme.isDarkMode ? "#FFFFFF" : "#1F2937";
   }
 
   // ────────────────────────────────────────────
@@ -214,13 +199,13 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
 
   if (tx.type === "send") {
     IconComponent = ArrowUpRight;
-    BadgeComponent = ArrowUpRight; // Badge arrow upright
+    BadgeComponent = ArrowUpRight;
   } else if (tx.type === "swap") {
     IconComponent = Repeat;
-    BadgeComponent = null; // Will be handled by chain icon below
+    BadgeComponent = null;
   } else if (tx.type === "receive") {
     IconComponent = ArrowDownLeft;
-    BadgeComponent = ArrowDownLeft; // Badge arrow left down
+    BadgeComponent = ArrowDownLeft;
   }
 
   let title = "Transaction";
@@ -238,7 +223,6 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
   }
 
   // Determine Badge Content
-  // If Swap, show network icon. If Send/Receive, show direction arrow.
   let BadgeContent = null;
   if (tx.type === "swap") {
     if (tx.chainId && CHAIN_ICONS[tx.chainId]) {
@@ -293,7 +277,7 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
         </Text>
       </View>
 
-      {/* Right Value - Modified to show Amount and Symbol side-by-side */}
+      {/* Right Value */}
       <View style={styles.valueContainer}>
         <View
           style={{
@@ -328,7 +312,6 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
 // ─────────────────────────────────────────────
 export default function HistoryScreen() {
   const { walletAddress, isDarkMode } = useAppStore();
-  // Merge theme colors with a flag for easy access in components
   const theme = {
     ...(isDarkMode ? Colors.dark : Colors.light),
     isDarkMode: isDarkMode,
@@ -356,26 +339,52 @@ export default function HistoryScreen() {
 
       for (const chain of chains) {
         try {
-          const txs = await BlockchainService.getTransactionHistory(
+          // Ambil data mentah dari service
+          const rawTxs = await BlockchainService.getTransactionHistory(
             chain.id as ChainId,
             walletAddress,
           );
-          if (txs.length) {
-            allTxs.push(
-              ...txs.map((tx) => ({
+
+          if (rawTxs.length) {
+            // Normalisasi data agar cocok dengan UI
+            const normalizedTxs = rawTxs.map((tx: any) => {
+              // Tentukan type send/receive
+              const isSend =
+                tx.from.toLowerCase() === walletAddress.toLowerCase();
+              const type: TxType = isSend ? "send" : "receive";
+
+              // Format value string: "-1.23 BDAG" atau "+1.23 BDAG"
+              // tx.value dari service seharusnya sudah dalam format Ether string (bukan Wei)
+              // Jika masih Wei, gunakan ethers.formatEther(tx.value)
+              let valNum = parseFloat(tx.value);
+              if (isNaN(valNum)) valNum = 0;
+
+              const sign = isSend ? "-" : "+";
+              const formattedValue = `${sign}${valNum.toFixed(4)}`;
+
+              return {
                 ...tx,
+                hash: tx.hash || tx.txnHash, // Handle perbedaan nama field
+                type,
+                value: formattedValue, // Set value string yang sudah diformat
+                symbol: chain.symbol,
                 chainId: chain.chainId,
                 chainName: chain.name,
                 chainIcon: chain.icon,
+                // Timestamp dari service BDAG baru mungkin sudah ms atau seconds
+                // Service kita mengalikan * 1000, jadi ini sudah ms
+                timestamp: tx.timestamp,
                 displayDate: getRelativeDate(tx.timestamp),
                 displayTime: formatTime(tx.timestamp),
-              })),
-            );
+              };
+            });
+
+            allTxs.push(...normalizedTxs);
           }
         } catch (e) {
           console.warn(`Failed to fetch ${chain.name}:`, e);
         }
-        // Small delay to prevent rate limiting if fetching multiple chains
+        // Small delay to prevent rate limiting
         await new Promise((r) => setTimeout(r, 300));
       }
 
@@ -393,6 +402,7 @@ export default function HistoryScreen() {
       fetchHistory();
     }, [fetchHistory]),
   );
+
   useEffect(() => {
     setFilteredTx(transactions);
   }, [transactions]);
@@ -705,7 +715,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
   },
-  pillIcon: { width: 16, height: 16 },
+  pillIcon: { width: 16, height: 16, overflow: "hidden", borderRadius: 8 },
   pillLabel: { fontSize: 14, fontWeight: "600" },
 
   iconBtn: {
@@ -730,16 +740,14 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     overflow: "hidden",
-    // Shadow for iOS
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
-    // Elevation for Android
     elevation: 2,
   },
 
-  // Tx Row — Redesigned Layout
+  // Tx Row
   txRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -748,14 +756,12 @@ const styles = StyleSheet.create({
     gap: 14,
   },
 
-  // Wrapper for Icon + Badge
   iconWrapper: {
     position: "relative",
     width: 44,
     height: 44,
   },
 
-  // Circular Icon Background
   iconContainer: {
     width: 44,
     height: 44,
@@ -763,6 +769,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    overflow: "hidden",
   },
 
   chainIconInside: {
@@ -771,7 +778,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
-  // Badge Style
   badgeContainer: {
     position: "absolute",
     right: -2,
@@ -815,18 +821,17 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
 
-  // Style baru untuk simbol token di samping angka
   txSymbol: {
     fontSize: 15,
     fontWeight: "600",
     lineHeight: 20,
     textAlign: "right",
-    marginLeft: 4, // Jarak kecil antara angka dan simbol
+    marginLeft: 4,
   },
 
   sep: {
     height: 1,
-    marginLeft: 74, // Align separator with text start (icon width + gap)
+    marginLeft: 74,
     marginRight: 16,
     opacity: 0.5,
   },

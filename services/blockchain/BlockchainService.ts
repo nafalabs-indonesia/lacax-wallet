@@ -128,20 +128,14 @@ export class BlockchainService {
     }
 
     // 3. Handle Monad
-    // Monad Vision API might not be fully compatible with standard Etherscan V2 yet.
-    // We check if we can use standard V2, otherwise return empty to prevent errors.
-    // Note: If Monad Vision adds Etherscan-compatible API, you can enable it here.
     if (config.chainId === 143 || config.chainId === 10143) {
       console.log(
         `ℹ️ Monad history fetching via standard Etherscan V2 is currently limited.`,
       );
-      // Uncomment below if you have a specific Monad API endpoint that works like Etherscan
-      // return this.getMonadHistory(config, address);
       return [];
     }
 
-    // 4. Handle Etherscan V2 Supported Chains (Eth, Sepolia, Amoy, Arbitrum, etc.)
-    // Arbitrum (42161) and Arbitrum Sepolia (421614) ARE supported by Etherscan V2 API.
+    // 4. Handle Etherscan V2 Supported Chains
     if (!apiKey) {
       console.warn(`⚠️ ETHERSCAN_API_KEY is missing.`);
       return [];
@@ -173,25 +167,28 @@ export class BlockchainService {
   }
 
   /**
-   * Helper khusus untuk BlockDAG Explorer
+   * Helper khusus untuk BlockDAG Explorer (Updated with Custom Endpoint)
    */
   private static async getBlockDAGHistory(
     config: ChainConfig,
     address: string,
   ): Promise<any[]> {
     let baseUrl = "";
+
+    // Menggunakan subdomain api.bdagscan.com sesuai temuan
     if (config.chainId === 1404) {
       // Mainnet
-      baseUrl = "https://api.bdagscan.com/";
+      baseUrl = "https://api.bdagscan.com";
     } else if (config.chainId === 1043) {
       // Testnet Awakening
-      baseUrl = "https://api.awakening.bdagscan.com/";
+      baseUrl = "https://api.awakening.bdagscan.com";
     } else {
       return [];
     }
 
     try {
-      const url = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=50&sort=desc`;
+      // Endpoint kustom BDAGScan dengan double slash (//) sesuai inspect network
+      const url = `${baseUrl}/v1/api//transaction/getTransactionByAddress?address=${address}&limit=50&page=1&export=false`;
 
       const response = await fetch(url);
 
@@ -204,10 +201,53 @@ export class BlockchainService {
         return [];
       }
 
-      const data = await response.json();
+      const json = await response.json();
 
-      if (data.status === "1" && data.result && Array.isArray(data.result)) {
-        return this.parseTransactions(data.result, address, config);
+      // Struktur respons BDAGScan: { "data": [ ...array transaksi... ] }
+      if (json && json.data && Array.isArray(json.data)) {
+        // Map data dari format BDAGScan ke format standar aplikasi kita
+        const mappedTxs = json.data.map((tx: any) => {
+          // PENTING: Cek apakah value sudah desimal atau wei
+          // API BDAGScan sering mengembalikan value dalam bentuk desimal string (e.g. "0.5")
+          // Atau kadang dalam Wei. Kita coba deteksi sederhana.
+          // Jika mengandung titik '.', anggap sudah desimal. Jika tidak, anggap Wei.
+
+          let finalValue = tx.value;
+
+          // Jika value ada dan berisi titik desimal, biarkan sebagai string desimal
+          // Jika tidak, format dari Wei ke Ether
+          if (
+            finalValue &&
+            typeof finalValue === "string" &&
+            finalValue.includes(".")
+          ) {
+            // Sudah desimal, biarkan saja
+          } else if (finalValue) {
+            // Coba format sebagai Wei
+            try {
+              finalValue = ethers.formatEther(finalValue);
+            } catch (e) {
+              // Jika gagal format (misal bukan number valid), set 0
+              finalValue = "0";
+            }
+          } else {
+            finalValue = "0";
+          }
+
+          return {
+            hash: tx.txnHash, // BDAGScan menggunakan txnHash
+            from: tx.from,
+            to: tx.to,
+            value: finalValue, // Simpan sebagai string desimal ("0.5")
+            timeStamp: tx.timeStamp || Math.floor(Date.now() / 1000),
+            isError: tx.status === "success" ? "0" : "1",
+            blockNumber: tx.blockId,
+            gasUsed: tx.gasUsed || "0",
+            gasPrice: tx.gasPrice || "0",
+          };
+        });
+
+        return this.parseTransactions(mappedTxs, address, config);
       }
 
       return [];
@@ -228,20 +268,42 @@ export class BlockchainService {
     return result.map((tx: any) => {
       const isSend = tx.from.toLowerCase() === address.toLowerCase();
       let valueFormatted = "0";
+
       try {
-        valueFormatted = parseFloat(ethers.formatEther(tx.value)).toFixed(4);
-      } catch (e) {}
+        // Di sini tx.value SUDAH berupa string desimal dari mapping BlockDAG
+        // atau dari Etherscan (yang biasanya Wei, tapi kita handle di bawah)
+
+        // Untuk Etherscan standar, tx.value biasanya Wei (string angka besar tanpa titik)
+        // Untuk BlockDAG yang sudah di-map di atas, tx.value sudah desimal
+
+        // Cek sederhana: jika ada titik, itu sudah desimal. Jika tidak, format dari Wei.
+        if (typeof tx.value === "string" && tx.value.includes(".")) {
+          valueFormatted = parseFloat(tx.value).toFixed(4);
+        } else {
+          // Asumsi Wei (untuk chain lain seperti ETH/BSC)
+          valueFormatted = parseFloat(
+            ethers.formatEther(tx.value || "0"),
+          ).toFixed(4);
+        }
+      } catch (e) {
+        console.warn("Error formatting value", e, tx.value);
+        valueFormatted = "0";
+      }
 
       return {
         hash: tx.hash,
         from: tx.from,
         to: tx.to,
-        value: valueFormatted,
+        value: valueFormatted, // String desimal, misal "0.5000"
         symbol: config.symbol,
-        timestamp: parseInt(tx.timeStamp),
+        // Handle timeStamp: Etherscan pakai seconds, BlockDAG map kita pakai seconds juga
+        timestamp:
+          typeof tx.timeStamp === "number"
+            ? tx.timeStamp * 1000
+            : parseInt(tx.timeStamp) * 1000,
         status: tx.isError === "1" ? "failed" : "confirmed",
         type: isSend ? "send" : "receive",
-        blockNumber: parseInt(tx.blockNumber),
+        blockNumber: tx.blockNumber,
         gasUsed: tx.gasUsed,
         gasPrice: tx.gasPrice,
       };
