@@ -8,18 +8,21 @@ import { ZEROEX_API_KEY } from "@env";
 import { ethers } from "ethers";
 import { router, useLocalSearchParams } from "expo-router";
 import {
+  AlertTriangle,
   ArrowDown,
   Check,
+  CheckCircle,
   ChevronDown,
   ChevronLeft,
   Info,
   SlidersHorizontal,
   X,
+  XCircle,
 } from "lucide-react-native";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
+  Animated,
   Dimensions,
   Image,
   KeyboardAvoidingView,
@@ -41,11 +44,9 @@ const { width } = Dimensions.get("window");
 // Configuration & Constants
 // ─────────────────────────────────────────────
 
-// Wallet penerima fee affiliate
 const AFFILIATE_FEE_RECIPIENT = "0x70d96B6463533741669cd6fC871a7761e88c50c8";
-const DEFAULT_AFFILIATE_FEE_BPS = 80; // 0.8% fee
+const DEFAULT_AFFILIATE_FEE_BPS = 80;
 
-// Mapping Chain ID integer untuk 0x API
 const CHAIN_ID_MAP: Record<string, number> = {
   "ethereum-mainnet": 1,
   "polygon-mainnet": 137,
@@ -54,14 +55,11 @@ const CHAIN_ID_MAP: Record<string, number> = {
   "base-mainnet": 8453,
   "optimism-mainnet": 10,
   "avalanche-mainnet": 43114,
-
-  // Testnets (Tidak didukung 0x Production API, tapi kita map untuk UI)
   "ethereum-sepolia": 11155111,
   "polygon-amoy": 80002,
   "arbitrum-sepolia": 421614,
 };
 
-// Mapping Icon Lokal untuk Token
 const TOKEN_ICON_MAP: Record<string, any> = {
   ETH: require("../assets/chains/eth.png"),
   USDT: require("../assets/coins/usdt.png"),
@@ -73,7 +71,6 @@ const TOKEN_ICON_MAP: Record<string, any> = {
   ARB: require("../assets/chains/arbitrum.png"),
 };
 
-// Mapping Icon Lokal untuk Network
 const NETWORK_ICON_MAP: Record<string, any> = {
   "ethereum-mainnet": require("../assets/chains/eth.png"),
   "ethereum-sepolia": require("../assets/chains/eth-sepolia.png"),
@@ -87,7 +84,46 @@ const NETWORK_ICON_MAP: Record<string, any> = {
   "arbitrum-sepolia": require("../assets/chains/arbitrum.png"),
 };
 
-// Helper: Get harga USD dari CoinGecko
+// ─────────────────────────────────────────────
+// Friendly Error Message Parser
+// ─────────────────────────────────────────────
+
+const parseFriendlyError = (error: any): string => {
+  const raw: string =
+    error?.message || error?.reason || error?.info?.error?.message || "";
+
+  if (
+    error?.code === "INSUFFICIENT_FUNDS" ||
+    raw.includes("insufficient funds") ||
+    raw.includes("insufficient funds for gas")
+  ) {
+    return "Your balance is not enough to cover this swap and the network gas fee. Please add more funds and try again.";
+  }
+  if (raw.includes("user rejected") || raw.includes("User denied")) {
+    return "Transaction was cancelled.";
+  }
+  if (raw.includes("nonce") || raw.includes("replacement fee too low")) {
+    return "Transaction conflict detected. Please wait a moment and try again.";
+  }
+  if (raw.includes("gas required exceeds allowance")) {
+    return "Gas limit exceeded. Try reducing the swap amount.";
+  }
+  if (raw.includes("execution reverted")) {
+    return "Transaction was rejected by the network. The price may have moved — try again.";
+  }
+  if (
+    raw.includes("network") ||
+    raw.includes("timeout") ||
+    raw.includes("fetch")
+  ) {
+    return "Network error. Please check your internet connection and try again.";
+  }
+  if (raw.includes("Address mismatch")) {
+    return "Wallet address mismatch. Please re-login and try again.";
+  }
+  return "Something went wrong. Please try again.";
+};
+
 const fetchCoinPrice = async (coinId: string): Promise<number> => {
   try {
     const response = await fetch(
@@ -101,7 +137,6 @@ const fetchCoinPrice = async (coinId: string): Promise<number> => {
   }
 };
 
-// Helper: Get Kurs USD to IDR Realtime
 const fetchUsdToIdrRate = async (): Promise<number> => {
   try {
     const response = await fetch("https://open.er-api.com/v6/latest/USD");
@@ -116,7 +151,6 @@ const fetchUsdToIdrRate = async (): Promise<number> => {
   }
 };
 
-// Interface untuk Token di UI
 interface SwapToken {
   symbol: string;
   name: string;
@@ -127,7 +161,6 @@ interface SwapToken {
   coingeckoId: string | null;
 }
 
-// Map Symbol ke Coingecko ID
 const getCoingeckoId = (symbol: string): string | null => {
   const s = symbol.toUpperCase().trim();
   if (s === "ETH" || s === "WETH") return "ethereum";
@@ -139,12 +172,654 @@ const getCoingeckoId = (symbol: string): string | null => {
   return null;
 };
 
+// ─────────────────────────────────────────────
+// Balance Formatter
+// ─────────────────────────────────────────────
+
+const formatBalance = (raw: string): string => {
+  const num = parseFloat(raw);
+  if (isNaN(num) || num === 0) return "0.0000";
+  if (num >= 0.0001) return num.toFixed(4);
+  return "<0.0001";
+};
+
+// ─────────────────────────────────────────────
+// Custom Modal Types
+// ─────────────────────────────────────────────
+
+type AlertType = "info" | "error" | "success" | "warning" | "confirm";
+
+interface CustomAlertConfig {
+  visible: boolean;
+  type: AlertType;
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  isLoading?: boolean;
+  onConfirm?: () => void;
+  onCancel?: () => void;
+}
+
+// ─────────────────────────────────────────────
+// Custom Alert Modal Component
+// ─────────────────────────────────────────────
+
+const CustomAlertModal = ({
+  config,
+  onClose,
+  setAlertConfig,
+  theme,
+}: {
+  config: CustomAlertConfig;
+  onClose: () => void;
+  setAlertConfig: React.Dispatch<React.SetStateAction<CustomAlertConfig>>;
+  theme: any;
+}) => {
+  const scaleAnim = useRef(new Animated.Value(0.85)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (config.visible) {
+      Animated.parallel([
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 8,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      scaleAnim.setValue(0.85);
+      opacityAnim.setValue(0);
+    }
+  }, [config.visible]);
+
+  const getIconConfig = () => {
+    switch (config.type) {
+      case "error":
+        return { Icon: XCircle, color: "#FF3B30" };
+      case "success":
+        return { Icon: CheckCircle, color: "#34C759" };
+      case "warning":
+        return { Icon: AlertTriangle, color: "#FF9500" };
+      case "confirm":
+        return { Icon: Info, color: "#007AFF" };
+      default:
+        return { Icon: Info, color: "#007AFF" };
+    }
+  };
+
+  const { Icon, color } = getIconConfig();
+  const hasCancel = (config.cancelText || config.onCancel) && !config.isLoading;
+
+  const isConfirmType = config.type === "confirm";
+
+  return (
+    <Modal visible={config.visible} transparent animationType="none">
+      <Animated.View style={[alertStyles.overlay, { opacity: opacityAnim }]}>
+        <Animated.View
+          style={[
+            alertStyles.container,
+            {
+              backgroundColor: theme.card,
+              transform: [{ scale: scaleAnim }],
+            },
+          ]}
+        >
+          {/* X close button — only for non-confirm, non-loading */}
+          {!isConfirmType && !config.isLoading && (
+            <TouchableOpacity
+              style={alertStyles.closeBtn}
+              onPress={() => {
+                onClose();
+                config.onConfirm?.();
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <X size={20} color={theme.textSecondary} />
+            </TouchableOpacity>
+          )}
+
+          {/* Icon — hide when loading */}
+          {!config.isLoading && (
+            <View
+              style={[
+                alertStyles.iconCircle,
+                { backgroundColor: color + "18" },
+              ]}
+            >
+              <Icon size={32} color={color} />
+            </View>
+          )}
+
+          {/* Loading spinner */}
+          {config.isLoading && (
+            <View
+              style={[alertStyles.iconCircle, { backgroundColor: "#007AFF18" }]}
+            >
+              <ActivityIndicator size="large" color="#007AFF" />
+            </View>
+          )}
+
+          {/* Title */}
+          <Text style={[alertStyles.title, { color: theme.text }]}>
+            {config.isLoading ? "Processing Swap..." : config.title}
+          </Text>
+
+          {/* Message */}
+          <Text style={[alertStyles.message, { color: theme.textSecondary }]}>
+            {config.isLoading
+              ? "Please wait. Do not close the app."
+              : config.message}
+          </Text>
+
+          {/* Buttons — only for confirm type, hidden while loading */}
+          {isConfirmType && !config.isLoading && (
+            <View
+              style={[
+                alertStyles.buttonRow,
+                hasCancel && alertStyles.buttonRowDouble,
+              ]}
+            >
+              {hasCancel && (
+                <TouchableOpacity
+                  style={[
+                    alertStyles.btn,
+                    alertStyles.btnCancel,
+                    { borderColor: theme.textSecondary + "40" },
+                  ]}
+                  onPress={() => {
+                    onClose();
+                    config.onCancel?.();
+                  }}
+                >
+                  <Text
+                    style={[
+                      alertStyles.btnCancelText,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {config.cancelText ?? "Cancel"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[
+                  alertStyles.btn,
+                  alertStyles.btnConfirm,
+                  { backgroundColor: color },
+                  hasCancel && { flex: 1 },
+                ]}
+                onPress={() => {
+                  // Switch to loading first, then run async work on next tick
+                  // to avoid UI lag
+                  setAlertConfig((prev) => ({ ...prev, isLoading: true }));
+                  setTimeout(() => {
+                    config.onConfirm?.();
+                  }, 50);
+                }}
+              >
+                <Text style={alertStyles.btnConfirmText}>
+                  {config.confirmText ?? "OK"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </Animated.View>
+      </Animated.View>
+    </Modal>
+  );
+};
+
+const alertStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  container: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: 24,
+    padding: 28,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.3,
+    shadowRadius: 40,
+    elevation: 20,
+  },
+  iconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  message: {
+    fontSize: 15,
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  closeBtn: {
+    position: "absolute",
+    top: 16,
+    right: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(128,128,128,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonRow: {
+    width: "100%",
+  },
+  buttonRowDouble: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  btn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  btnCancel: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderRadius: 999,
+  },
+  btnCancelText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  btnConfirm: {
+    paddingHorizontal: 32,
+    borderRadius: 999,
+  },
+  btnConfirmText: {
+    color: "#FFF",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+});
+
+// ─────────────────────────────────────────────
+// Disclaimer Modal Component
+// ─────────────────────────────────────────────
+
+const DisclaimerModal = ({
+  visible,
+  onAccept,
+  onDecline,
+  theme,
+}: {
+  visible: boolean;
+  onAccept: (neverShow: boolean) => void;
+  onDecline: () => void;
+  theme: any;
+}) => {
+  const [understood, setUnderstood] = useState(false);
+  const [neverShow, setNeverShow] = useState(false);
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setUnderstood(false);
+      setNeverShow(false);
+      Animated.parallel([
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 80,
+          friction: 7,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      scaleAnim.setValue(0.9);
+      opacityAnim.setValue(0);
+    }
+  }, [visible]);
+
+  return (
+    <Modal visible={visible} transparent animationType="none">
+      <Animated.View
+        style={[disclaimerStyles.overlay, { opacity: opacityAnim }]}
+      >
+        <Animated.View
+          style={[
+            disclaimerStyles.container,
+            {
+              backgroundColor: theme.card,
+              transform: [{ scale: scaleAnim }],
+            },
+          ]}
+        >
+          {/* Header Icon */}
+          {/* <View style={disclaimerStyles.shieldWrap}>
+            <View
+              style={[
+                disclaimerStyles.shieldBg,
+                { backgroundColor: "#FF9500" + "18" },
+              ]}
+            >
+              <Shield size={36} color="#FF9500" />
+            </View>
+          </View> */}
+
+          <Text style={[disclaimerStyles.title, { color: theme.text }]}>
+            Third-Party Service Notice
+          </Text>
+
+          <View
+            style={[
+              disclaimerStyles.divider,
+              { backgroundColor: theme.textSecondary + "20" },
+            ]}
+          />
+
+          <ScrollView
+            style={disclaimerStyles.textScroll}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text
+              style={[disclaimerStyles.body, { color: theme.textSecondary }]}
+            >
+              The swap feature in this app is powered by{" "}
+              <Text style={{ color: theme.text, fontWeight: "600" }}>
+                0x Protocol
+              </Text>
+              , a third-party decentralized exchange aggregator.
+            </Text>
+
+            <Text
+              style={[
+                disclaimerStyles.body,
+                { color: theme.textSecondary, marginTop: 12 },
+              ]}
+            >
+              By proceeding, you acknowledge and agree that:
+            </Text>
+
+            {[
+              "LacaX is not responsible for any losses, failed transactions, or financial damages resulting from the use of this swap service.",
+              "Cryptocurrency swaps are irreversible. Once submitted, transactions cannot be undone or refunded.",
+              "Token prices, slippage, and liquidity are determined by third-party protocols and market conditions beyond our control.",
+              "You are solely responsible for verifying token addresses, amounts, and all transaction details before confirming.",
+              "Smart contract interactions carry inherent risks. Use this feature at your own discretion.",
+            ].map((item, idx) => (
+              <View key={idx} style={disclaimerStyles.bulletRow}>
+                <View
+                  style={[
+                    disclaimerStyles.bullet,
+                    { backgroundColor: theme.text },
+                  ]}
+                />
+                <Text
+                  style={[
+                    disclaimerStyles.bulletText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  {item}
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
+
+          <View
+            style={[
+              disclaimerStyles.divider,
+              { backgroundColor: theme.textSecondary + "20", marginTop: 16 },
+            ]}
+          />
+
+          {/* Checkboxes */}
+          <TouchableOpacity
+            style={disclaimerStyles.checkRow}
+            onPress={() => setUnderstood(!understood)}
+            activeOpacity={0.7}
+          >
+            <View
+              style={[
+                disclaimerStyles.checkbox,
+                {
+                  borderColor: understood
+                    ? "#34C759"
+                    : theme.textSecondary + "60",
+                  backgroundColor: understood ? "#34C759" : "transparent",
+                },
+              ]}
+            >
+              {understood && <Check size={13} color="#FFF" strokeWidth={3} />}
+            </View>
+            <Text style={[disclaimerStyles.checkLabel, { color: theme.text }]}>
+              I understand and accept the risks
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[disclaimerStyles.checkRow, { marginTop: 10 }]}
+            onPress={() => setNeverShow(!neverShow)}
+            activeOpacity={0.7}
+          >
+            <View
+              style={[
+                disclaimerStyles.checkbox,
+                {
+                  borderColor: neverShow
+                    ? theme.primary
+                    : theme.textSecondary + "60",
+                  backgroundColor: neverShow ? theme.primary : "transparent",
+                },
+              ]}
+            >
+              {neverShow && <Check size={13} color="#FFF" strokeWidth={3} />}
+            </View>
+            <Text style={[disclaimerStyles.checkLabel, { color: theme.text }]}>
+              Don't show this again
+            </Text>
+          </TouchableOpacity>
+
+          {/* Buttons */}
+          <View style={disclaimerStyles.btnRow}>
+            <TouchableOpacity
+              style={[
+                disclaimerStyles.btn,
+                disclaimerStyles.btnDecline,
+                { borderColor: theme.textSecondary + "40" },
+              ]}
+              onPress={onDecline}
+            >
+              <Text
+                style={[
+                  disclaimerStyles.btnDeclineText,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                Cancel
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                disclaimerStyles.btn,
+                disclaimerStyles.btnAccept,
+                {
+                  backgroundColor: understood
+                    ? theme.primary
+                    : theme.textSecondary + "30",
+                },
+              ]}
+              disabled={!understood}
+              onPress={() => onAccept(neverShow)}
+            >
+              <Text
+                style={[
+                  disclaimerStyles.btnAcceptText,
+                  { opacity: understood ? 1 : 0.4 },
+                ]}
+              >
+                Proceed to Swap
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </Animated.View>
+    </Modal>
+  );
+};
+
+const disclaimerStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  container: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 28,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 24 },
+    shadowOpacity: 0.35,
+    shadowRadius: 48,
+    elevation: 24,
+  },
+  shieldWrap: {
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  shieldBg: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  divider: {
+    height: 1,
+    width: "100%",
+    marginBottom: 16,
+  },
+  textScroll: {
+    maxHeight: 220,
+  },
+  body: {
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  bulletRow: {
+    flexDirection: "row",
+    marginTop: 10,
+    gap: 10,
+    alignItems: "flex-start",
+  },
+  bullet: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 7,
+    flexShrink: 0,
+  },
+  bulletText: {
+    fontSize: 13,
+    lineHeight: 20,
+    flex: 1,
+  },
+  checkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 14,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  checkLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    flex: 1,
+  },
+  btnRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 20,
+  },
+  btn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  btnDecline: {
+    borderWidth: 1.5,
+    borderRadius: 999,
+  },
+  btnDeclineText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  btnAccept: {
+    flex: 1.6,
+    borderRadius: 999,
+  },
+  btnAcceptText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+});
+
+// ─────────────────────────────────────────────
+// Main Screen
+// ─────────────────────────────────────────────
+
 export default function SwapScreen() {
   const { walletAddress, isDarkMode, mnemonic } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
   const params = useLocalSearchParams();
-  // Trim chainId dari params untuk menghindari spasi
   const initialChainId = (
     (params.chainId as string) || "ethereum-mainnet"
   ).trim();
@@ -157,6 +832,23 @@ export default function SwapScreen() {
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
   const [showFromTokenSheet, setShowFromTokenSheet] = useState(false);
   const [showToTokenSheet, setShowToTokenSheet] = useState(false);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [disclaimerNeverShow, setDisclaimerNeverShow] = useState(false);
+  const pendingSwapRef = useRef<(() => Promise<void>) | null>(null);
+
+  // Custom Alert
+  const [alertConfig, setAlertConfig] = useState<CustomAlertConfig>({
+    visible: false,
+    type: "info",
+    title: "",
+    message: "",
+  });
+
+  const showAlert = (config: Omit<CustomAlertConfig, "visible">) => {
+    setAlertConfig({ ...config, visible: true });
+  };
+  const hideAlert = () =>
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
 
   // Swap Data
   const [fromToken, setFromToken] = useState<SwapToken | null>(null);
@@ -172,34 +864,24 @@ export default function SwapScreen() {
 
   // Settings
   const [slippage, setSlippage] = useState("0.5");
-  const [affiliateFeeBps, setAffiliateFeeBps] = useState(
-    DEFAULT_AFFILIATE_FEE_BPS.toString(),
-  );
 
-  // State untuk balance ERC-20 di token list sheet
   const [tokenBalances, setTokenBalances] = useState<Record<string, string>>(
     {},
   );
-
-  // State untuk Kurs USD ke IDR
   const [usdToIdrRate, setUsdToIdrRate] = useState<number>(15000);
 
-  // Helper: Get Config for Current Chain
   const currentChainConfig = SUPPORTED_CHAINS.find(
     (c) => c.id.trim() === selectedChainId.trim(),
   );
 
-  // Filter Mainnet Chains Only for Network Sheet
   const mainnetChains = SUPPORTED_CHAINS.filter((chain) => {
     const isTestnet =
       chain.id.toLowerCase().includes("testnet") ||
       chain.id.toLowerCase().includes("sepolia");
     const isSupportedBy0x = CHAIN_ID_MAP[chain.id.trim()] !== undefined;
-    // Hanya tampilkan chain yang ada di mapping 0x untuk fitur swap
     return !isTestnet && isSupportedBy0x;
   });
 
-  // Initialize Tokens when Chain Changes
   useEffect(() => {
     if (!currentChainConfig) return;
 
@@ -241,7 +923,6 @@ export default function SwapScreen() {
     setTokenBalances({});
   }, [selectedChainId, currentChainConfig]);
 
-  // Fetch Kurs USD to IDR
   useEffect(() => {
     const getRate = async () => {
       const rate = await fetchUsdToIdrRate();
@@ -252,7 +933,6 @@ export default function SwapScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch balance semua token ERC-20 di chain ini
   const fetchAllTokenBalances = useCallback(async () => {
     if (!walletAddress || !currentChainConfig?.tokens) return;
     const balances: Record<string, string> = {};
@@ -276,7 +956,6 @@ export default function SwapScreen() {
     setTokenBalances(balances);
   }, [selectedChainId, walletAddress, currentChainConfig]);
 
-  // Fetch Prices Realtime
   useEffect(() => {
     if (!fromToken || !toToken) return;
     const updatePrices = async () => {
@@ -301,7 +980,6 @@ export default function SwapScreen() {
     return () => clearInterval(interval);
   }, [fromToken?.symbol, toToken?.symbol, selectedChainId]);
 
-  // Fetch Balances Realtime
   const fetchBalances = useCallback(async () => {
     if (!walletAddress || !fromToken || !toToken || !currentChainConfig) return;
     setIsLoadingBalances(true);
@@ -361,7 +1039,6 @@ export default function SwapScreen() {
     return () => clearInterval(interval);
   }, [fetchAllTokenBalances]);
 
-  // Calculate Swap Output (Local Estimate via CoinGecko Price)
   useEffect(() => {
     if (
       !fromAmount ||
@@ -415,94 +1092,40 @@ export default function SwapScreen() {
   };
 
   // ─────────────────────────────────────────────
-  // 0x API Integration (V2 - AllowanceHolder)
+  // Execute Swap (called after disclaimer accepted)
   // ─────────────────────────────────────────────
-  const handleSwap = async () => {
-    // 1. Validasi Dasar
-    if (!fromToken || !toToken) {
-      Alert.alert("Error", "Please select tokens first.");
-      return;
-    }
-    if (fromToken.address.toLowerCase() === toToken.address.toLowerCase()) {
-      Alert.alert(
-        "Invalid Swap",
-        "You cannot swap a token with itself.\nPlease choose different tokens.",
-      );
-      return;
-    }
-    const numericAmount = parseFloat(fromAmount);
-    if (!fromAmount || isNaN(numericAmount) || numericAmount <= 0) {
-      Alert.alert(
-        "Invalid Amount",
-        "Please enter a valid amount greater than 0.",
-      );
-      return;
-    }
-    if (numericAmount > parseFloat(fromToken.balance)) {
-      Alert.alert("Insufficient Balance", "You do not have enough funds.");
-      return;
-    }
-    if (!walletAddress || !mnemonic) {
-      Alert.alert("Wallet Error", "No wallet address or mnemonic found.");
-      return;
-    }
+  const executeSwap = async () => {
+    if (!fromToken || !toToken || !walletAddress || !mnemonic) return;
 
     const chainIdInt = CHAIN_ID_MAP[selectedChainId];
-    if (!chainIdInt) {
-      Alert.alert(
-        "Unsupported Chain",
-        "This chain is not supported by 0x Swap API yet.",
-      );
-      return;
-    }
-
-    // Cek apakah chain didukung oleh 0x Production API (Hanya Mainnet)
-    const isMainnet =
-      !selectedChainId.toLowerCase().includes("testnet") &&
-      !selectedChainId.toLowerCase().includes("sepolia");
-
-    if (!isMainnet) {
-      Alert.alert(
-        "Testnet Not Supported",
-        "0x Swap API Production only supports Mainnets. Please switch to Ethereum, Polygon, Arbitrum, etc.",
-      );
-      return;
-    }
-
     setIsSwapping(true);
     setError(null);
 
     try {
-      // Convert amount to Wei/Base Unit
       const sellAmountWei = ethers
         .parseUnits(fromAmount, fromToken.decimals)
         .toString();
 
-      // Prepare Parameters for 0x API V2
-      const params = new URLSearchParams({
+      const queryParams = new URLSearchParams({
         chainId: chainIdInt.toString(),
         sellToken: fromToken.address.trim(),
         buyToken: toToken.address.trim(),
         sellAmount: sellAmountWei,
         taker: walletAddress,
         slippagePercentage: (parseFloat(slippage) / 100).toString(),
-
-        // Affiliate Fee Params
         swapFeeRecipient: AFFILIATE_FEE_RECIPIENT,
-        swapFeeBps: affiliateFeeBps,
+        swapFeeBps: DEFAULT_AFFILIATE_FEE_BPS.toString(),
       });
 
-      // Headers
       const headers = {
         "0x-api-key": ZEROEX_API_KEY || "",
         "0x-version": "v2",
       };
 
-      console.log("🔄 Fetching 0x Quote...", params.toString());
+      console.log("🔄 Fetching 0x Quote...");
 
-      // 1. Get Quote
       const quoteResponse = await fetch(
-        `https://api.0x.org/swap/allowance-holder/quote?${params.toString()}`,
+        `https://api.0x.org/swap/allowance-holder/quote?${queryParams.toString()}`,
         { headers },
       );
 
@@ -517,105 +1140,208 @@ export default function SwapScreen() {
       const quoteData = await quoteResponse.json();
       console.log("✅ Quote Received");
 
-      // Display Confirmation
       const estimatedBuyAmount = ethers.formatUnits(
         quoteData.buyAmount,
         toToken.decimals,
       );
 
-      Alert.alert(
-        "Confirm Swap",
-        `Swap ${fromAmount} ${fromToken.symbol}\n→ ~${parseFloat(estimatedBuyAmount).toFixed(6)} ${toToken.symbol}\n\nFee: ${affiliateFeeBps} bps to Integrator`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Confirm",
-            onPress: async () => {
-              try {
-                const provider = BlockchainService.getProvider(selectedChainId);
-                const walletFromMnemonic = ethers.Wallet.fromPhrase(mnemonic);
-                const signer = walletFromMnemonic.connect(provider);
+      // Show custom confirm modal
+      showAlert({
+        type: "confirm",
+        title: "Confirm Swap",
+        message: `Swap ${fromAmount} ${fromToken.symbol}\n→ ~${parseFloat(estimatedBuyAmount).toFixed(6)} ${toToken.symbol}\n\nSwap fees and network gas fees may apply. Please make sure your balance is sufficient before proceeding.`,
+        confirmText: "Confirm",
+        cancelText: "Cancel",
+        onConfirm: async () => {
+          try {
+            const provider = BlockchainService.getProvider(selectedChainId);
+            const walletFromMnemonic = ethers.Wallet.fromPhrase(mnemonic);
+            const signer = walletFromMnemonic.connect(provider);
 
-                if (
-                  signer.address.toLowerCase() !== walletAddress.toLowerCase()
-                ) {
-                  throw new Error("Address mismatch. Please re-login.");
-                }
+            if (signer.address.toLowerCase() !== walletAddress.toLowerCase()) {
+              throw new Error("Address mismatch. Please re-login.");
+            }
 
-                // 2. Check Allowance & Approve if needed
-                if (
-                  fromToken.address.toLowerCase() !==
-                    "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".toLowerCase() &&
-                  quoteData.transaction.to
-                ) {
-                  const ERC20_ABI = [
-                    "function allowance(address owner, address spender) view returns (uint256)",
-                    "function approve(address spender, uint256 amount) returns (bool)",
-                  ];
-                  const tokenContract = new ethers.Contract(
-                    fromToken.address.trim(),
-                    ERC20_ABI,
-                    signer,
-                  );
+            if (
+              fromToken.address.toLowerCase() !==
+                "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".toLowerCase() &&
+              quoteData.transaction.to
+            ) {
+              const ERC20_ABI = [
+                "function allowance(address owner, address spender) view returns (uint256)",
+                "function approve(address spender, uint256 amount) returns (bool)",
+              ];
+              const tokenContract = new ethers.Contract(
+                fromToken.address.trim(),
+                ERC20_ABI,
+                signer,
+              );
 
-                  const currentAllowance = await tokenContract.allowance(
-                    walletAddress,
-                    quoteData.transaction.to,
-                  );
+              const currentAllowance = await tokenContract.allowance(
+                walletAddress,
+                quoteData.transaction.to,
+              );
 
-                  const sellAmountBN = BigInt(sellAmountWei);
+              const sellAmountBN = BigInt(sellAmountWei);
 
-                  if (currentAllowance < sellAmountBN) {
-                    console.log(
-                      "🔑 Approving token spend on AllowanceHolder...",
-                    );
-                    const approveTx = await tokenContract.approve(
-                      quoteData.transaction.to,
-                      ethers.MaxUint256,
-                    );
-                    await approveTx.wait();
-                    console.log("✅ Approved!");
-                  }
-                }
-
-                // 3. Send Transaction
-                const tx = await signer.sendTransaction({
-                  to: quoteData.transaction.to,
-                  data: quoteData.transaction.data,
-                  value: BigInt(quoteData.transaction.value || "0"),
-                  gasLimit: BigInt(quoteData.transaction.gas),
-                });
-
-                console.log("⏳ Swap tx sent: ", tx.hash);
-                Alert.alert(
-                  "Swap Submitted!",
-                  `Transaction is being processed.\nTx Hash: ${tx.hash}`,
+              if (currentAllowance < sellAmountBN) {
+                console.log("🔑 Approving token spend on AllowanceHolder...");
+                const approveTx = await tokenContract.approve(
+                  quoteData.transaction.to,
+                  ethers.MaxUint256,
                 );
-
-                setFromAmount("");
-                setToAmount("");
-
-                await tx.wait();
-                fetchBalances();
-                fetchAllTokenBalances();
-              } catch (execError: any) {
-                console.error("Swap execution error: ", execError);
-                Alert.alert(
-                  "Swap Failed",
-                  execError?.message ||
-                    "An error occurred while sending the transaction.",
-                );
+                await approveTx.wait();
+                console.log("✅ Approved!");
               }
-            },
-          },
-        ],
-      );
+            }
+
+            const tx = await signer.sendTransaction({
+              to: quoteData.transaction.to,
+              data: quoteData.transaction.data,
+              value: BigInt(quoteData.transaction.value || "0"),
+              gasLimit: BigInt(quoteData.transaction.gas),
+            });
+
+            console.log("⏳ Swap tx sent: ", tx.hash);
+
+            setFromAmount("");
+            setToAmount("");
+
+            // Show success — replace loading modal
+            showAlert({
+              type: "success",
+              title: "Swap Submitted!",
+              message: `Transaction is being processed.\n\nTx Hash: ${tx.hash.slice(0, 10)}...${tx.hash.slice(-8)}`,
+              confirmText: "Great!",
+            });
+
+            await tx.wait();
+            fetchBalances();
+            fetchAllTokenBalances();
+          } catch (execError: any) {
+            console.error("Swap execution error: ", execError);
+            // Replace loading modal with error
+            showAlert({
+              type: "error",
+              title: "Swap Failed",
+              message: parseFriendlyError(execError),
+              confirmText: "OK",
+            });
+          }
+        },
+      });
     } catch (quoteError: any) {
       console.error("Quote error: ", quoteError);
       setError(quoteError.message || "Failed to get swap quote.");
+      showAlert({
+        type: "error",
+        title: "Quote Failed",
+        message:
+          quoteError.message || "Failed to get swap quote. Please try again.",
+        confirmText: "OK",
+      });
     } finally {
       setIsSwapping(false);
     }
+  };
+
+  // ─────────────────────────────────────────────
+  // Handle Swap Button Press (with disclaimer check)
+  // ─────────────────────────────────────────────
+  const handleSwap = async () => {
+    // Validations
+    if (!fromToken || !toToken) {
+      showAlert({
+        type: "error",
+        title: "Error",
+        message: "Please select tokens first.",
+        confirmText: "OK",
+      });
+      return;
+    }
+    if (fromToken.address.toLowerCase() === toToken.address.toLowerCase()) {
+      showAlert({
+        type: "warning",
+        title: "Invalid Swap",
+        message:
+          "You cannot swap a token with itself.\nPlease choose different tokens.",
+        confirmText: "OK",
+      });
+      return;
+    }
+    const numericAmount = parseFloat(fromAmount);
+    if (!fromAmount || isNaN(numericAmount) || numericAmount <= 0) {
+      showAlert({
+        type: "warning",
+        title: "Invalid Amount",
+        message: "Please enter a valid amount greater than 0.",
+        confirmText: "OK",
+      });
+      return;
+    }
+    if (numericAmount > parseFloat(fromToken.balance)) {
+      showAlert({
+        type: "error",
+        title: "Insufficient Balance",
+        message: "You do not have enough funds to complete this swap.",
+        confirmText: "OK",
+      });
+      return;
+    }
+    if (!walletAddress || !mnemonic) {
+      showAlert({
+        type: "error",
+        title: "Wallet Error",
+        message: "No wallet address or mnemonic found.",
+        confirmText: "OK",
+      });
+      return;
+    }
+
+    const chainIdInt = CHAIN_ID_MAP[selectedChainId];
+    if (!chainIdInt) {
+      showAlert({
+        type: "error",
+        title: "Unsupported Chain",
+        message: "This chain is not supported by 0x Swap API yet.",
+        confirmText: "OK",
+      });
+      return;
+    }
+
+    const isMainnet =
+      !selectedChainId.toLowerCase().includes("testnet") &&
+      !selectedChainId.toLowerCase().includes("sepolia");
+
+    if (!isMainnet) {
+      showAlert({
+        type: "warning",
+        title: "Testnet Not Supported",
+        message:
+          "0x Swap API only supports Mainnets. Please switch to Ethereum, Polygon, Arbitrum, etc.",
+        confirmText: "OK",
+      });
+      return;
+    }
+
+    // Show disclaimer if not suppressed
+    if (!disclaimerNeverShow) {
+      setShowDisclaimer(true);
+    } else {
+      await executeSwap();
+    }
+  };
+
+  const handleDisclaimerAccept = async (neverShow: boolean) => {
+    setShowDisclaimer(false);
+    if (neverShow) {
+      setDisclaimerNeverShow(true);
+    }
+    await executeSwap();
+  };
+
+  const handleDisclaimerDecline = () => {
+    setShowDisclaimer(false);
   };
 
   // Component for Token Icon
@@ -659,7 +1385,6 @@ export default function SwapScreen() {
   const isSwapDisabled =
     !!error || !fromAmount || isSwapping || isLoadingPrices;
 
-  // Helper Format IDR
   const formatIDR = (usdValue: number) => {
     const idrValue = usdValue * usdToIdrRate;
     return idrValue.toLocaleString("id-ID", {
@@ -680,7 +1405,6 @@ export default function SwapScreen() {
         <Text style={[styles.headerTitle, { color: theme.text }]}>
           {getSelectedChainName()}
         </Text>
-
         <TouchableOpacity
           onPress={() => setShowSettingsSheet(true)}
           style={styles.iconBtn}
@@ -699,7 +1423,7 @@ export default function SwapScreen() {
             <Text style={[styles.balanceText, { color: theme.textSecondary }]}>
               {isLoadingBalances
                 ? "Loading..."
-                : `Balance: ${parseFloat(fromToken.balance).toFixed(4)}`}
+                : `Balance: ${formatBalance(fromToken.balance)}`}
             </Text>
           </View>
 
@@ -761,7 +1485,7 @@ export default function SwapScreen() {
             <Text style={[styles.balanceText, { color: theme.textSecondary }]}>
               {isLoadingBalances
                 ? "Loading..."
-                : `Balance: ${parseFloat(toToken.balance).toFixed(4)}`}
+                : `Balance: ${formatBalance(toToken.balance)}`}
             </Text>
           </View>
 
@@ -836,6 +1560,22 @@ export default function SwapScreen() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* ── Custom Alert Modal */}
+      <CustomAlertModal
+        config={alertConfig}
+        onClose={hideAlert}
+        setAlertConfig={setAlertConfig}
+        theme={theme}
+      />
+
+      {/* ── Disclaimer Modal */}
+      <DisclaimerModal
+        visible={showDisclaimer}
+        onAccept={handleDisclaimerAccept}
+        onDecline={handleDisclaimerDecline}
+        theme={theme}
+      />
 
       {/* ── Network Bottom Sheet */}
       <Modal visible={showNetworkSheet} transparent animationType="slide">
@@ -937,7 +1677,6 @@ export default function SwapScreen() {
             <ScrollView>
               {currentChainConfig && (
                 <>
-                  {/* 1. Native Token Item */}
                   <TouchableOpacity
                     style={styles.networkItem}
                     onPress={() => {
@@ -979,13 +1718,12 @@ export default function SwapScreen() {
                     <View style={{ alignItems: "flex-end" }}>
                       <Text style={{ color: theme.text, fontWeight: "600" }}>
                         {fromToken.symbol === currentChainConfig.symbol.trim()
-                          ? fromToken.balance
+                          ? formatBalance(fromToken.balance)
                           : "—"}
                       </Text>
                     </View>
                   </TouchableOpacity>
 
-                  {/* 2. ERC20 Tokens Items */}
                   {currentChainConfig.tokens?.map((tokenConf) => {
                     const bal =
                       tokenBalances[tokenConf.address.trim()] ?? "...";
@@ -1036,7 +1774,7 @@ export default function SwapScreen() {
                           <Text
                             style={{ color: theme.text, fontWeight: "600" }}
                           >
-                            {bal}
+                            {bal === "..." ? "..." : formatBalance(bal)}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -1064,7 +1802,6 @@ export default function SwapScreen() {
             <ScrollView>
               {currentChainConfig && (
                 <>
-                  {/* 1. Native Token Item */}
                   <TouchableOpacity
                     style={styles.networkItem}
                     onPress={() => {
@@ -1106,13 +1843,12 @@ export default function SwapScreen() {
                     <View style={{ alignItems: "flex-end" }}>
                       <Text style={{ color: theme.text, fontWeight: "600" }}>
                         {toToken.symbol === currentChainConfig.symbol.trim()
-                          ? toToken.balance
+                          ? formatBalance(toToken.balance)
                           : "—"}
                       </Text>
                     </View>
                   </TouchableOpacity>
 
-                  {/* 2. ERC20 Tokens Items */}
                   {currentChainConfig.tokens?.map((tokenConf) => {
                     const bal =
                       tokenBalances[tokenConf.address.trim()] ?? "...";
@@ -1163,7 +1899,7 @@ export default function SwapScreen() {
                           <Text
                             style={{ color: theme.text, fontWeight: "600" }}
                           >
-                            {bal}
+                            {bal === "..." ? "..." : formatBalance(bal)}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -1176,7 +1912,7 @@ export default function SwapScreen() {
         </View>
       </Modal>
 
-      {/* ── Settings Bottom Sheet */}
+      {/* ── Settings Bottom Sheet (Slippage only, no fee BPS) */}
       <Modal visible={showSettingsSheet} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
@@ -1228,53 +1964,6 @@ export default function SwapScreen() {
                   <Text style={{ color: theme.textSecondary }}>%</Text>
                 </View>
               </View>
-            </View>
-
-            <View style={styles.settingSection}>
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  marginBottom: 12,
-                }}
-              >
-                <Text style={[styles.settingLabel, { color: theme.text }]}>
-                  Affiliate Fee
-                </Text>
-                <Info
-                  size={14}
-                  color={theme.textSecondary}
-                  style={{ marginLeft: 6 }}
-                />
-              </View>
-              <View style={styles.slippageOptions}>
-                <View
-                  style={[
-                    styles.customSlippage,
-                    { borderColor: theme.textSecondary, flex: 1 },
-                  ]}
-                >
-                  <TextInput
-                    style={{ color: theme.text }}
-                    value={affiliateFeeBps}
-                    onChangeText={setAffiliateFeeBps}
-                    keyboardType="numeric"
-                    placeholder="100"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                  <Text style={{ color: theme.textSecondary }}>bps</Text>
-                </View>
-              </View>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: theme.textSecondary,
-                  marginTop: 8,
-                }}
-              >
-                Fee is sent to: {AFFILIATE_FEE_RECIPIENT.slice(0, 6)}...
-                {AFFILIATE_FEE_RECIPIENT.slice(-4)}
-              </Text>
             </View>
           </View>
         </View>
@@ -1456,11 +2145,12 @@ const styles = StyleSheet.create({
   settingLabel: {
     fontSize: 16,
     fontWeight: "600",
+    marginBottom: 12,
   },
   slippageOptions: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 12,
+    marginTop: 0,
   },
   slippageBtn: {
     paddingHorizontal: 16,
@@ -1476,7 +2166,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 0,
     borderRadius: 12,
     borderWidth: 1,
     gap: 4,
