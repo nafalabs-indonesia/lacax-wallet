@@ -247,17 +247,11 @@ export default function SettingsScreen() {
   };
 
   const handleLanguage = () => {
-    showAlert("Language", "Select your preferred language.", [
-      {
-        text: "English",
-        onPress: () => showAlert("Success", "Language set to English"),
-      },
-      {
-        text: "Indonesian",
-        onPress: () => showAlert("Success", "Language set to Indonesian"),
-      },
-      { text: "Cancel", style: "cancel" },
-    ]);
+    showAlert(
+      "Language",
+      "English is currently available. Indonesian language support is coming soon.",
+      [{ text: "OK" }],
+    );
   };
 
   const handleAbout = () => {
@@ -322,7 +316,9 @@ export default function SettingsScreen() {
             ) : connectedApps.length === 0 ? (
               <View style={styles.emptyState}>
                 <Link size={24} color={theme.textSecondary} opacity={0.5} />
-                <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+                <Text
+                  style={[styles.emptyText, { color: theme.textSecondary }]}
+                >
                   No connected dApps
                 </Text>
               </View>
@@ -334,11 +330,21 @@ export default function SettingsScreen() {
                       // Jika ada icon URL, gunakan Image. Jika tidak, pakai placeholder
                       // Note: Perlu import Image dari react-native jika ingin menampilkan icon URL
                       // Untuk simplicity, kita pakai Icon default saja di sini atau Text
-                      <View style={[styles.dappIconPlaceholder, { backgroundColor: theme.background }]}>
+                      <View
+                        style={[
+                          styles.dappIconPlaceholder,
+                          { backgroundColor: theme.background },
+                        ]}
+                      >
                         <Link size={16} color={theme.text} />
                       </View>
                     ) : (
-                      <View style={[styles.dappIconPlaceholder, { backgroundColor: theme.background }]}>
+                      <View
+                        style={[
+                          styles.dappIconPlaceholder,
+                          { backgroundColor: theme.background },
+                        ]}
+                      >
                         <Link size={16} color={theme.text} />
                       </View>
                     )}
@@ -346,7 +352,9 @@ export default function SettingsScreen() {
                       <Text style={[styles.dappName, { color: theme.text }]}>
                         {app.name}
                       </Text>
-                      <Text style={[styles.dappUrl, { color: theme.textSecondary }]}>
+                      <Text
+                        style={[styles.dappUrl, { color: theme.textSecondary }]}
+                      >
                         {app.url.replace(/^https?:\/\//, "")}
                       </Text>
                     </View>

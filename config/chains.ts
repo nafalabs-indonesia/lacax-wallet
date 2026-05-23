@@ -32,7 +32,7 @@ const getAlchemyRpc = (network: string) => {
   return `https://${network}.g.alchemy.com/v2/${key}`;
 };
 
-const PROXY_BASE_URL = "https://lacakoin.vercel.app/api/rpc";
+const PROXY_BASE_URL = "https://lacax.vercel.app/api/v1/rpc";
 
 export const SUPPORTED_CHAINS: ChainConfig[] = [
   // --- Existing Chains ---

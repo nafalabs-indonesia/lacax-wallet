@@ -1,7 +1,6 @@
 // components/AnnouncementBanner.tsx
 import { useAppStore } from "@/store/appStore";
 import { Colors } from "@/theme/colors";
-import { BlurView } from "expo-blur";
 import React, { useEffect, useState } from "react";
 import {
   Animated,
@@ -125,13 +124,13 @@ export function AnnouncementBanner({
       >
         {/* BACK CARD */}
         {hasSecondItem && (
-          <BlurView
-            intensity={isDarkMode ? 15 : 30}
-            tint={isDarkMode ? "dark" : "light"}
-            experimentalBlurMethod="dimezisBlurView"
+          <View // Bukan BlurView
             style={[
               styles.blurLayer,
               {
+                backgroundColor: isDarkMode
+                  ? "rgba(0,0,0,0.5)"
+                  : "rgba(255,255,255,0.5)", // Simulasi blur manual
                 borderColor: theme.border,
                 height: cardHeight,
                 width: CARD_WIDTH,
@@ -158,7 +157,7 @@ export function AnnouncementBanner({
                 ]}
               />
             </View>
-          </BlurView>
+          </View>
         )}
 
         {/* FRONT CARD */}
@@ -332,8 +331,10 @@ const styles = StyleSheet.create({
     height: 60,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
+    marginRight: 15,
     flexShrink: 0,
+    borderRadius: 12,
+    overflow: "hidden",
   },
 
   illustration: {

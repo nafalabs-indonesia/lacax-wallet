@@ -245,6 +245,8 @@ export default function ScanScreen() {
                         "Session established. You can now return to the dApp.",
                       type: "success",
                       primaryLabel: "Done",
+                      secondaryLabel: undefined,
+                      onSecondary: undefined,
                       onPrimary: () => {
                         closeAlert();
                         router.back();

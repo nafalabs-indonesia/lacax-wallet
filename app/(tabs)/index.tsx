@@ -141,6 +141,16 @@ const formatBalance = (balanceStr: string, symbol: string): string => {
 };
 
 // ─────────────────────────────────────────────
+// Helper: Format IDR with 2 decimal digits
+// ─────────────────────────────────────────────
+const formatIDRWithDecimal = (val: number): string => {
+  return `IDR ${new Intl.NumberFormat("id-ID", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(val)}`;
+};
+
+// ─────────────────────────────────────────────
 // Skeleton Pulse Item
 // ─────────────────────────────────────────────
 function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
@@ -196,6 +206,66 @@ function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
             styles.skeletonLine,
             { width: 70, height: 11, backgroundColor: skeletonBg },
           ]}
+        />
+      </View>
+    </Animated.View>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Skeleton Balance Card (pulse for loading state)
+// ─────────────────────────────────────────────
+function SkeletonBalanceAmount() {
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 0.3,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulseAnim]);
+
+  return (
+    <Animated.View style={{ opacity: pulseAnim, alignItems: "center" }}>
+      {/* Main balance bar */}
+      <View
+        style={{
+          width: 200,
+          height: 42,
+          borderRadius: 10,
+          backgroundColor: "rgba(255,255,255,0.25)",
+          marginBottom: 12,
+        }}
+      />
+      {/* Change row bars */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View
+          style={{
+            width: 80,
+            height: 14,
+            borderRadius: 7,
+            backgroundColor: "rgba(255,255,255,0.18)",
+          }}
+        />
+        <View
+          style={{
+            width: 60,
+            height: 20,
+            borderRadius: 10,
+            backgroundColor: "rgba(255,255,255,0.18)",
+          }}
         />
       </View>
     </Animated.View>
@@ -442,12 +512,18 @@ export default function HomeScreen() {
   const isPortfolioUp = portfolioChangePercent >= 0;
 
   const formatIDR = (val: number) => {
-    return `IDR ${new Intl.NumberFormat("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(val)}`;
+    return `IDR ${new Intl.NumberFormat("id-ID", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(val)}`;
   };
 
   const formatIDRCompact = (val: number) => {
     if (isBalanceHidden) return "IDR ****";
-    return `IDR ${new Intl.NumberFormat("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(val)}`;
+    return `IDR ${new Intl.NumberFormat("id-ID", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(val)}`;
   };
 
   // ── Fetch Prices ──
@@ -664,52 +740,57 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.balanceCenterBlock}>
-                <Text style={styles.balanceAmount}>
-                  {isLoading && !refreshing
-                    ? "..."
-                    : formatIDRCompact(totalFiat)}
-                </Text>
-                <View style={styles.changeRow}>
-                  <Text
-                    style={[
-                      styles.changeAbsolute,
-                      { color: "rgba(255,255,255,0.85)" },
-                    ]}
-                  >
-                    {isBalanceHidden ? (
-                      "****"
-                    ) : (
-                      <>
-                        {isPortfolioUp ? "+" : ""}
-                        {new Intl.NumberFormat("id-ID", {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0,
-                        }).format(totalFiatChange)}
-                      </>
-                    )}
-                  </Text>
-                  <View
-                    style={[
-                      styles.changeBadge,
-                      {
-                        backgroundColor: isPortfolioUp
-                          ? "rgba(126,217,87,0.25)"
-                          : "rgba(255,49,49,0.25)",
-                        borderColor: isPortfolioUp ? "#7ed957" : "#ff3131",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.changeBadgeText,
-                        { color: isPortfolioUp ? "#7ed957" : "#ff3131" },
-                      ]}
-                    >
-                      {isPortfolioUp ? "↑" : "↓"}{" "}
-                      {Math.abs(portfolioChangePercent).toFixed(2)}%
+                {/* ── Pulse skeleton saat loading, bukan "..." ── */}
+                {isLoading && !refreshing ? (
+                  <SkeletonBalanceAmount />
+                ) : (
+                  <>
+                    <Text style={styles.balanceAmount}>
+                      {formatIDRCompact(totalFiat)}
                     </Text>
-                  </View>
-                </View>
+                    <View style={styles.changeRow}>
+                      <Text
+                        style={[
+                          styles.changeAbsolute,
+                          { color: "rgba(255,255,255,0.85)" },
+                        ]}
+                      >
+                        {isBalanceHidden ? (
+                          "****"
+                        ) : (
+                          <>
+                            {isPortfolioUp ? "+" : ""}
+                            {new Intl.NumberFormat("id-ID", {
+                              minimumFractionDigits: 0,
+                              maximumFractionDigits: 0,
+                            }).format(totalFiatChange)}
+                          </>
+                        )}
+                      </Text>
+                      <View
+                        style={[
+                          styles.changeBadge,
+                          {
+                            backgroundColor: isPortfolioUp
+                              ? "rgba(126,217,87,0.25)"
+                              : "rgba(255,49,49,0.25)",
+                            borderColor: isPortfolioUp ? "#7ed957" : "#ff3131",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.changeBadgeText,
+                            { color: isPortfolioUp ? "#7ed957" : "#ff3131" },
+                          ]}
+                        >
+                          {isPortfolioUp ? "↑" : "↓"}{" "}
+                          {Math.abs(portfolioChangePercent).toFixed(2)}%
+                        </Text>
+                      </View>
+                    </View>
+                  </>
+                )}
               </View>
 
               <View style={styles.actionsRow}>
@@ -858,7 +939,9 @@ export default function HomeScreen() {
                             { color: theme.text },
                           ]}
                         >
-                          {isBalanceHidden ? "****" : formatIDR(assetFiatVal)}
+                          {isBalanceHidden
+                            ? "****"
+                            : formatIDRWithDecimal(assetFiatVal)}
                         </Text>
                         {displayPriceData ? (
                           <View
@@ -874,7 +957,7 @@ export default function HomeScreen() {
                                 { color: theme.textSecondary },
                               ]}
                             >
-                              {formatIDR(unitPriceIDR)}
+                              {formatIDRWithDecimal(unitPriceIDR)}
                             </Text>
                             <Text
                               style={[styles.assetChangeText, { color: clr }]}

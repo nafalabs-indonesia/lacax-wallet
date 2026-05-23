@@ -55,10 +55,21 @@ import {
 const { width, height } = Dimensions.get("window");
 
 // ─────────────────────────────────────────────
-// Icon Mapping (Updated with New Chains)
+// Fee Config — diambil dari Next.js API
+// ─────────────────────────────────────────────
+
+// Ganti dengan URL deployment Next.js kamu
+const FEE_CONFIG_URL = "https://lacax.vercel.app/api/v1/fee-config";
+
+interface FeeConfig {
+  feeWallet: string;
+  feePercent: number;
+}
+
+// ─────────────────────────────────────────────
+// Icon Mapping
 // ─────────────────────────────────────────────
 const LOCAL_ICON_MAP: Record<string, any> = {
-  // Native Tokens
   ETH: require("../assets/chains/eth.png"),
   SepoliaETH: require("../assets/chains/eth-sepolia.png"),
   POL: require("../assets/chains/polygon.png"),
@@ -67,8 +78,6 @@ const LOCAL_ICON_MAP: Record<string, any> = {
   BDAG: require("../assets/chains/bdag.png"),
   MON: require("../assets/chains/monad.png"),
   ARB: require("../assets/chains/arbitrum.png"),
-
-  // ERC20 Tokens
   USDT: require("../assets/coins/usdt.png"),
   USDC: require("../assets/coins/usdc.png"),
 };
@@ -82,8 +91,6 @@ const LOCAL_CHAIN_ICON_MAP: Record<string, any> = {
   "bnb-testnet": require("../assets/chains/bnb.png"),
   "blockdag-mainnet": require("../assets/chains/bdag.png"),
   "blockdag-testnet": require("../assets/chains/bdag.png"),
-
-  // New Chains
   "arbitrum-mainnet": require("../assets/chains/arbitrum.png"),
   "arbitrum-sepolia": require("../assets/chains/arbitrum.png"),
   "monad-mainnet": require("../assets/chains/monad.png"),
@@ -106,11 +113,9 @@ const PUBLIC_RPC_MAP: Record<string, string[]> = {
   "bnb-testnet": ["https://data-seed-prebsc-1-s1.binance.org"],
   "blockdag-mainnet": ["https://rpc.primordial.bdagscan.com"],
   "blockdag-testnet": ["https://rpc.testnet.bdagscan.com"],
-
-  // New Chains Public RPCs (Fallback if Alchemy fails or for specific needs)
   "arbitrum-mainnet": ["https://arb1.arbitrum.io/rpc"],
   "arbitrum-sepolia": ["https://sepolia-rollup.arbitrum.io/rpc"],
-  "monad-mainnet": ["https://rpc.monad.xyz"], // Placeholder, update when live
+  "monad-mainnet": ["https://rpc.monad.xyz"],
   "monad-testnet": ["https://testnet-rpc.monad.xyz"],
 };
 
@@ -121,7 +126,7 @@ const HARDCODED_GAS_FALLBACK: Record<string, string> = {
   "bnb-mainnet": "5000000000",
   "blockdag-mainnet": "1000000000",
   "blockdag-testnet": "1000000000",
-  "arbitrum-mainnet": "100000000", // Arbitrum gas is usually lower
+  "arbitrum-mainnet": "100000000",
   "arbitrum-sepolia": "100000000",
   "monad-mainnet": "1000000000",
   "monad-testnet": "1000000000",
@@ -130,8 +135,6 @@ const HARDCODED_GAS_FALLBACK: Record<string, string> = {
 const NATIVE_DECIMALS = 18;
 const GAS_LIMIT_NATIVE = 21000;
 const GAS_LIMIT_TOKEN = 65000;
-const SERVICE_FEE_WALLET = "0x70d96B6463533741669cd6fC871a7761e88c50c8";
-const SERVICE_FEE_PERCENT = 0.001; // 0.1% fee
 
 const ERC20_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)",
@@ -186,6 +189,11 @@ export default function SendScreen() {
   const [gasPriceWei, setGasPriceWei] = useState<string>("0");
   const [isSending, setIsSending] = useState(false);
 
+  // ── Fee Config State ──
+  const [feeConfig, setFeeConfig] = useState<FeeConfig | null>(null);
+  const [isFeeConfigLoading, setIsFeeConfigLoading] = useState(true);
+  const [feeConfigError, setFeeConfigError] = useState(false);
+
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
@@ -201,10 +209,37 @@ export default function SendScreen() {
     null,
   );
 
-  // State for Fee Info Modals & Toggle
   const [showServiceFeeInfo, setShowServiceFeeInfo] = useState(false);
   const [showNetworkFeeInfo, setShowNetworkFeeInfo] = useState(false);
   const [serviceFeeEnabled, setServiceFeeEnabled] = useState(true);
+
+  // ─── Fetch Fee Config dari API ────────────────────────────────────────────
+
+  const fetchFeeConfig = useCallback(async () => {
+    setIsFeeConfigLoading(true);
+    setFeeConfigError(false);
+    try {
+      const res = await fetch(FEE_CONFIG_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error("Non-OK response");
+      const data: FeeConfig = await res.json();
+      if (!data.feeWallet || typeof data.feePercent !== "number") {
+        throw new Error("Invalid fee config shape");
+      }
+      setFeeConfig(data);
+    } catch (err) {
+      console.error("[FeeConfig] Failed to fetch:", err);
+      setFeeConfigError(true);
+      // Fallback aman: fee 0 dan wallet kosong → tidak kirim fee
+      setFeeConfig({ feeWallet: "", feePercent: 0 });
+    } finally {
+      setIsFeeConfigLoading(false);
+    }
+  }, []);
+
+  // Ambil fee config sekali saat mount
+  useEffect(() => {
+    fetchFeeConfig();
+  }, [fetchFeeConfig]);
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -224,6 +259,10 @@ export default function SendScreen() {
     }
     return null;
   };
+
+  // Fee percent aktif (0 jika dimatikan user atau config belum load)
+  const activeFeePercent =
+    serviceFeeEnabled && feeConfig ? feeConfig.feePercent : 0;
 
   // ─── Gas Fetching ────────────────────────────────────────────────────────────
 
@@ -274,7 +313,6 @@ export default function SendScreen() {
   );
 
   const fetchGasPrice = useCallback(async () => {
-    // Try 0x API for EVM chains that support it (Eth, Polygon, BNB, Arbitrum)
     const supported0xChains = [1, 137, 56, 42161];
     if (ZEROEX_API_KEY && supported0xChains.includes(selectedChain.chainId)) {
       try {
@@ -295,7 +333,7 @@ export default function SendScreen() {
           return;
         }
       } catch {
-        // Ignore 0x error, fallback to RPC
+        // fallback
       }
     }
 
@@ -385,15 +423,12 @@ export default function SendScreen() {
     if (!selectedAsset) return;
     let maxVal = parseFloat(selectedAsset.balance);
 
-    // Calculate current effective fee percent
-    const currentFeePercent = serviceFeeEnabled ? SERVICE_FEE_PERCENT : 0;
-
     if (selectedAsset.isNative) {
       const gasCostEth =
         (GAS_LIMIT_NATIVE * parseInt(gasPriceWei)) /
         Math.pow(10, NATIVE_DECIMALS);
-      if (1 + currentFeePercent > 0) {
-        maxVal = (maxVal - gasCostEth * 1.1) / (1 + currentFeePercent);
+      if (1 + activeFeePercent > 0) {
+        maxVal = (maxVal - gasCostEth * 1.1) / (1 + activeFeePercent);
       } else {
         maxVal = Math.max(0, maxVal - gasCostEth * 1.1);
       }
@@ -421,6 +456,7 @@ export default function SendScreen() {
   // ─── Validation Logic ───────────────────────────────────────────────────────
 
   const validateTransaction = (): string | null => {
+    if (!feeConfig) return "Fee configuration not loaded yet. Please wait.";
     if (!selectedAsset) return "Please select an asset.";
     if (!recipientAddress) return "Please enter a recipient address.";
     if (!ethers.isAddress(recipientAddress))
@@ -430,8 +466,7 @@ export default function SendScreen() {
     if (isNaN(sendAmount) || sendAmount <= 0)
       return "Please enter a valid amount greater than 0.";
 
-    const currentFeePercent = serviceFeeEnabled ? SERVICE_FEE_PERCENT : 0;
-    const serviceFee = sendAmount * currentFeePercent;
+    const serviceFee = sendAmount * activeFeePercent;
 
     const txGasLimit = selectedAsset.isNative
       ? GAS_LIMIT_NATIVE
@@ -477,6 +512,12 @@ export default function SendScreen() {
       return;
     }
 
+    if (isFeeConfigLoading) {
+      setErrorMsg("Loading fee configuration. Please wait a moment.");
+      setShowErrorModal(true);
+      return;
+    }
+
     const error = validateTransaction();
     if (error) {
       setErrorMsg(error);
@@ -485,8 +526,7 @@ export default function SendScreen() {
     }
 
     const sendAmount = parseFloat(amount);
-    const currentFeePercent = serviceFeeEnabled ? SERVICE_FEE_PERCENT : 0;
-    const serviceFee = sendAmount * currentFeePercent;
+    const serviceFee = sendAmount * activeFeePercent;
 
     const txGasLimit = selectedAsset!.isNative
       ? GAS_LIMIT_NATIVE
@@ -521,7 +561,6 @@ export default function SendScreen() {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  // Step 1: Confirm modal → open password modal
   const executeTransaction = () => {
     if (!pendingTxDetails || !selectedAsset) return;
     setShowConfirmModal(false);
@@ -533,7 +572,6 @@ export default function SendScreen() {
     });
   };
 
-  // Step 2: User submits password → verify → loading → run tx
   const handlePasswordSubmit = async () => {
     if (!passwordInput || isVerifying) return;
 
@@ -550,12 +588,10 @@ export default function SendScreen() {
         return;
       }
 
-      // Password benar — langsung set loading, tutup modal, jalankan tx
       setIsVerifying(false);
       setIsSending(true);
       setShowPasswordModal(false);
 
-      // Flush UI dulu (loading overlay muncul), baru kerja berat
       requestAnimationFrame(() => {
         setTimeout(() => {
           _runTransaction();
@@ -575,6 +611,9 @@ export default function SendScreen() {
 
   const _runTransaction = async () => {
     try {
+      // Pastikan fee config tersedia saat eksekusi
+      const currentFeeConfig = feeConfig ?? { feeWallet: "", feePercent: 0 };
+
       const rpcUrl = getRpcUrl(selectedChain);
       if (!rpcUrl) throw new Error("No RPC URL available.");
 
@@ -585,7 +624,6 @@ export default function SendScreen() {
         throw new Error("Wallet address mismatch.");
       }
 
-      // Ambil nonce awal sekali — kelola manual agar tidak ada collision
       const baseNonce = await provider.getTransactionCount(
         wallet.address,
         "pending",
@@ -600,21 +638,20 @@ export default function SendScreen() {
           NATIVE_DECIMALS,
         );
 
-        if (feeVal > 0n) {
-          // Tx 1: kirim fee dulu — nonce: baseNonce
+        // Kirim fee hanya jika ada wallet penerima fee dan nilai fee > 0
+        if (feeVal > 0n && currentFeeConfig.feeWallet) {
           const feeTx = await wallet.sendTransaction({
-            to: SERVICE_FEE_WALLET,
+            to: currentFeeConfig.feeWallet,
             value: feeVal,
             gasLimit: 21000,
             gasPrice,
             nonce: baseNonce,
           });
-          // Tunggu fee confirmed sebelum lanjut
           await feeTx.wait(1);
         }
 
-        // Tx 2: kirim main amount — nonce: baseNonce + 1 (atau +0 jika tidak ada fee)
-        const mainNonce = feeVal > 0n ? baseNonce + 1 : baseNonce;
+        const mainNonce =
+          feeVal > 0n && currentFeeConfig.feeWallet ? baseNonce + 1 : baseNonce;
         const mainTx = await wallet.sendTransaction({
           to: pendingTxDetails!.recipient,
           value: ethers.parseUnits(pendingTxDetails!.amount, NATIVE_DECIMALS),
@@ -630,21 +667,19 @@ export default function SendScreen() {
           NATIVE_DECIMALS,
         );
 
-        if (feeVal > 0n) {
-          // Tx 1: kirim native fee dulu — nonce: baseNonce
+        if (feeVal > 0n && currentFeeConfig.feeWallet) {
           const feeTx = await wallet.sendTransaction({
-            to: SERVICE_FEE_WALLET,
+            to: currentFeeConfig.feeWallet,
             value: feeVal,
             gasLimit: 21000,
             gasPrice,
             nonce: baseNonce,
           });
-          // Tunggu fee confirmed
           await feeTx.wait(1);
         }
 
-        // Tx 2: kirim token ke recipient — nonce: baseNonce + 1 (atau +0 jika tidak ada fee)
-        const mainNonce = feeVal > 0n ? baseNonce + 1 : baseNonce;
+        const mainNonce =
+          feeVal > 0n && currentFeeConfig.feeWallet ? baseNonce + 1 : baseNonce;
         const contract = new ethers.Contract(
           selectedAsset!.address,
           ERC20_ABI,
@@ -773,6 +808,32 @@ export default function SendScreen() {
             Double-check address & network. Transactions cannot be reversed.
           </Text>
         </View>
+
+        {/* Fee Config Error Banner */}
+        {feeConfigError && (
+          <View
+            style={[
+              styles.alertBox,
+              { backgroundColor: "#EF444415", borderColor: "#EF444440" },
+            ]}
+          >
+            <AlertCircle
+              size={18}
+              color="#EF4444"
+              style={{ marginRight: 10 }}
+            />
+            <Text style={[styles.alertText, { color: "#EF4444" }]}>
+              Could not load fee config. Service fee is disabled for this
+              session.{" "}
+              <Text
+                style={{ fontWeight: "700", textDecorationLine: "underline" }}
+                onPress={fetchFeeConfig}
+              >
+                Retry
+              </Text>
+            </Text>
+          </View>
+        )}
 
         {/* ── Select Asset Button ──────────────────────────────────────────── */}
         <View style={styles.dropdownContainer}>
@@ -935,17 +996,16 @@ export default function SendScreen() {
               style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
             >
               <Text style={[styles.feeLabel, { color: theme.textSecondary }]}>
-                Service Fee {serviceFeeEnabled ? "(0.1%)" : "(Disabled)"}
+                {isFeeConfigLoading
+                  ? "Service Fee (loading...)"
+                  : `Service Fee ${serviceFeeEnabled ? `(${(activeFeePercent * 100).toFixed(1)}%)` : "(Disabled)"}`}
               </Text>
               <TouchableOpacity onPress={() => setShowServiceFeeInfo(true)}>
                 <AlertCircle size={14} color={theme.text} />
               </TouchableOpacity>
             </View>
             <Text style={[styles.feeValue, { color: theme.text }]}>
-              {(
-                (parseFloat(amount) || 0) *
-                (serviceFeeEnabled ? SERVICE_FEE_PERCENT : 0)
-              ).toFixed(6)}{" "}
+              {((parseFloat(amount) || 0) * activeFeePercent).toFixed(6)}{" "}
               {selectedAsset?.symbol}
             </Text>
           </View>
@@ -974,8 +1034,6 @@ export default function SendScreen() {
             </View>
           )}
         </View>
-
-        {/* Info text removed as requested, handled by modal now */}
       </ScrollView>
 
       {/* ── Footer Button ─────────────────────────────────────────────────── */}
@@ -985,16 +1043,23 @@ export default function SendScreen() {
             styles.sendButton,
             {
               backgroundColor: theme.primary,
-              opacity: isSending || !amount || !recipientAddress ? 0.5 : 1,
+              opacity:
+                isSending || !amount || !recipientAddress || isFeeConfigLoading
+                  ? 0.5
+                  : 1,
             },
           ]}
           onPress={prepareTransaction}
-          disabled={isSending || !amount || !recipientAddress}
+          disabled={
+            isSending || !amount || !recipientAddress || isFeeConfigLoading
+          }
         >
           {isSending ? (
             <ActivityIndicator color="#FFF" />
           ) : (
-            <Text style={styles.sendButtonText}>Review Transfer</Text>
+            <Text style={styles.sendButtonText}>
+              {isFeeConfigLoading ? "Loading..." : "Review Transfer"}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
@@ -1229,7 +1294,6 @@ export default function SendScreen() {
           <View
             style={[styles.errorModalContent, { backgroundColor: theme.card }]}
           >
-            {/* Icon */}
             <View style={styles.errorIconWrapper}>
               <AlertCircle size={36} color="#EF4444" />
             </View>
@@ -1271,7 +1335,6 @@ export default function SendScreen() {
               { backgroundColor: theme.card },
             ]}
           >
-            {/* Header */}
             <View style={styles.confirmModalHeader}>
               <Text style={[styles.confirmModalTitle, { color: theme.text }]}>
                 Confirm Transfer
@@ -1287,7 +1350,6 @@ export default function SendScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Recipient */}
             <View
               style={[
                 styles.confirmSection,
@@ -1317,7 +1379,6 @@ export default function SendScreen() {
               </Text>
             </View>
 
-            {/* Amount */}
             <View
               style={[
                 styles.confirmAmountBlock,
@@ -1340,7 +1401,6 @@ export default function SendScreen() {
               </Text>
             </View>
 
-            {/* Fee breakdown */}
             <View style={styles.confirmFeeBreakdown}>
               <View style={styles.confirmFeeRow}>
                 <Text
@@ -1408,7 +1468,6 @@ export default function SendScreen() {
               )}
             </View>
 
-            {/* Actions */}
             <View style={styles.confirmActions}>
               <TouchableOpacity
                 style={[
@@ -1459,7 +1518,6 @@ export default function SendScreen() {
               { backgroundColor: theme.card },
             ]}
           >
-            {/* Lock icon */}
             <View
               style={[
                 styles.passwordIconWrapper,
@@ -1488,7 +1546,6 @@ export default function SendScreen() {
               Enter your wallet password to authorize this transfer.
             </Text>
 
-            {/* Password input */}
             <View
               style={[
                 styles.passwordInputWrapper,
@@ -1531,7 +1588,6 @@ export default function SendScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Error message */}
             {!!passwordError && (
               <View style={styles.passwordErrorRow}>
                 <AlertCircle size={14} color="#EF4444" />
@@ -1539,7 +1595,6 @@ export default function SendScreen() {
               </View>
             )}
 
-            {/* Actions */}
             <View style={styles.passwordActions}>
               <TouchableOpacity
                 style={[
@@ -1603,7 +1658,6 @@ export default function SendScreen() {
               { backgroundColor: theme.card },
             ]}
           >
-            {/* Animated check icon */}
             <View
               style={[
                 styles.successIconOuter,
@@ -1629,7 +1683,6 @@ export default function SendScreen() {
               Your transaction has been broadcast to the network.
             </Text>
 
-            {/* TX Hash */}
             <View
               style={[styles.txHashBox, { backgroundColor: theme.background }]}
             >
@@ -1666,7 +1719,6 @@ export default function SendScreen() {
               )}
             </View>
 
-            {/* View on Explorer */}
             {getExplorerUrl(selectedChain.id, txHash) && (
               <TouchableOpacity
                 style={[
@@ -1684,7 +1736,6 @@ export default function SendScreen() {
               </TouchableOpacity>
             )}
 
-            {/* Actions */}
             <View style={styles.successActions}>
               <TouchableOpacity
                 style={[
@@ -1774,19 +1825,12 @@ export default function SendScreen() {
               <TouchableOpacity
                 style={[
                   styles.confirmSendBtn,
-                  {
-                    backgroundColor: theme.primary,
-                    marginTop: 10,
-                  },
+                  { backgroundColor: theme.primary, marginTop: 10 },
                 ]}
                 onPress={() => setShowNetworkFeeInfo(false)}
               >
                 <Text
-                  style={{
-                    color: "#FFF",
-                    fontSize: 16,
-                    fontWeight: "700",
-                  }}
+                  style={{ color: "#FFF", fontSize: 16, fontWeight: "700" }}
                 >
                   Understood
                 </Text>
@@ -1810,7 +1854,6 @@ export default function SendScreen() {
               { backgroundColor: theme.card },
             ]}
           >
-            {/* Header */}
             <View style={styles.confirmModalHeader}>
               <Text style={[styles.confirmModalTitle, { color: theme.text }]}>
                 Service Fee
@@ -1826,7 +1869,6 @@ export default function SendScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Icon + description */}
             <View style={styles.serviceFeeIconWrapper}>
               <AlertCircle size={36} color={theme.primary} />
             </View>
@@ -1837,11 +1879,11 @@ export default function SendScreen() {
                 { color: theme.textSecondary },
               ]}
             >
-              The service fee (0.1%) helps us maintain wallet infrastructure,
-              ensure security, and provide seamless transactions.
+              The service fee ({(activeFeePercent * 100).toFixed(1)}%) helps us
+              maintain wallet infrastructure, ensure security, and provide
+              seamless transactions.
             </Text>
 
-            {/* ── Toggle Row ── */}
             <View
               style={[
                 styles.serviceFeeToggleRow,
@@ -1857,12 +1899,12 @@ export default function SendScreen() {
                 <Text
                   style={[
                     styles.serviceFeeToggleStatus,
-                    {
-                      color: serviceFeeEnabled ? "#22C55E" : "#EF4444",
-                    },
+                    { color: serviceFeeEnabled ? "#22C55E" : "#EF4444" },
                   ]}
                 >
-                  {serviceFeeEnabled ? "Enabled (0.1%)" : "Disabled"}
+                  {serviceFeeEnabled
+                    ? `Enabled (${(activeFeePercent * 100).toFixed(1)}%)`
+                    : "Disabled"}
                 </Text>
               </View>
               <Switch
@@ -1874,7 +1916,6 @@ export default function SendScreen() {
               />
             </View>
 
-            {/* Close button */}
             <TouchableOpacity
               style={[
                 styles.serviceFeeCloseBtn,
@@ -1894,7 +1935,6 @@ export default function SendScreen() {
 const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
 
-  // ── Loading Overlay ──────────────────────────────────────────────────────
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.55)",
@@ -1922,7 +1962,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // ── Layout ───────────────────────────────────────────────────────────────
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -1939,7 +1978,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     padding: 14,
     borderRadius: 12,
-    marginBottom: 24,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: "rgba(245, 158, 11, 0.3)",
   },
@@ -2025,14 +2064,6 @@ const styles = StyleSheet.create({
   feeLabel: { fontSize: 13 },
   feeValue: { fontSize: 13, fontWeight: "600" },
 
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 20,
-  },
-  infoText: { fontSize: 11, flex: 1 },
-
   footerWrapper: { padding: 20, paddingTop: 10 },
   sendButton: {
     height: 56,
@@ -2080,7 +2111,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // ── Bottom Sheets ────────────────────────────────────────────────────────
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -2126,7 +2156,6 @@ const styles = StyleSheet.create({
   },
   emptyState: { padding: 20, alignItems: "center" },
 
-  // ── Centered Modal Base ──────────────────────────────────────────────────
   centeredModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -2135,7 +2164,6 @@ const styles = StyleSheet.create({
     padding: 20,
   },
 
-  // ── Error Modal ──────────────────────────────────────────────────────────
   errorModalContent: {
     width: "100%",
     maxWidth: 360,
@@ -2171,13 +2199,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  errorDismissBtnText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  errorDismissBtnText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
 
-  // ── Confirm Modal ────────────────────────────────────────────────────────
   confirmModalContent: {
     width: "100%",
     maxWidth: 400,
@@ -2195,10 +2218,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 20,
   },
-  confirmModalTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-  },
+  confirmModalTitle: { fontSize: 20, fontWeight: "700" },
   confirmCloseBtn: {
     width: 32,
     height: 32,
@@ -2219,10 +2239,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 4,
   },
-  confirmSectionValue: {
-    fontSize: 13,
-    fontWeight: "500",
-  },
+  confirmSectionValue: { fontSize: 13, fontWeight: "500" },
   confirmAmountBlock: {
     borderWidth: 1,
     borderRadius: 16,
@@ -2237,47 +2254,26 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-  confirmAmountValue: {
-    fontSize: 28,
-    fontWeight: "800",
-  },
-  confirmFeeBreakdown: {
-    marginBottom: 20,
-  },
+  confirmAmountValue: { fontSize: 28, fontWeight: "800" },
+  confirmFeeBreakdown: { marginBottom: 20 },
   confirmFeeRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingVertical: 10,
   },
-  confirmFeeLabel: {
-    fontSize: 14,
-  },
-  confirmFeeValue: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  confirmFeeDivider: {
-    height: 1,
-  },
-  confirmFeeTotalLabel: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  confirmFeeTotalValue: {
-    fontSize: 15,
-    fontWeight: "800",
-  },
+  confirmFeeLabel: { fontSize: 14 },
+  confirmFeeValue: { fontSize: 14, fontWeight: "600" },
+  confirmFeeDivider: { height: 1 },
+  confirmFeeTotalLabel: { fontSize: 15, fontWeight: "700" },
+  confirmFeeTotalValue: { fontSize: 15, fontWeight: "800" },
   confirmGasNote: {
     fontSize: 11,
     marginTop: 6,
     textAlign: "right",
     fontStyle: "italic",
   },
-  confirmActions: {
-    flexDirection: "row",
-    gap: 12,
-  },
+  confirmActions: { flexDirection: "row", gap: 12 },
   confirmCancelBtn: {
     flex: 1,
     height: 52,
@@ -2286,10 +2282,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  confirmCancelText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  confirmCancelText: { fontSize: 16, fontWeight: "600" },
   confirmSendBtn: {
     flex: 1,
     height: 52,
@@ -2302,13 +2295,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  confirmSendText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  confirmSendText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
 
-  // ── Success Modal ────────────────────────────────────────────────────────
   successModalContent: {
     width: "100%",
     maxWidth: 380,
@@ -2349,12 +2337,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     paddingHorizontal: 10,
   },
-  txHashBox: {
-    width: "100%",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 14,
-  },
+  txHashBox: { width: "100%", borderRadius: 14, padding: 14, marginBottom: 14 },
   txHashBoxLabel: {
     fontSize: 11,
     fontWeight: "600",
@@ -2362,11 +2345,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 6,
   },
-  txHashRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
+  txHashRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   txHashText: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
     fontSize: 13,
@@ -2383,14 +2362,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 24,
   },
-  explorerText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  successActions: {
-    width: "100%",
-    gap: 10,
-  },
+  explorerText: { fontSize: 14, fontWeight: "600" },
+  successActions: { width: "100%", gap: 10 },
   successBackBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -2405,11 +2378,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  successBackText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  successBackText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
   successSendAgainBtn: {
     height: 52,
     borderRadius: 999,
@@ -2418,15 +2387,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: "100%",
   },
-  successSendAgainText: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  successSendAgainText: { fontSize: 16, fontWeight: "700" },
 
   ddItemTitle: { fontSize: 15, fontWeight: "600" },
   ddItemSub: { fontSize: 12 },
 
-  // ── Password Modal ───────────────────────────────────────────────────────
   passwordModalContent: {
     width: "100%",
     maxWidth: 360,
@@ -2476,15 +2441,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     paddingHorizontal: 16,
   },
-  passwordInputField: {
-    flex: 1,
-    fontSize: 16,
-    height: "100%",
-  },
-  passwordEyeBtn: {
-    padding: 4,
-    marginLeft: 8,
-  },
+  passwordInputField: { flex: 1, fontSize: 16, height: "100%" },
+  passwordEyeBtn: { padding: 4, marginLeft: 8 },
   passwordErrorRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2493,11 +2451,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     marginTop: 2,
   },
-  passwordErrorText: {
-    color: "#EF4444",
-    fontSize: 13,
-    flex: 1,
-  },
+  passwordErrorText: { color: "#EF4444", fontSize: 13, flex: 1 },
   passwordActions: {
     flexDirection: "row",
     gap: 12,
@@ -2512,10 +2466,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  passwordCancelText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  passwordCancelText: { fontSize: 16, fontWeight: "600" },
   passwordSubmitBtn: {
     flex: 1,
     height: 52,
@@ -2528,13 +2479,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  passwordSubmitText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  passwordSubmitText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
 
-  // ── Service Fee Modal ────────────────────────────────────────────────────
   serviceFeeModalContent: {
     width: "100%",
     maxWidth: 400,
@@ -2546,10 +2492,7 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 12,
   },
-  serviceFeeIconWrapper: {
-    alignItems: "center",
-    marginBottom: 14,
-  },
+  serviceFeeIconWrapper: { alignItems: "center", marginBottom: 14 },
   serviceFeeDescription: {
     fontSize: 14,
     lineHeight: 22,
@@ -2566,17 +2509,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 20,
   },
-  serviceFeeToggleLeft: {
-    gap: 2,
-  },
-  serviceFeeToggleTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  serviceFeeToggleStatus: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
+  serviceFeeToggleLeft: { gap: 2 },
+  serviceFeeToggleTitle: { fontSize: 15, fontWeight: "600" },
+  serviceFeeToggleStatus: { fontSize: 12, fontWeight: "600" },
   serviceFeeCloseBtn: {
     width: "100%",
     height: 52,
@@ -2589,9 +2524,5 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  serviceFeeCloseBtnText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  serviceFeeCloseBtnText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
 });

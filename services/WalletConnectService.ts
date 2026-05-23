@@ -7,35 +7,36 @@ import {
   arbitrum,
   base,
   bsc,
-  mainnet,
+  mainnet as ethereum,
   optimism,
   polygon,
   sepolia,
 } from "viem/chains";
 import { useAppStore } from "../store/appStore";
 
-const PROJECT_ID = "0e48a9edf33a440b4d2dcc976b42a4c4";
+// ✅ Import dari @env sesuai konfigurasi babel-plugin-module-resolver/react-native-dotenv
+import { WC_PROJECT_ID } from "@env";
+
+// Validasi sederhana agar error lebih jelas jika env belum diset
+if (!WC_PROJECT_ID) {
+  console.warn("⚠️ WC_PROJECT_ID is missing in .env file");
+}
 
 let web3Wallet: IWeb3Wallet | null = null;
 
 // ─── Pesan error WalletConnect yang aman diabaikan ──────────────────────────
-// Error-error ini adalah noise normal dari internal WC (expired proposals,
-// stale pairings, HMR reload) dan tidak perlu sampai ke user / Sentry.
 const IGNORABLE_WC_ERRORS = [
-  "Missing or invalid", // proposal/pairing sudah expired
-  "No matching key", // session tidak ditemukan di store WC
-  "Proposal expired", // proposal TTL habis
-  "Record was recently deleted", // expirer cleanup
-  "Pairing already exists", // URI dipakai ulang
+  "Missing or invalid",
+  "No matching key",
+  "Proposal expired",
+  "Record was recently deleted",
+  "Pairing already exists",
 ];
 
 const isIgnorableWcError = (msg: string): boolean =>
   IGNORABLE_WC_ERRORS.some((pattern) => msg?.includes(pattern));
 
 // ─── Definisi Chain Custom (BlockDAG) ────────────────────────────────────────
-// Karena BlockDAG belum ada di viem/chains default, kita definisikan manual
-// sesuai dengan config/chains.ts kamu.
-
 const blockdagMainnet = {
   id: 1404,
   name: "BlockDAG Mainnet",
@@ -46,9 +47,8 @@ const blockdagMainnet = {
     symbol: "BDAG",
   },
   rpcUrls: {
-    // Menggunakan proxy RPC dari config kamu agar bypass Cloudflare/limitasi
-    default: { http: ["https://lacakoin.vercel.app/api/rpc/1404"] },
-    public: { http: ["https://lacakoin.vercel.app/api/rpc/1404"] },
+    default: { http: ["https://lacax.vercel.app/api/v1/rpc/1404"] },
+    public: { http: ["https://lacax.vercel.app/api/v1/rpc/1404"] },
   },
   blockExplorers: {
     default: { name: "BlockDAG Explorer", url: "https://bdagscan.com/" },
@@ -77,31 +77,30 @@ const blockdagTestnet = {
 } as const;
 
 // ─── Chain registry ──────────────────────────────────────────────────────────
-
 const CHAIN_MAP: Record<number, any> = {
-  1: mainnet,
+  1: ethereum,
   137: polygon,
   56: bsc,
   11155111: sepolia,
   42161: arbitrum,
   10: optimism,
   8453: base,
-  1404: blockdagMainnet, // <--- ADDED: BlockDAG Mainnet
-  1043: blockdagTestnet, // <--- ADDED: BlockDAG Testnet
+  1404: blockdagMainnet,
+  1043: blockdagTestnet,
 };
 
-const getChainById = (chainId: number) => CHAIN_MAP[chainId] ?? mainnet;
+const getChainById = (chainId: number) => CHAIN_MAP[chainId] ?? CHAIN_MAP[1];
 
-// Pastikan EIP155_CHAINS mencakup semua chain di CHAIN_MAP
 const EIP155_CHAINS = Object.keys(CHAIN_MAP).map((id) => `eip155:${id}`);
 
 // ─── Init ────────────────────────────────────────────────────────────────────
-
 export const initWalletConnect = async (): Promise<IWeb3Wallet> => {
   if (web3Wallet) return web3Wallet;
 
   try {
-    const core = new Core({ projectId: PROJECT_ID });
+    // ✅ Gunakan WC_PROJECT_ID dari env
+    const core = new Core({ projectId: WC_PROJECT_ID });
+
     web3Wallet = await Web3Wallet.init({
       core: core as any,
       metadata: {
@@ -116,12 +115,10 @@ export const initWalletConnect = async (): Promise<IWeb3Wallet> => {
       },
     });
 
-    // ── Bersihkan proposal & pairing yang sudah expired saat init ─────────
     await _cleanupExpiredRecords();
 
     console.log("✅ WalletConnect Initialized");
   } catch (error: any) {
-    // Jika error saat init sendiri adalah stale record, reset instance dan coba lagi
     if (isIgnorableWcError(error?.message ?? "")) {
       console.warn("⚠️ WC init encountered stale records, resetting...");
       web3Wallet = null;
@@ -134,7 +131,6 @@ export const initWalletConnect = async (): Promise<IWeb3Wallet> => {
 };
 
 // ─── Bersihkan records expired ───────────────────────────────────────────────
-
 const _cleanupExpiredRecords = async (): Promise<void> => {
   if (!web3Wallet) return;
   try {
@@ -169,14 +165,12 @@ const _cleanupExpiredRecords = async (): Promise<void> => {
 };
 
 // ─── Pairing ─────────────────────────────────────────────────────────────────
-
 export const pairWithURI = async (uri: string): Promise<boolean> => {
   if (!web3Wallet) await initWalletConnect();
   try {
     await web3Wallet!.core.pairing.pair({ uri });
     return true;
   } catch (error: any) {
-    // "Pairing already exists" → URI dipakai ulang, bukan error fatal
     if (isIgnorableWcError(error?.message ?? "")) {
       console.warn("⚠️ pairWithURI (ignorable):", error.message);
       return true;
@@ -186,7 +180,6 @@ export const pairWithURI = async (uri: string): Promise<boolean> => {
 };
 
 // ─── Event Listeners ─────────────────────────────────────────────────────────
-
 export const registerEventListeners = () => {
   if (!web3Wallet) return;
 
@@ -198,7 +191,6 @@ export const registerEventListeners = () => {
     const proposalId = (proposal as any).id ?? (proposal as any).proposal?.id;
     if (!proposalId) return;
 
-    // Cek apakah proposal ini sudah expired sebelum diproses
     const expiry =
       (proposal as any).expiryTimestamp ??
       (proposal as any).expiry ??
@@ -301,7 +293,6 @@ export const registerEventListeners = () => {
 };
 
 // ─── Respond to Request ───────────────────────────────────────────────────────
-
 export const respondToWcRequest = async (
   isApproved: boolean,
 ): Promise<void> => {
@@ -349,8 +340,6 @@ export const respondToWcRequest = async (
 
     const account = privateKeyToAccount(privateKey as Hex);
 
-    // Gunakan chain yang sesuai dengan request, fallback ke mainnet jika tidak dikenali
-    // Namun karena CHAIN_MAP sudah diupdate, chainId 1404 sekarang akan valid.
     const chain = getChainById(chainId ?? 1);
 
     const client = createWalletClient({ account, chain, transport: http() });
@@ -421,7 +410,6 @@ export const respondToWcRequest = async (
         const requestedChainIdHex = params?.[0]?.chainId;
         const requestedChainId = parseInt(requestedChainIdHex, 16);
 
-        // Cek kembali apakah chain didukung (sekarang 1404 harusnya lolos)
         if (!CHAIN_MAP[requestedChainId]) {
           throw new Error(`Chain ${requestedChainId} is not supported`);
         }
@@ -467,7 +455,6 @@ export const respondToWcRequest = async (
     });
     console.log("📤 Success response sent to dApp");
   } catch (error: any) {
-    // Jika error dari WC sendiri (stale record dll), wrap pesan agar lebih jelas
     const msg: string = isIgnorableWcError(error?.message ?? "")
       ? "Session expired. Please reconnect from the dApp."
       : (error?.message ?? "Execution failed");

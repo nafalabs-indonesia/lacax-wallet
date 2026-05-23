@@ -1,24 +1,23 @@
 import { BlurView } from "expo-blur";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Eye, EyeOff, Lock } from "lucide-react-native";
-import React, { useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   Animated,
+  BackHandler,
   Image,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   Vibration,
-  View,
+  View
 } from "react-native";
-
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
 export default function UnlockScreen() {
   const router = useRouter();
-
   const { unlockWallet, setWalletAddress, isDarkMode, walletAddress } =
     useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
@@ -28,10 +27,53 @@ export default function UnlockScreen() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  // Track apakah sudah sekali tekan back
+  const backPressedOnce = useRef(false);
+  const backPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Animations
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const spinAnim = useRef(new Animated.Value(0)).current;
   const loadingOpacity = useRef(new Animated.Value(0)).current;
+
+  // Double-back-to-exit: tekan sekali → toast, tekan lagi dalam 2 detik → keluar app
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (backPressedOnce.current) {
+          // Sudah ditekan dua kali → keluar app
+          if (backPressTimer.current) clearTimeout(backPressTimer.current);
+          BackHandler.exitApp();
+          return true;
+        }
+
+        // Pertama kali ditekan
+        backPressedOnce.current = true;
+
+        // Tampilkan pesan (ToastAndroid tidak perlu import terpisah di RN)
+        const { ToastAndroid } = require("react-native");
+        ToastAndroid.show("Tekan sekali lagi untuk keluar", ToastAndroid.SHORT);
+
+        // Reset flag setelah 2 detik
+        backPressTimer.current = setTimeout(() => {
+          backPressedOnce.current = false;
+        }, 2000);
+
+        return true; // Tetap blok navigasi back ke halaman sebelumnya
+      };
+
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        onBackPress,
+      );
+
+      return () => {
+        subscription.remove();
+        if (backPressTimer.current) clearTimeout(backPressTimer.current);
+        backPressedOnce.current = false;
+      };
+    }, []),
+  );
 
   const triggerShake = () => {
     Vibration.vibrate(300);
@@ -91,7 +133,6 @@ export default function UnlockScreen() {
 
   const handleUnlock = async () => {
     if (!password) return;
-
     setError("");
     setIsLoading(true);
     startSpin();
@@ -105,7 +146,6 @@ export default function UnlockScreen() {
       if (success) {
         router.replace("/(tabs)");
       } else {
-        // 3. Jika gagal (password salah)
         setPassword("");
         setError("Incorrect password. Please try again.");
         triggerShake();
@@ -121,7 +161,6 @@ export default function UnlockScreen() {
   };
 
   const handleReset = async () => {
-    // Gunakan resetWallet dari store agar state juga ter-reset bersih
     await useAppStore.getState().resetWallet();
     router.replace("/welcome");
   };
@@ -141,7 +180,6 @@ export default function UnlockScreen() {
             resizeMode="contain"
           />
         </View>
-
         <Text style={[styles.title, { color: theme.text }]}>Welcome Back</Text>
 
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
@@ -196,7 +234,7 @@ export default function UnlockScreen() {
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
 
-      {/* Spacer agar tombol terdorong ke bawah */}
+      {/* Spacer */}
       <View style={{ flex: 1 }} />
 
       {/* Bottom Actions */}

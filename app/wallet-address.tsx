@@ -7,14 +7,12 @@ import {
   ChevronLeft,
   Copy,
   QrCode,
-  Share2,
 } from "lucide-react-native";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
   Modal,
-  Share as RNShare,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,12 +21,50 @@ import {
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { ChainConfig, SUPPORTED_CHAINS } from "../config/chains";
 import { WalletRepository } from "../modules/wallet/infrastructure/WalletRepository";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
-// --- Custom Modal Component ---
-interface CustomModalProps {
+// --- Types ---
+interface WalletListItem {
+  address: string;
+  chain: ChainConfig;
+}
+
+// --- Helper: Map Chain ID to Local Image Require ---
+// Karena chains.ts menggunakan string path, kita perlu mapping ke require() statis
+// agar React Native bisa membundel asset tersebut.
+const getChainIconSource = (chainId: number) => {
+  switch (chainId) {
+    case 1:
+      return require("../assets/chains/eth.png");
+    case 137:
+      return require("../assets/chains/polygon.png");
+    case 56:
+      return require("../assets/chains/bnb.png");
+    case 1404:
+    case 1043:
+      return require("../assets/chains/bdag.png");
+    case 11155111:
+      return require("../assets/chains/eth-sepolia.png");
+    case 80002:
+      return require("../assets/chains/polygon.png"); // Using same icon for amoy
+    case 97:
+      return require("../assets/chains/bnb.png"); // Using same icon for bnb test
+    case 42161:
+    case 421614:
+      return require("../assets/chains/arbitrum.png");
+    case 143:
+    case 10143:
+      return require("../assets/chains/monad.png");
+    default:
+      return require("../assets/chains/eth.png"); // Fallback
+  }
+};
+
+// --- Custom Notification Modal ---
+interface NotificationModalProps {
   visible: boolean;
   title: string;
   message: string;
@@ -37,7 +73,7 @@ interface CustomModalProps {
   theme: any;
 }
 
-const CustomModal: React.FC<CustomModalProps> = ({
+const NotificationModal: React.FC<NotificationModalProps> = ({
   visible,
   title,
   message,
@@ -50,7 +86,7 @@ const CustomModal: React.FC<CustomModalProps> = ({
       case "error":
         return <AlertTriangle size={48} color="#FF453A" />;
       case "success":
-        return <CheckCircle size={48} color={theme.text} />;
+        return <CheckCircle size={48} color={theme.text || "#4CAF50"} />;
       default:
         return <AlertTriangle size={48} color={theme.primary} />;
     }
@@ -84,83 +120,165 @@ const CustomModal: React.FC<CustomModalProps> = ({
   );
 };
 
+// --- QR Code Modal ---
+interface QRModalProps {
+  visible: boolean;
+  address: string;
+  chainName: string;
+  onClose: () => void;
+  theme: any;
+}
+
+const QRModal: React.FC<QRModalProps> = ({
+  visible,
+  address,
+  chainName,
+  onClose,
+  theme,
+}) => {
+  const shortAddress = address
+    ? `${address.slice(0, 7)}...${address.slice(-5)}`
+    : "";
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={styles.qrModalOverlay}>
+        <View style={[styles.qrModalContent, { backgroundColor: theme.card }]}>
+          <View style={styles.qrHeader}>
+            <Text style={[styles.qrTitle, { color: theme.text }]}>
+              {chainName}
+            </Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={{ color: theme.text, fontWeight: "600" }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View
+            style={[
+              styles.qrFrame,
+              {
+                backgroundColor: "#fff",
+                borderColor: theme.border || "#ddd",
+              },
+            ]}
+          >
+            {address ? (
+              <QRCode
+                value={address}
+                size={220}
+                color="#000"
+                backgroundColor="#fff"
+              />
+            ) : (
+              <ActivityIndicator size="large" color="#000" />
+            )}
+          </View>
+
+          <Text style={[styles.qrAddressLabel, { color: theme.textSecondary }]}>
+            {shortAddress}
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.qrShareButton, { backgroundColor: theme.primary }]}
+            onPress={async () => {
+              await Clipboard.setStringAsync(address);
+              onClose();
+            }}
+          >
+            <Copy size={18} color="#FFF" style={{ marginRight: 8 }} />
+            <Text style={styles.qrShareText}>Copy Address</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 export default function WalletAddressScreen() {
   const { isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  const [address, setAddress] = useState<string | null>(null);
+  const [walletList, setWalletList] = useState<WalletListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentAddress, setCurrentAddress] = useState<string>("");
 
   // Modal States
-  const [showQrModal, setShowQrModal] = useState(false);
-  const [modalConfig, setModalConfig] = useState<{
+  const [qrModalData, setQrModalData] = useState<{
+    visible: boolean;
+    address: string;
+    chainName: string;
+  }>({ visible: false, address: "", chainName: "" });
+
+  const [notification, setNotification] = useState<{
     visible: boolean;
     title: string;
     message: string;
     type?: "info" | "error" | "success";
   }>({ visible: false, title: "", message: "" });
 
-  // Ref untuk QR Code
-  const qrRef = useRef<any>(null);
-
   useEffect(() => {
-    loadAddress();
+    loadWalletData();
   }, []);
 
-  const loadAddress = async () => {
+  const loadWalletData = async () => {
     try {
+      setLoading(true);
+      // Ambil address utama dari repository/store
       const addr = await WalletRepository.getAddress();
-      setAddress(addr);
+
+      if (!addr) {
+        throw new Error("No wallet found");
+      }
+
+      setCurrentAddress(addr);
+
+      // Buat list wallet berdasarkan SUPPORTED_CHAINS
+      // Filter chain yang tidak disabled
+      const activeChains = SUPPORTED_CHAINS.filter((chain) => !chain.disabled);
+
+      const list: WalletListItem[] = activeChains.map((chain) => ({
+        address: addr, // EVM address sama untuk semua chain
+        chain: chain,
+      }));
+
+      setWalletList(list);
     } catch (error) {
-      console.error("Failed to load address", error);
-      showModal("Error", "Failed to load wallet address.", "error");
+      console.error("Failed to load wallets", error);
+      showNotification("Error", "Failed to load wallet data.", "error");
     } finally {
       setLoading(false);
     }
   };
 
-  const showModal = (
+  const showNotification = (
     title: string,
     message: string,
     type: "info" | "error" | "success" = "info",
   ) => {
-    setModalConfig({ visible: true, title, message, type });
+    setNotification({ visible: true, title, message, type });
   };
 
-  const hideModal = () => {
-    setModalConfig((prev) => ({ ...prev, visible: false }));
+  const hideNotification = () => {
+    setNotification((prev) => ({ ...prev, visible: false }));
   };
 
-  const handleCopy = async () => {
-    if (!address) return;
+  const handleCopy = async (address: string) => {
     await Clipboard.setStringAsync(address);
-    showModal("Success", "Wallet address copied to clipboard", "success");
+    showNotification("Success", "Address copied to clipboard", "success");
   };
 
-  const handleShare = async () => {
-    if (!address) return;
-
-    try {
-      // Menggunakan React Native Share API untuk membagikan teks
-      // Ini lebih stabil daripada expo-sharing untuk kasus string/URL
-      await RNShare.share({
-        message: `My Wallet Address:\n${address}`,
-        title: "Share Wallet Address",
-      });
-    } catch (error) {
-      console.error("Share error:", error);
-      // Error biasanya terjadi jika user membatalkan share, jadi kita abaikan atau tampilkan info
-      if (String(error).includes("dismissed")) {
-        return;
-      }
-      showModal("Error", "Failed to share address.", "error");
-    }
+  const openQR = (address: string, chainName: string) => {
+    setQrModalData({ visible: true, address, chainName });
   };
 
-  // Format address untuk tampilan tengah (misal: 0x1234...5678)
-  const shortAddress = address
-    ? `${address.substring(0, 6)}...${address.substring(address.length - 4)}`
-    : "";
+  const closeQR = () => {
+    setQrModalData((prev) => ({ ...prev, visible: false }));
+  };
 
   return (
     <SafeAreaView
@@ -172,181 +290,117 @@ export default function WalletAddressScreen() {
           <ChevronLeft size={28} color={theme.text} strokeWidth={2.5} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.text }]}>
-          My Wallet
+          My Wallets
         </Text>
-        <TouchableOpacity onPress={handleShare} style={styles.actionBtn}>
-          <Share2 size={24} color={theme.text} />
-        </TouchableOpacity>
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
       >
-        {/* Avatar & Address Card */}
-        <View style={[styles.card, { backgroundColor: theme.card }]}>
-          {/* Avatar Section */}
-          <View style={styles.avatarContainer}>
-            <Image
-              source={require("../assets/avatar.png")}
-              style={styles.avatar}
-              resizeMode="cover"
-            />
-            {/* Status Indicator (Optional) */}
-            <View
-              style={[styles.statusBadge, { backgroundColor: "#4CAF50" }]}
-            />
-          </View>
+        <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>
+          Select Network to Receive
+        </Text>
 
-          {/* Address Text */}
-          <View style={styles.addressSection}>
-            <Text style={[styles.label, { color: theme.textSecondary }]}>
-              Your Public Address
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.primary} />
+          </View>
+        ) : walletList.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+              No networks available.
             </Text>
-
-            {loading ? (
-              <ActivityIndicator
-                color={theme.primary}
-                style={{ marginTop: 10 }}
-              />
-            ) : (
-              <>
-                <Text
-                  style={[styles.addressText, { color: theme.text }]}
-                  selectable
-                >
-                  {address || "No wallet found"}
-                </Text>
-
-                <Text
-                  style={[styles.shortAddress, { color: theme.textSecondary }]}
-                >
-                  {shortAddress}
-                </Text>
-              </>
-            )}
           </View>
-
-          {/* Action Buttons */}
-          <View style={styles.actionsRow}>
-            <TouchableOpacity
+        ) : (
+          walletList.map((item, index) => (
+            <View
+              key={`${item.chain.id}-${index}`}
               style={[
-                styles.actionButton,
-                { backgroundColor: theme.primary + "15" },
+                styles.walletCard,
+                {
+                  backgroundColor: theme.background,
+                  borderColor: theme.border,
+                },
               ]}
-              onPress={handleCopy}
             >
-              <Copy size={20} color={theme.primary} />
-              <Text style={[styles.actionButtonText, { color: theme.primary }]}>
-                Copy
-              </Text>
-            </TouchableOpacity>
+              {/* LEFT SIDE: Icon, Network Name, Address */}
+              <View style={styles.leftContent}>
+                {/* Chain Icon */}
+                <View style={styles.chainIconContainer}>
+                  <Image
+                    source={getChainIconSource(item.chain.chainId)}
+                    resizeMode="contain"
+                    style={styles.chainIcon}
+                  />
+                </View>
 
-            <TouchableOpacity
-              style={[
-                styles.actionButton,
-                { backgroundColor: theme.primary + "15" },
-              ]}
-              onPress={() => setShowQrModal(true)}
-            >
-              <QrCode size={20} color={theme.primary} />
-              <Text style={[styles.actionButtonText, { color: theme.primary }]}>
-                QR Code
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+                <View style={styles.textContainer}>
+                  <Text
+                    style={[styles.networkName, { color: theme.text }]}
+                    numberOfLines={1}
+                  >
+                    {item.chain.name}
+                  </Text>
+
+                  <Text
+                    style={[styles.addressFull, { color: theme.textSecondary }]}
+                    numberOfLines={1}
+                    ellipsizeMode="middle"
+                  >
+                    {item.address}
+                  </Text>
+                </View>
+              </View>
+
+              {/* RIGHT SIDE: Actions */}
+              <View style={styles.rightActions}>
+                <TouchableOpacity
+                  style={[styles.actionBtn]}
+                  onPress={() => handleCopy(item.address)}
+                >
+                  <Copy size={20} color={theme.text} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.actionBtn]}
+                  onPress={() => openQR(item.address, item.chain.name)}
+                >
+                  <QrCode size={20} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))
+        )}
 
         {/* Info Box */}
         <View style={styles.infoBox}>
           <Text style={[styles.infoTitle, { color: theme.text }]}>
-            How to receive funds?
+            Important Notice
           </Text>
           <Text style={[styles.infoDesc, { color: theme.textSecondary }]}>
-            Share your public address or show the QR code to receive crypto
-            assets from others. Only share this address with trusted sources.
+            Ensure you select the correct network when receiving funds. Sending
+            assets via the wrong network may result in permanent loss.
           </Text>
         </View>
       </ScrollView>
 
-      {/* --- QR Code Modal --- */}
-      <Modal
-        visible={showQrModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowQrModal(false)}
-      >
-        <View style={styles.qrModalOverlay}>
-          <View
-            style={[styles.qrModalContent, { backgroundColor: theme.card }]}
-          >
-            <View style={styles.qrHeader}>
-              <Text style={[styles.qrTitle, { color: theme.text }]}>
-                Scan to Pay
-              </Text>
-              <TouchableOpacity onPress={() => setShowQrModal(false)}>
-                <Text style={{ color: theme.primary, fontWeight: "600" }}>
-                  Close
-                </Text>
-              </TouchableOpacity>
-            </View>
+      {/* --- Modals --- */}
+      <QRModal
+        visible={qrModalData.visible}
+        address={qrModalData.address}
+        chainName={qrModalData.chainName}
+        onClose={closeQR}
+        theme={theme}
+      />
 
-            <View
-              style={[
-                styles.qrFrame,
-                {
-                  backgroundColor: "#fff",
-                  borderColor: theme.border || "#ddd",
-                },
-              ]}
-            >
-              {address ? (
-                <QRCode
-                  value={address}
-                  size={220}
-                  color="#000"
-                  backgroundColor="#fff"
-                  getRef={(ref) => (qrRef.current = ref)}
-                />
-              ) : (
-                <View
-                  style={{
-                    width: 220,
-                    height: 220,
-                    justifyContent: "center",
-                    alignItems: "center",
-                  }}
-                >
-                  <ActivityIndicator size="large" color="#000" />
-                </View>
-              )}
-            </View>
-
-            <Text
-              style={[styles.qrAddressLabel, { color: theme.textSecondary }]}
-            >
-              {shortAddress}
-            </Text>
-
-            <TouchableOpacity
-              style={[styles.qrShareButton, { backgroundColor: theme.primary }]}
-              onPress={handleShare}
-            >
-              <Share2 size={18} color="#FFF" style={{ marginRight: 8 }} />
-              <Text style={styles.qrShareText}>Share Address</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* --- Custom Notification Modal --- */}
-      <CustomModal
-        visible={modalConfig.visible}
-        title={modalConfig.title}
-        message={modalConfig.message}
-        type={modalConfig.type}
-        onClose={hideModal}
+      <NotificationModal
+        visible={notification.visible}
+        title={notification.title}
+        message={notification.message}
+        type={notification.type}
+        onClose={hideNotification}
         theme={theme}
       />
     </SafeAreaView>
@@ -364,92 +418,95 @@ const styles = StyleSheet.create({
   },
   backBtn: { padding: 8, marginLeft: -8 },
   headerTitle: { fontSize: 18, fontWeight: "700" },
-  actionBtn: { padding: 8 },
 
-  scrollContent: { padding: 16, alignItems: "center" },
-
-  card: {
-    width: "100%",
-    borderRadius: 24,
-    padding: 24,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
-    marginBottom: 24,
-  },
-
-  avatarContainer: {
-    position: "relative",
-    marginBottom: 20,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 4,
-    borderColor: "rgba(255,255,255,0.1)",
-  },
-  statusBadge: {
-    position: "absolute",
-    bottom: 5,
-    right: 5,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#FFF",
-  },
-
-  addressSection: {
-    width: "100%",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  addressText: {
+  scrollContent: { padding: 16 },
+  sectionLabel: {
     fontSize: 14,
-    fontFamily: "monospace",
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 4,
-    flexWrap: "wrap",
-  },
-  shortAddress: {
-    fontSize: 16,
     fontWeight: "600",
+    marginBottom: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
 
-  actionsRow: {
-    flexDirection: "row",
-    gap: 12,
-    width: "100%",
+  loadingContainer: {
+    padding: 40,
+    alignItems: "center",
   },
-  actionButton: {
-    flex: 1,
-    flexDirection: "row",
+  emptyState: {
+    padding: 40,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 16,
-    gap: 8,
   },
-  actionButtonText: {
-    fontWeight: "600",
-    fontSize: 14,
+  emptyText: {
+    marginTop: 12,
+    fontSize: 16,
   },
 
+  // Wallet Card Item
+  walletCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  leftContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 12,
+  },
+  chainIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(128,128,128,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+    overflow: "hidden",
+  },
+  chainIcon: {
+    width: 40,
+    height: 40,
+  },
+  textContainer: {
+    flex: 1,
+  },
+  networkName: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  addressFull: {
+    fontSize: 12,
+    fontFamily: "monospace",
+  },
+  rightActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  actionBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // Info Box
   infoBox: {
-    width: "100%",
-    paddingHorizontal: 8,
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(128,128,128,0.2)",
   },
   infoTitle: {
     fontSize: 16,
@@ -475,15 +532,8 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 24,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10,
   },
-  modalIconContainer: {
-    marginBottom: 16,
-  },
+  modalIconContainer: { marginBottom: 16 },
   modalTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -499,7 +549,7 @@ const styles = StyleSheet.create({
   modalButton: {
     width: "100%",
     height: 48,
-    borderRadius: 12,
+    borderRadius: 999,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -523,11 +573,6 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     padding: 32,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 20,
   },
   qrHeader: {
     flexDirection: "row",
@@ -544,11 +589,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     marginBottom: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
   },
   qrAddressLabel: {
     fontSize: 14,
