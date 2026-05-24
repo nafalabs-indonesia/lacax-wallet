@@ -1,4 +1,3 @@
-// app/(tabs)/_layout.tsx
 import { Redirect, Tabs } from "expo-router";
 import { Clock, Compass, Home, TrendingUp } from "lucide-react-native";
 import React from "react";
@@ -19,14 +18,14 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
       style={[
         styles.tabBar,
         {
-          backgroundColor: "transparent", // Tanpa background container
+          backgroundColor: "transparent",
           borderTopWidth: 0,
-          bottom: 0, // Paling bawah
-          shadowColor: "transparent", // Hilangkan shadow kotak
+          bottom: 0,
+          shadowColor: "transparent",
           elevation: 0,
           width: "100%",
           paddingHorizontal: 10,
-          paddingBottom: Platform.OS === "ios" ? 25 : 10, // Padding bawah untuk iPhone home indicator
+          paddingBottom: Platform.OS === "ios" ? 25 : 10,
           paddingTop: 10,
         },
       ]}
@@ -50,7 +49,6 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
 
         let IconComponent;
 
-        // Mapping 4 Ikon: Home, Discover (Compass), History (Clock), Earn (Chart)
         if (route.name === "index") {
           IconComponent = Home;
         } else if (route.name === "discover") {
@@ -128,7 +126,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     position: "absolute",
     alignSelf: "center",
-    height: 150, // Tinggi area tab bar
+    height: 150,
     alignItems: "center",
     justifyContent: "space-around",
     zIndex: 10,

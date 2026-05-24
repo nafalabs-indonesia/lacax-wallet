@@ -1,4 +1,3 @@
-// app/wallet-address.tsx
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import {
@@ -26,15 +25,11 @@ import { WalletRepository } from "../modules/wallet/infrastructure/WalletReposit
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
-// --- Types ---
 interface WalletListItem {
   address: string;
   chain: ChainConfig;
 }
 
-// --- Helper: Map Chain ID to Local Image Require ---
-// Karena chains.ts menggunakan string path, kita perlu mapping ke require() statis
-// agar React Native bisa membundel asset tersebut.
 const getChainIconSource = (chainId: number) => {
   switch (chainId) {
     case 1:
@@ -49,9 +44,9 @@ const getChainIconSource = (chainId: number) => {
     case 11155111:
       return require("../assets/chains/eth-sepolia.png");
     case 80002:
-      return require("../assets/chains/polygon.png"); // Using same icon for amoy
+      return require("../assets/chains/polygon.png");
     case 97:
-      return require("../assets/chains/bnb.png"); // Using same icon for bnb test
+      return require("../assets/chains/bnb.png");
     case 42161:
     case 421614:
       return require("../assets/chains/arbitrum.png");
@@ -59,11 +54,10 @@ const getChainIconSource = (chainId: number) => {
     case 10143:
       return require("../assets/chains/monad.png");
     default:
-      return require("../assets/chains/eth.png"); // Fallback
+      return require("../assets/chains/eth.png");
   }
 };
 
-// --- Custom Notification Modal ---
 interface NotificationModalProps {
   visible: boolean;
   title: string;
@@ -120,7 +114,6 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
   );
 };
 
-// --- QR Code Modal ---
 interface QRModalProps {
   visible: boolean;
   address: string;
@@ -207,7 +200,6 @@ export default function WalletAddressScreen() {
   const [loading, setLoading] = useState(true);
   const [currentAddress, setCurrentAddress] = useState<string>("");
 
-  // Modal States
   const [qrModalData, setQrModalData] = useState<{
     visible: boolean;
     address: string;
@@ -228,7 +220,7 @@ export default function WalletAddressScreen() {
   const loadWalletData = async () => {
     try {
       setLoading(true);
-      // Ambil address utama dari repository/store
+
       const addr = await WalletRepository.getAddress();
 
       if (!addr) {
@@ -237,12 +229,10 @@ export default function WalletAddressScreen() {
 
       setCurrentAddress(addr);
 
-      // Buat list wallet berdasarkan SUPPORTED_CHAINS
-      // Filter chain yang tidak disabled
       const activeChains = SUPPORTED_CHAINS.filter((chain) => !chain.disabled);
 
       const list: WalletListItem[] = activeChains.map((chain) => ({
-        address: addr, // EVM address sama untuk semua chain
+        address: addr,
         chain: chain,
       }));
 
@@ -284,7 +274,6 @@ export default function WalletAddressScreen() {
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.background }]}
     >
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <ChevronLeft size={28} color={theme.text} strokeWidth={2.5} />
@@ -325,9 +314,7 @@ export default function WalletAddressScreen() {
                 },
               ]}
             >
-              {/* LEFT SIDE: Icon, Network Name, Address */}
               <View style={styles.leftContent}>
-                {/* Chain Icon */}
                 <View style={styles.chainIconContainer}>
                   <Image
                     source={getChainIconSource(item.chain.chainId)}
@@ -354,7 +341,6 @@ export default function WalletAddressScreen() {
                 </View>
               </View>
 
-              {/* RIGHT SIDE: Actions */}
               <View style={styles.rightActions}>
                 <TouchableOpacity
                   style={[styles.actionBtn]}
@@ -374,7 +360,6 @@ export default function WalletAddressScreen() {
           ))
         )}
 
-        {/* Info Box */}
         <View style={styles.infoBox}>
           <Text style={[styles.infoTitle, { color: theme.text }]}>
             Important Notice
@@ -386,7 +371,6 @@ export default function WalletAddressScreen() {
         </View>
       </ScrollView>
 
-      {/* --- Modals --- */}
       <QRModal
         visible={qrModalData.visible}
         address={qrModalData.address}
@@ -442,7 +426,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
-  // Wallet Card Item
   walletCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -500,7 +483,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Info Box
   infoBox: {
     marginTop: 12,
     padding: 16,
@@ -518,7 +500,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // --- Modal Styles ---
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
@@ -559,7 +540,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
-  // --- QR Modal Specific Styles ---
   qrModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.8)",

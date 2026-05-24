@@ -11,7 +11,7 @@ import {
   TextInput,
   TouchableOpacity,
   Vibration,
-  View
+  View,
 } from "react-native";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
@@ -27,39 +27,32 @@ export default function UnlockScreen() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Track apakah sudah sekali tekan back
   const backPressedOnce = useRef(false);
   const backPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Animations
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const spinAnim = useRef(new Animated.Value(0)).current;
   const loadingOpacity = useRef(new Animated.Value(0)).current;
 
-  // Double-back-to-exit: tekan sekali → toast, tekan lagi dalam 2 detik → keluar app
   useFocusEffect(
     useCallback(() => {
       const onBackPress = () => {
         if (backPressedOnce.current) {
-          // Sudah ditekan dua kali → keluar app
           if (backPressTimer.current) clearTimeout(backPressTimer.current);
           BackHandler.exitApp();
           return true;
         }
 
-        // Pertama kali ditekan
         backPressedOnce.current = true;
 
-        // Tampilkan pesan (ToastAndroid tidak perlu import terpisah di RN)
         const { ToastAndroid } = require("react-native");
         ToastAndroid.show("Tekan sekali lagi untuk keluar", ToastAndroid.SHORT);
 
-        // Reset flag setelah 2 detik
         backPressTimer.current = setTimeout(() => {
           backPressedOnce.current = false;
         }, 2000);
 
-        return true; // Tetap blok navigasi back ke halaman sebelumnya
+        return true;
       };
 
       const subscription = BackHandler.addEventListener(
@@ -167,7 +160,6 @@ export default function UnlockScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Top section */}
       <View style={styles.topSection}>
         <View style={styles.logoBadge}>
           <Image
@@ -187,7 +179,6 @@ export default function UnlockScreen() {
         </Text>
       </View>
 
-      {/* Input Section */}
       <View style={styles.middleSection}>
         <Animated.View
           style={[
@@ -234,10 +225,8 @@ export default function UnlockScreen() {
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
 
-      {/* Spacer */}
       <View style={{ flex: 1 }} />
 
-      {/* Bottom Actions */}
       <View style={styles.bottomSection}>
         <TouchableOpacity
           style={[styles.unlockBtn, { backgroundColor: theme.primary }]}
@@ -259,7 +248,6 @@ export default function UnlockScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Spinner overlay */}
       {isLoading && (
         <Animated.View
           style={[styles.spinnerOverlay, { opacity: loadingOpacity }]}

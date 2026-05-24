@@ -1,4 +1,3 @@
-// app/index.tsx
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useEffect } from "react";

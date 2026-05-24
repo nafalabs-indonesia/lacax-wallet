@@ -1,4 +1,3 @@
-// app/(auth)/wallet-ready.tsx
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef } from "react";
 import {
@@ -18,7 +17,6 @@ export default function WalletReadyScreen() {
   const { isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  // Animations
   const imageAnim = useRef(new Animated.Value(0)).current;
   const titleAnim = useRef(new Animated.Value(0)).current;
   const subtitleAnim = useRef(new Animated.Value(0)).current;
@@ -65,12 +63,10 @@ export default function WalletReadyScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Top accent */}
       <View
         style={[styles.topAccent, { backgroundColor: theme.primary + "12" }]}
       />
 
-      {/* Image */}
       <Animated.View
         style={[
           styles.imageWrap,
@@ -87,9 +83,7 @@ export default function WalletReadyScreen() {
         />
       </Animated.View>
 
-      {/* Text */}
       <View style={styles.textBlock}>
-        {/* Title */}
         <Animated.Text
           style={[
             styles.title,
@@ -110,7 +104,6 @@ export default function WalletReadyScreen() {
           Your wallet is ready!
         </Animated.Text>
 
-        {/* ✅ Subtitle ditambahkan di sini */}
         <Animated.Text
           style={[
             styles.subtitle,
@@ -132,7 +125,6 @@ export default function WalletReadyScreen() {
         </Animated.Text>
       </View>
 
-      {/* Button */}
       <Animated.View
         style={[
           styles.buttonWrap,

@@ -1,4 +1,3 @@
-// app/(tabs)/index.tsx
 import { SUPPORTED_CHAINS, TokenConfig } from "@/config/chains";
 import {
   BlockchainService,
@@ -43,24 +42,17 @@ import { Colors } from "../../theme/colors";
 
 const { width: W } = Dimensions.get("window");
 
-// Keys for AsyncStorage
 const STORAGE_KEYS = {
   ENABLED_NETWORKS: "@wallet_enabled_networks",
   ENABLED_ASSETS: "@wallet_enabled_assets",
 };
 
-// ─────────────────────────────────────────────
-// Helper: Detect Testnet
-// ─────────────────────────────────────────────
 const isTestnet = (id: string) => {
   return (
     id.includes("testnet") || id.includes("sepolia") || id.includes("amoy")
   );
 };
 
-// ─────────────────────────────────────────────
-// Helper: Mapping Icon Lokal (Chains & Tokens)
-// ─────────────────────────────────────────────
 const LOCAL_ICON_MAP: Record<string, any> = {
   "ethereum-mainnet": require("../../assets/chains/eth.png"),
   "ethereum-sepolia": require("../../assets/chains/eth-sepolia.png"),
@@ -91,9 +83,6 @@ const NETWORK_BADGE_ICON: Record<string, any> = {
   "monad-testnet": require("../../assets/chains/monad.png"),
 };
 
-// ─────────────────────────────────────────────
-// CoinGecko ID Mapping
-// ─────────────────────────────────────────────
 const COINGECKO_IDS: Record<string, string> = {
   "ethereum-mainnet": "ethereum",
   "blockdag-mainnet": "blockdag",
@@ -110,9 +99,6 @@ const COINGECKO_IDS: Record<string, string> = {
   USDC: "usd-coin",
 };
 
-// ─────────────────────────────────────────────
-// Interfaces
-// ─────────────────────────────────────────────
 interface PriceData {
   usd: number;
   idr: number;
@@ -130,9 +116,6 @@ interface DisplayAsset {
   tokenConfig?: TokenConfig;
 }
 
-// ─────────────────────────────────────────────
-// Helper: Format balance
-// ─────────────────────────────────────────────
 const formatBalance = (balanceStr: string, symbol: string): string => {
   const val = parseFloat(balanceStr);
   if (isNaN(val)) return `0.0000 ${symbol}`;
@@ -140,9 +123,6 @@ const formatBalance = (balanceStr: string, symbol: string): string => {
   return `${val.toFixed(4)} ${symbol}`;
 };
 
-// ─────────────────────────────────────────────
-// Helper: Format IDR with 2 decimal digits
-// ─────────────────────────────────────────────
 const formatIDRWithDecimal = (val: number): string => {
   return `IDR ${new Intl.NumberFormat("id-ID", {
     minimumFractionDigits: 2,
@@ -150,9 +130,6 @@ const formatIDRWithDecimal = (val: number): string => {
   }).format(val)}`;
 };
 
-// ─────────────────────────────────────────────
-// Skeleton Pulse Item
-// ─────────────────────────────────────────────
 function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -212,9 +189,6 @@ function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// Skeleton Balance Card (pulse for loading state)
-// ─────────────────────────────────────────────
 function SkeletonBalanceAmount() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -239,7 +213,6 @@ function SkeletonBalanceAmount() {
 
   return (
     <Animated.View style={{ opacity: pulseAnim, alignItems: "center" }}>
-      {/* Main balance bar */}
       <View
         style={{
           width: 200,
@@ -249,7 +222,7 @@ function SkeletonBalanceAmount() {
           marginBottom: 12,
         }}
       />
-      {/* Change row bars */}
+
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <View
           style={{
@@ -272,9 +245,6 @@ function SkeletonBalanceAmount() {
   );
 }
 
-// ─────────────────────────────────────────────
-// Asset Icon
-// ─────────────────────────────────────────────
 function AssetIcon({
   symbol,
   chainId,
@@ -328,9 +298,6 @@ function AssetIcon({
   );
 }
 
-// ─────────────────────────────────────────────
-// Quick Action Button
-// ─────────────────────────────────────────────
 function QuickActionCard({
   Icon,
   onPress,
@@ -349,9 +316,6 @@ function QuickActionCard({
   );
 }
 
-// ─────────────────────────────────────────────
-// Wallet Address Bar
-// ─────────────────────────────────────────────
 function WalletAddressBar({ address }: { address: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -382,9 +346,6 @@ function WalletAddressBar({ address }: { address: string }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// Main Screen
-// ─────────────────────────────────────────────
 export default function HomeScreen() {
   const { walletAddress, isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
@@ -397,14 +358,12 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<"crypto" | "network">("crypto");
 
-  // State for Modals
   const [showNetworkSheet, setShowNetworkSheet] = useState(false);
   const [showAssetSheet, setShowAssetSheet] = useState(false);
   const [showTestnetAlert, setShowTestnetAlert] = useState(false);
 
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
 
-  // ── Dismissed Announcements (persisted) ──
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
 
   const [enabledNetworks, setEnabledNetworks] = useState<
@@ -424,7 +383,6 @@ export default function HomeScreen() {
   );
   const [networkSearch, setNetworkSearch] = useState("");
 
-  // ── Load Preferences ──
   useEffect(() => {
     const loadPreferences = async () => {
       try {
@@ -441,7 +399,6 @@ export default function HomeScreen() {
     loadPreferences();
   }, []);
 
-  // ── Save Preferences ──
   useEffect(() => {
     AsyncStorage.setItem(
       STORAGE_KEYS.ENABLED_NETWORKS,
@@ -456,12 +413,10 @@ export default function HomeScreen() {
     );
   }, [enabledAssets]);
 
-  // ── Dismiss handler ──
   const handleDismissAnnouncement = useCallback((id: string) => {
     setDismissedIds((prev) => [...prev, id]);
   }, []);
 
-  // ── Initialize enabledAssets ──
   useEffect(() => {
     if (displayAssets.length > 0) {
       setEnabledAssets((prev) => {
@@ -479,7 +434,6 @@ export default function HomeScreen() {
     }
   }, [displayAssets, enabledNetworks]);
 
-  // ── Total Fiat ──
   const totalFiat = displayAssets.reduce((sum, asset) => {
     if (!enabledAssets[asset.id]) return sum;
     if (isTestnet(asset.chainId)) return sum;
@@ -526,7 +480,6 @@ export default function HomeScreen() {
     }).format(val)}`;
   };
 
-  // ── Fetch Prices ──
   const fetchPrices = useCallback(async () => {
     try {
       const ids = Object.values(COINGECKO_IDS).join(",");
@@ -551,7 +504,6 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // ── Fetch Balances ──
   const fetchAllBalances = useCallback(async () => {
     if (!walletAddress) return;
     setIsLoading(true);
@@ -716,7 +668,6 @@ export default function HomeScreen() {
           />
         }
       >
-        {/* ── Balance Card ── */}
         <View style={styles.balanceCardContainer}>
           <ImageBackground
             source={require("../../assets/bg-balance.png")}
@@ -740,7 +691,6 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.balanceCenterBlock}>
-                {/* ── Pulse skeleton saat loading, bukan "..." ── */}
                 {isLoading && !refreshing ? (
                   <SkeletonBalanceAmount />
                 ) : (
@@ -816,13 +766,11 @@ export default function HomeScreen() {
           </ImageBackground>
         </View>
 
-        {/* ── Announcement Banner (Imported Component) ── */}
         <AnnouncementBanner
           dismissedIds={dismissedIds}
           onDismiss={handleDismissAnnouncement}
         />
 
-        {/* ── TABS ── */}
         <View style={styles.tabContainer}>
           <TouchableOpacity
             style={[
@@ -862,7 +810,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ── Content ── */}
         {activeTab === "crypto" ? (
           <>
             <View style={styles.sectionHeader}>
@@ -1028,7 +975,6 @@ export default function HomeScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ── Asset Management Bottom Sheet ── */}
       <Modal
         visible={showAssetSheet}
         transparent
@@ -1113,7 +1059,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* ── Network Bottom Sheet ── */}
       <Modal
         visible={showNetworkSheet}
         transparent
@@ -1234,7 +1179,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* ── Testnet Alert Modal ── */}
       <Modal
         visible={showTestnetAlert}
         transparent
@@ -1266,9 +1210,6 @@ export default function HomeScreen() {
   );
 }
 
-// ─────────────────────────────────────────────
-// Main Styles
-// ─────────────────────────────────────────────
 const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,

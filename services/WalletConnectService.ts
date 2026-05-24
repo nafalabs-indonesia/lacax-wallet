@@ -1,4 +1,3 @@
-// services/WalletConnectService.ts
 import { Core } from "@walletconnect/core";
 import { IWeb3Wallet, Web3Wallet } from "@walletconnect/web3wallet";
 import { createPublicClient, createWalletClient, Hex, http, toHex } from "viem";
@@ -14,17 +13,14 @@ import {
 } from "viem/chains";
 import { useAppStore } from "../store/appStore";
 
-// ✅ Import dari @env sesuai konfigurasi babel-plugin-module-resolver/react-native-dotenv
 import { WC_PROJECT_ID } from "@env";
 
-// Validasi sederhana agar error lebih jelas jika env belum diset
 if (!WC_PROJECT_ID) {
   console.warn("⚠️ WC_PROJECT_ID is missing in .env file");
 }
 
 let web3Wallet: IWeb3Wallet | null = null;
 
-// ─── Pesan error WalletConnect yang aman diabaikan ──────────────────────────
 const IGNORABLE_WC_ERRORS = [
   "Missing or invalid",
   "No matching key",
@@ -36,7 +32,6 @@ const IGNORABLE_WC_ERRORS = [
 const isIgnorableWcError = (msg: string): boolean =>
   IGNORABLE_WC_ERRORS.some((pattern) => msg?.includes(pattern));
 
-// ─── Definisi Chain Custom (BlockDAG) ────────────────────────────────────────
 const blockdagMainnet = {
   id: 1404,
   name: "BlockDAG Mainnet",
@@ -76,7 +71,6 @@ const blockdagTestnet = {
   },
 } as const;
 
-// ─── Chain registry ──────────────────────────────────────────────────────────
 const CHAIN_MAP: Record<number, any> = {
   1: ethereum,
   137: polygon,
@@ -93,12 +87,10 @@ const getChainById = (chainId: number) => CHAIN_MAP[chainId] ?? CHAIN_MAP[1];
 
 const EIP155_CHAINS = Object.keys(CHAIN_MAP).map((id) => `eip155:${id}`);
 
-// ─── Init ────────────────────────────────────────────────────────────────────
 export const initWalletConnect = async (): Promise<IWeb3Wallet> => {
   if (web3Wallet) return web3Wallet;
 
   try {
-    // ✅ Gunakan WC_PROJECT_ID dari env
     const core = new Core({ projectId: WC_PROJECT_ID });
 
     web3Wallet = await Web3Wallet.init({
@@ -116,8 +108,6 @@ export const initWalletConnect = async (): Promise<IWeb3Wallet> => {
     });
 
     await _cleanupExpiredRecords();
-
-    console.log("✅ WalletConnect Initialized");
   } catch (error: any) {
     if (isIgnorableWcError(error?.message ?? "")) {
       console.warn("⚠️ WC init encountered stale records, resetting...");
@@ -130,7 +120,6 @@ export const initWalletConnect = async (): Promise<IWeb3Wallet> => {
   return web3Wallet!;
 };
 
-// ─── Bersihkan records expired ───────────────────────────────────────────────
 const _cleanupExpiredRecords = async (): Promise<void> => {
   if (!web3Wallet) return;
   try {
@@ -148,15 +137,12 @@ const _cleanupExpiredRecords = async (): Promise<void> => {
       if (!id) continue;
 
       if (isExpired) {
-        console.log(`🧹 Removing expired proposal: ${id}`);
         try {
           await web3Wallet!.rejectSession({
             id,
             reason: { code: 4001, message: "Proposal expired" },
           });
-        } catch {
-          // Sudah tidak ada di WC store — abaikan
-        }
+        } catch {}
       }
     }
   } catch (e) {
@@ -164,7 +150,6 @@ const _cleanupExpiredRecords = async (): Promise<void> => {
   }
 };
 
-// ─── Pairing ─────────────────────────────────────────────────────────────────
 export const pairWithURI = async (uri: string): Promise<boolean> => {
   if (!web3Wallet) await initWalletConnect();
   try {
@@ -179,14 +164,12 @@ export const pairWithURI = async (uri: string): Promise<boolean> => {
   }
 };
 
-// ─── Event Listeners ─────────────────────────────────────────────────────────
 export const registerEventListeners = () => {
   if (!web3Wallet) return;
 
   if ((web3Wallet as any)._listenersRegistered) return;
   (web3Wallet as any)._listenersRegistered = true;
 
-  // ── 1. Session Proposal ──────────────────────────────────────────────────
   web3Wallet.on("session_proposal", async (proposal) => {
     const proposalId = (proposal as any).id ?? (proposal as any).proposal?.id;
     if (!proposalId) return;
@@ -253,7 +236,6 @@ export const registerEventListeners = () => {
           },
         },
       });
-      console.log("✅ Session Approved");
     } catch (error: any) {
       if (isIgnorableWcError(error?.message ?? "")) {
         console.warn("⚠️ approveSession (ignorable):", error.message);
@@ -263,7 +245,6 @@ export const registerEventListeners = () => {
     }
   });
 
-  // ── 2. Session Request ───────────────────────────────────────────────────
   web3Wallet.on("session_request", async (requestEvent) => {
     const topic = (requestEvent as any).topic;
     const request = (requestEvent as any).params?.request;
@@ -272,8 +253,6 @@ export const registerEventListeners = () => {
     const chainId = parseInt(chainIdStr.replace("eip155:", ""), 10);
 
     if (!topic || !request || !id) return;
-
-    console.log("📩 Incoming Request:", request.method);
 
     useAppStore.getState().setWcRequest({
       isVisible: true,
@@ -285,14 +264,11 @@ export const registerEventListeners = () => {
     });
   });
 
-  // ── 3. Session Delete (dApp disconnected) ────────────────────────────────
   web3Wallet.on("session_delete", ({ topic }) => {
-    console.log("🔌 Session deleted by dApp:", topic);
     useAppStore.getState().setWcRequest(null);
   });
 };
 
-// ─── Respond to Request ───────────────────────────────────────────────────────
 export const respondToWcRequest = async (
   isApproved: boolean,
 ): Promise<void> => {
@@ -307,7 +283,6 @@ export const respondToWcRequest = async (
 
   const { topic, id, method, params, chainId } = request;
 
-  // ── Reject path ──────────────────────────────────────────────────────────
   if (!isApproved) {
     try {
       await instance.respondSessionRequest({
@@ -318,7 +293,6 @@ export const respondToWcRequest = async (
           error: { code: 4001, message: "User rejected the request." },
         },
       });
-      console.log("🚫 Request Rejected by User");
     } catch (e: any) {
       if (!isIgnorableWcError(e?.message ?? "")) {
         console.error("❌ Error sending rejection:", e);
@@ -328,9 +302,6 @@ export const respondToWcRequest = async (
     }
     return;
   }
-
-  // ── Approve path ─────────────────────────────────────────────────────────
-  console.log("⏳ Processing:", method);
 
   let executionError: Error | null = null;
 
@@ -351,7 +322,7 @@ export const respondToWcRequest = async (
         result = await client.signMessage({
           message: { raw: params?.[0] as Hex },
         });
-        console.log("✅ personal_sign complete");
+
         break;
       }
 
@@ -359,7 +330,7 @@ export const respondToWcRequest = async (
         result = await client.signMessage({
           message: { raw: params?.[1] as Hex },
         });
-        console.log("✅ eth_sign complete");
+
         break;
       }
 
@@ -375,7 +346,7 @@ export const respondToWcRequest = async (
           primaryType: typedData.primaryType,
           message: typedData.message,
         });
-        console.log("✅ signTypedData complete");
+
         break;
       }
 
@@ -390,7 +361,7 @@ export const respondToWcRequest = async (
           value: tx.value ? BigInt(tx.value) : 0n,
           data: tx.data ? (tx.data as Hex) : undefined,
         });
-        console.log("✅ eth_sendTransaction hash:", result);
+
         break;
       }
 
@@ -402,7 +373,7 @@ export const respondToWcRequest = async (
         result = await publicClient.sendRawTransaction({
           serializedTransaction: rawTx as Hex,
         });
-        console.log("✅ eth_sendRawTransaction hash:", result);
+
         break;
       }
 
@@ -415,13 +386,13 @@ export const respondToWcRequest = async (
         }
 
         result = "null";
-        console.log("✅ wallet_switchEthereumChain to", requestedChainId);
+
         break;
       }
 
       case "wallet_addEthereumChain": {
         result = "null";
-        console.log("✅ wallet_addEthereumChain acknowledged");
+
         break;
       }
 
@@ -453,7 +424,6 @@ export const respondToWcRequest = async (
       topic,
       response: { id, jsonrpc: "2.0", result },
     });
-    console.log("📤 Success response sent to dApp");
   } catch (error: any) {
     const msg: string = isIgnorableWcError(error?.message ?? "")
       ? "Session expired. Please reconnect from the dApp."
@@ -481,7 +451,6 @@ export const respondToWcRequest = async (
     }
   } finally {
     useAppStore.getState().setWcRequest(null);
-    console.log("🧹 WC Request State Cleared");
   }
 
   if (executionError) {

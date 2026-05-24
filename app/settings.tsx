@@ -1,4 +1,3 @@
-// app/settings.tsx
 import { router } from "expo-router";
 import {
   ChevronLeft,
@@ -26,10 +25,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
-// Import fungsi untuk mendapatkan sesi aktif dari service WC
+
 import { initWalletConnect } from "../services/WalletConnectService";
 
-// --- Komponen Item Grid ---
 interface GridItemProps {
   icon: React.ReactNode;
   title: string;
@@ -60,7 +58,6 @@ function GridItem({ icon, title, onPress }: GridItemProps) {
   );
 }
 
-// --- Custom Modal ---
 interface AlertButton {
   text: string;
   style?: "default" | "cancel" | "destructive";
@@ -139,7 +136,6 @@ export default function SettingsScreen() {
 
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  // State untuk Connected DApps
   const [connectedApps, setConnectedApps] = useState<any[]>([]);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
 
@@ -150,7 +146,6 @@ export default function SettingsScreen() {
     buttons: [] as AlertButton[],
   });
 
-  // Load Connected Apps saat screen dibuka
   useEffect(() => {
     loadConnectedApps();
   }, []);
@@ -159,7 +154,7 @@ export default function SettingsScreen() {
     setIsLoadingApps(true);
     try {
       const web3Wallet = await initWalletConnect();
-      // Mengambil semua sesi aktif
+
       const sessions = web3Wallet.getActiveSessions();
       const apps = Object.values(sessions).map((session: any) => ({
         topic: session.topic,
@@ -191,7 +186,7 @@ export default function SettingsScreen() {
                 topic,
                 reason: { code: 6000, message: "User disconnected" },
               });
-              loadConnectedApps(); // Refresh list
+              loadConnectedApps();
               showAlert("Success", "DApp disconnected successfully.");
             } catch (error) {
               showAlert("Error", "Failed to disconnect.");
@@ -279,7 +274,6 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* --- Section: Account & Security --- */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
             Account & Security
@@ -303,7 +297,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* --- Section: Connected DApps (NEW) --- */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
             Connections
@@ -327,9 +320,6 @@ export default function SettingsScreen() {
                 <View key={app.topic} style={styles.dappRow}>
                   <View style={styles.dappInfo}>
                     {app.icon ? (
-                      // Jika ada icon URL, gunakan Image. Jika tidak, pakai placeholder
-                      // Note: Perlu import Image dari react-native jika ingin menampilkan icon URL
-                      // Untuk simplicity, kita pakai Icon default saja di sini atau Text
                       <View
                         style={[
                           styles.dappIconPlaceholder,
@@ -371,7 +361,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* --- Section: Preferences --- */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
             Preferences
@@ -399,7 +388,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* --- Footer --- */}
         <View style={styles.footerSection}>
           <TouchableOpacity
             style={[styles.aboutRow, { backgroundColor: theme.card }]}
@@ -466,7 +454,6 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
 
-  // Grid Styles
   gridContainer: {
     borderRadius: 20,
     padding: 16,
@@ -492,7 +479,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
 
-  // List Container for DApps
   listContainer: {
     borderRadius: 20,
     padding: 16,
@@ -549,7 +535,6 @@ const styles = StyleSheet.create({
     padding: 8,
   },
 
-  // Footer Styles
   footerSection: { marginTop: 10 },
   aboutRow: {
     flexDirection: "row",
@@ -570,7 +555,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
 
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

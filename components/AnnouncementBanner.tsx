@@ -1,4 +1,3 @@
-// components/AnnouncementBanner.tsx
 import { useAppStore } from "@/store/appStore";
 import { Colors } from "@/theme/colors";
 import React, { useEffect, useState } from "react";
@@ -92,8 +91,6 @@ export function AnnouncementBanner({
     });
   };
 
-  // SILENT LOAD
-  // Tidak render apa-apa saat fetch
   if (!announcements.length) return null;
 
   const topItem = announcements[0];
@@ -122,15 +119,14 @@ export function AnnouncementBanner({
           },
         ]}
       >
-        {/* BACK CARD */}
         {hasSecondItem && (
-          <View // Bukan BlurView
+          <View
             style={[
               styles.blurLayer,
               {
                 backgroundColor: isDarkMode
                   ? "rgba(0,0,0,0.5)"
-                  : "rgba(255,255,255,0.5)", // Simulasi blur manual
+                  : "rgba(255,255,255,0.5)",
                 borderColor: theme.border,
                 height: cardHeight,
                 width: CARD_WIDTH,
@@ -160,7 +156,6 @@ export function AnnouncementBanner({
           </View>
         )}
 
-        {/* FRONT CARD */}
         <Animated.View
           onLayout={(e) => {
             const { height } = e.nativeEvent.layout;
@@ -188,7 +183,6 @@ export function AnnouncementBanner({
             style={styles.cardContent}
             disabled={isDismissing}
           >
-            {/* IMAGE */}
             {topItem.image_url && (
               <View style={styles.imageContainer}>
                 <Image
@@ -199,7 +193,6 @@ export function AnnouncementBanner({
               </View>
             )}
 
-            {/* TEXT */}
             <View style={styles.textSide}>
               <Text
                 style={[styles.title, { color: theme.text }]}
@@ -223,7 +216,6 @@ export function AnnouncementBanner({
             </View>
           </TouchableOpacity>
 
-          {/* CLOSE BUTTON */}
           <TouchableOpacity
             style={styles.closeBtn}
             onPress={handleDismiss}

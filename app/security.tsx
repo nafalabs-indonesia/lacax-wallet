@@ -1,4 +1,3 @@
-// app/security.tsx
 import { ethers } from "ethers";
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
@@ -32,7 +31,6 @@ import { WalletRepository } from "../modules/wallet/infrastructure/WalletReposit
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
-// --- Custom Modal Component ---
 interface CustomModalProps {
   visible: boolean;
   title: string;
@@ -93,21 +91,17 @@ export default function SecurityScreen() {
   const { isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  // State
   const [password, setPassword] = useState("");
   const [isVerified, setIsVerified] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showPasswordInput, setShowPasswordInput] = useState(false);
 
-  // Data Sensitif
   const [mnemonic, setMnemonic] = useState<string | null>(null);
   const [privateKey, setPrivateKey] = useState<string | null>(null);
 
-  // Visibility Toggle
   const [showMnemonic, setShowMnemonic] = useState(false);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
 
-  // Modal State
   const [modalConfig, setModalConfig] = useState<{
     visible: boolean;
     title: string;
@@ -127,7 +121,6 @@ export default function SecurityScreen() {
     setModalConfig((prev) => ({ ...prev, visible: false }));
   };
 
-  // Fungsi Verifikasi & Dekripsi
   const handleVerify = async () => {
     if (!password) {
       showModal("Error", "Please enter your wallet password.", "error");
@@ -136,15 +129,12 @@ export default function SecurityScreen() {
 
     setLoading(true);
     try {
-      // 1. Coba dekripsi mnemonic menggunakan password user
       const decryptedMnemonic =
         await WalletRepository.getMnemonicIfValid(password);
 
       if (decryptedMnemonic) {
-        // 2. Jika berhasil, simpan mnemonic
         setMnemonic(decryptedMnemonic);
 
-        // 3. Generate Private Key dari Mnemonic
         const wallet = ethers.Wallet.fromPhrase(decryptedMnemonic);
         setPrivateKey(wallet.privateKey);
 
@@ -181,7 +171,6 @@ export default function SecurityScreen() {
     showModal("Copied", `${label} copied to clipboard`, "success");
   };
 
-  // --- Tampilan Sebelum Verifikasi ---
   if (!isVerified) {
     return (
       <SafeAreaView
@@ -271,7 +260,6 @@ export default function SecurityScreen() {
           <View style={styles.warningBox}></View>
         </ScrollView>
 
-        {/* Custom Modal for Unverified State */}
         <CustomModal
           visible={modalConfig.visible}
           title={modalConfig.title}
@@ -284,7 +272,6 @@ export default function SecurityScreen() {
     );
   }
 
-  // --- Tampilan Setelah Verifikasi ---
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.background }]}
@@ -312,7 +299,6 @@ export default function SecurityScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Seed Phrase Card */}
         <View style={[styles.card, { backgroundColor: theme.card }]}>
           <View style={styles.cardHeader}>
             <View
@@ -358,7 +344,6 @@ export default function SecurityScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Private Key Card */}
         <View
           style={[styles.card, { backgroundColor: theme.card, marginTop: 16 }]}
         >
@@ -425,7 +410,6 @@ export default function SecurityScreen() {
         </View>
       </ScrollView>
 
-      {/* Custom Modal for Verified State */}
       <CustomModal
         visible={modalConfig.visible}
         title={modalConfig.title}
@@ -450,7 +434,6 @@ const styles = StyleSheet.create({
   backBtn: { padding: 8, marginLeft: -8 },
   headerTitle: { fontSize: 20, fontWeight: "700" },
 
-  // Lock Screen Styles
   centerContent: {
     flexGrow: 1,
     justifyContent: "center",
@@ -521,7 +504,6 @@ const styles = StyleSheet.create({
   },
   warningText: { flex: 1, fontSize: 12, color: "#FF453A", textAlign: "center" },
 
-  // Revealed Data Styles
   scrollContent: { padding: 16 },
   card: {
     borderRadius: 20,
@@ -552,7 +534,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     letterSpacing: 0.5,
   },
-  // Style baru untuk menampilkan teks penuh (wrap)
+
   fullText: {
     flexWrap: "wrap",
     textAlign: "left",
@@ -572,7 +554,6 @@ const styles = StyleSheet.create({
   footerWarning: { marginTop: 24, paddingHorizontal: 8 },
   footerText: { fontSize: 12, textAlign: "center", lineHeight: 18 },
 
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",

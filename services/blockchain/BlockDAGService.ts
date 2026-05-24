@@ -1,4 +1,3 @@
-// services/blockchain/BlockDAGService.ts
 import { SUPPORTED_CHAINS } from "@/config/chains";
 import { ethers } from "ethers";
 
@@ -20,11 +19,7 @@ export class BlockDAGService {
         chainId: BDAG_CONFIG.chainId,
       };
 
-      this.provider = new ethers.JsonRpcProvider(
-        BDAG_CONFIG.rpcUrl,
-        network,
-      );
-      console.log("✅ BlockDAG Provider initialized");
+      this.provider = new ethers.JsonRpcProvider(BDAG_CONFIG.rpcUrl, network);
     }
     return this.provider;
   }

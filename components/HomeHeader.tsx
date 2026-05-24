@@ -1,8 +1,7 @@
-// components/HomeHeader.tsx
 import {
   Check,
   ChevronDown,
-  ChevronUp, // ← Ditambahkan
+  ChevronUp,
   Grip,
   PlusCircle,
   ScanLine,
@@ -69,7 +68,6 @@ export function HomeHeader({ onSettingsPress, onScanPress }: HomeHeaderProps) {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Bagian Kiri: Avatar & Nama Akun dengan Dropdown */}
       <View style={styles.leftSectionWrapper}>
         <TouchableOpacity
           style={styles.leftSection}
@@ -91,7 +89,6 @@ export function HomeHeader({ onSettingsPress, onScanPress }: HomeHeaderProps) {
               Account 1
             </Text>
 
-            {/* Chevron berubah sesuai state */}
             {showAccountMenu ? (
               <ChevronUp
                 size={16}
@@ -108,10 +105,8 @@ export function HomeHeader({ onSettingsPress, onScanPress }: HomeHeaderProps) {
           </View>
         </TouchableOpacity>
 
-        {/* Floating Dropdown Menu (Tanpa Modal Overlay) */}
         {showAccountMenu && (
           <>
-            {/* Touchable Transparent untuk menutup menu jika klik di luar */}
             <TouchableOpacity
               style={styles.backdrop}
               activeOpacity={1}
@@ -132,7 +127,6 @@ export function HomeHeader({ onSettingsPress, onScanPress }: HomeHeaderProps) {
                 </Text>
               </View>
 
-              {/* Item Aktif */}
               <TouchableOpacity style={styles.dropdownItem} activeOpacity={0.7}>
                 <View
                   style={{
@@ -161,7 +155,6 @@ export function HomeHeader({ onSettingsPress, onScanPress }: HomeHeaderProps) {
                 style={[styles.divider, { backgroundColor: theme.border }]}
               />
 
-              {/* Opsi Lain */}
               <TouchableOpacity style={styles.dropdownItem} activeOpacity={0.7}>
                 <PlusCircle size={20} color={theme.primary} />
                 <Text
@@ -190,7 +183,6 @@ export function HomeHeader({ onSettingsPress, onScanPress }: HomeHeaderProps) {
         )}
       </View>
 
-      {/* Bagian Kanan: Scan & Settings */}
       <View style={styles.rightButtons}>
         <TouchableOpacity onPress={handleScanPress} activeOpacity={0.7}>
           <Animated.View
@@ -252,7 +244,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // Backdrop transparan untuk mendeteksi klik di luar dropdown
   backdrop: {
     position: "absolute",
     top: -50,
@@ -262,7 +253,6 @@ const styles = StyleSheet.create({
     zIndex: -1,
   },
 
-  // Floating Dropdown Style
   dropdownContainer: {
     position: "absolute",
     top: 50,

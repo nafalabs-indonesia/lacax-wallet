@@ -1,10 +1,8 @@
-// modules/wallet/infrastructure/WalletRepository.ts
-import { validateMnemonic } from '@scure/bip39';
-import { wordlist } from '@scure/bip39/wordlists/english.js';
+import { validateMnemonic } from "@scure/bip39";
+import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { ethers } from "ethers";
 import * as SecureStore from "expo-secure-store";
 
-// @noble/hashes v2 — semua import pakai path .js dan sha256 ada di sha2.js
 import { pbkdf2Async } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { randomBytes, utf8ToBytes } from "@noble/hashes/utils.js";
@@ -12,11 +10,9 @@ import { randomBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 const bytesToUtf8 = (bytes: Uint8Array): string =>
   new TextDecoder().decode(bytes);
 
-// @noble/ciphers v2 — aes256gcm diganti gcm, utils terpisah
 import { gcm } from "@noble/ciphers/aes.js";
 import { bytesToHex, hexToBytes } from "@noble/ciphers/utils.js";
 
-// ====================== SECURITY CONFIGURATION ======================
 const PBKDF2_ITERATIONS = 30_000;
 const KEY_LENGTH = 32;
 const SALT_LENGTH = 16;
@@ -26,9 +22,7 @@ const MAX_ATTEMPTS = 5;
 const BASE_LOCKOUT_MS = 30_000;
 const MAX_LOCKOUT_MS = 3_600_000;
 
-// ====================== SESSION CACHE ======================
-
-const SESSION_DURATION_MS = 5 * 60 * 1000; // 5 menit
+const SESSION_DURATION_MS = 5 * 60 * 1000;
 
 const KEYS = {
   ENCRYPTED_PAYLOAD: "lacax_encrypted_wallet_v1",
@@ -37,7 +31,6 @@ const KEYS = {
   RATE_LIMIT: "lacax_rate_limit_v1",
 } as const;
 
-// ====================== TYPES ======================
 interface EncryptedPayload {
   ciphertext: string;
   salt: string;
@@ -48,8 +41,6 @@ interface RateLimitState {
   attempts: number;
   lockedUntil: number;
 }
-
-// ====================== RATE LIMITING ======================
 
 async function getRateLimit(): Promise<RateLimitState> {
   try {
@@ -92,8 +83,6 @@ async function recordFailedAttempt(): Promise<void> {
 async function resetRateLimit(): Promise<void> {
   await saveRateLimit({ attempts: 0, lockedUntil: 0 });
 }
-
-// ====================== CRYPTO HELPERS ======================
 
 async function deriveKey(
   password: string,
@@ -169,8 +158,6 @@ async function verifyKey(
   }
 }
 
-// ====================== WALLET REPOSITORY ======================
-
 export class WalletRepository {
   private static sessionKey: Uint8Array | null = null;
 
@@ -185,8 +172,6 @@ export class WalletRepository {
       return false;
     }
   }
-
-  // ====================== SESSION CACHE ======================
 
   private static getCachedKey(): Uint8Array | null {
     if (this.sessionKey && Date.now() < this.sessionExpiresAt) {
@@ -251,10 +236,6 @@ export class WalletRepository {
     await SecureStore.setItemAsync(KEYS.IS_INITIALIZED, "true");
 
     await resetRateLimit();
-
-    console.log(
-      "✅ Wallet successfully created and encrypted with AES-256-GCM + PBKDF2.",
-    );
   }
 
   static async verifyPassword(password: string): Promise<boolean> {
@@ -271,10 +252,6 @@ export class WalletRepository {
         iterations,
       }: EncryptedPayload = JSON.parse(raw);
 
-      // ======================
-      // CHECK CACHE
-      // ======================
-
       const cachedKey = this.getCachedKey();
 
       if (cachedKey) {
@@ -286,10 +263,6 @@ export class WalletRepository {
           return true;
         }
       }
-
-      // ======================
-      // DERIVE NEW KEY
-      // ======================
 
       const salt = hexToBytes(saltHex);
 
@@ -333,10 +306,6 @@ export class WalletRepository {
         iterations,
       }: EncryptedPayload = JSON.parse(raw);
 
-      // ======================
-      // TRY CACHED KEY FIRST
-      // ======================
-
       const cachedKey = this.getCachedKey();
 
       if (cachedKey) {
@@ -348,10 +317,6 @@ export class WalletRepository {
           return mnemonic;
         }
       }
-
-      // ======================
-      // DERIVE NEW KEY
-      // ======================
 
       const salt = hexToBytes(saltHex);
 

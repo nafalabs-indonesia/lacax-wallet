@@ -1,4 +1,3 @@
-// app/swap.tsx
 import { SUPPORTED_CHAINS, TokenConfig } from "@/config/chains";
 import {
   BlockchainService,
@@ -40,10 +39,6 @@ import { Colors } from "../theme/colors";
 
 const { width } = Dimensions.get("window");
 
-// ─────────────────────────────────────────────
-// Configuration & Constants
-// ─────────────────────────────────────────────
-
 const AFFILIATE_FEE_RECIPIENT = "0x70d96B6463533741669cd6fC871a7761e88c50c8";
 const DEFAULT_AFFILIATE_FEE_BPS = 80;
 
@@ -83,10 +78,6 @@ const NETWORK_ICON_MAP: Record<string, any> = {
   "arbitrum-mainnet": require("../assets/chains/arbitrum.png"),
   "arbitrum-sepolia": require("../assets/chains/arbitrum.png"),
 };
-
-// ─────────────────────────────────────────────
-// Friendly Error Message Parser
-// ─────────────────────────────────────────────
 
 const parseFriendlyError = (error: any): string => {
   const raw: string =
@@ -172,20 +163,12 @@ const getCoingeckoId = (symbol: string): string | null => {
   return null;
 };
 
-// ─────────────────────────────────────────────
-// Balance Formatter
-// ─────────────────────────────────────────────
-
 const formatBalance = (raw: string): string => {
   const num = parseFloat(raw);
   if (isNaN(num) || num === 0) return "0.0000";
   if (num >= 0.0001) return num.toFixed(4);
   return "<0.0001";
 };
-
-// ─────────────────────────────────────────────
-// Custom Modal Types
-// ─────────────────────────────────────────────
 
 type AlertType = "info" | "error" | "success" | "warning" | "confirm";
 
@@ -200,10 +183,6 @@ interface CustomAlertConfig {
   onConfirm?: () => void;
   onCancel?: () => void;
 }
-
-// ─────────────────────────────────────────────
-// Custom Alert Modal Component
-// ─────────────────────────────────────────────
 
 const CustomAlertModal = ({
   config,
@@ -272,7 +251,6 @@ const CustomAlertModal = ({
             },
           ]}
         >
-          {/* X close button — only for non-confirm, non-loading */}
           {!isConfirmType && !config.isLoading && (
             <TouchableOpacity
               style={alertStyles.closeBtn}
@@ -286,7 +264,6 @@ const CustomAlertModal = ({
             </TouchableOpacity>
           )}
 
-          {/* Icon — hide when loading */}
           {!config.isLoading && (
             <View
               style={[
@@ -298,7 +275,6 @@ const CustomAlertModal = ({
             </View>
           )}
 
-          {/* Loading spinner */}
           {config.isLoading && (
             <View
               style={[alertStyles.iconCircle, { backgroundColor: "#007AFF18" }]}
@@ -307,19 +283,16 @@ const CustomAlertModal = ({
             </View>
           )}
 
-          {/* Title */}
           <Text style={[alertStyles.title, { color: theme.text }]}>
             {config.isLoading ? "Processing Swap..." : config.title}
           </Text>
 
-          {/* Message */}
           <Text style={[alertStyles.message, { color: theme.textSecondary }]}>
             {config.isLoading
               ? "Please wait. Do not close the app."
               : config.message}
           </Text>
 
-          {/* Buttons — only for confirm type, hidden while loading */}
           {isConfirmType && !config.isLoading && (
             <View
               style={[
@@ -357,8 +330,6 @@ const CustomAlertModal = ({
                   hasCancel && { flex: 1 },
                 ]}
                 onPress={() => {
-                  // Switch to loading first, then run async work on next tick
-                  // to avoid UI lag
                   setAlertConfig((prev) => ({ ...prev, isLoading: true }));
                   setTimeout(() => {
                     config.onConfirm?.();
@@ -462,10 +433,6 @@ const alertStyles = StyleSheet.create({
   },
 });
 
-// ─────────────────────────────────────────────
-// Disclaimer Modal Component
-// ─────────────────────────────────────────────
-
 const DisclaimerModal = ({
   visible,
   onAccept,
@@ -519,18 +486,6 @@ const DisclaimerModal = ({
             },
           ]}
         >
-          {/* Header Icon */}
-          {/* <View style={disclaimerStyles.shieldWrap}>
-            <View
-              style={[
-                disclaimerStyles.shieldBg,
-                { backgroundColor: "#FF9500" + "18" },
-              ]}
-            >
-              <Shield size={36} color="#FF9500" />
-            </View>
-          </View> */}
-
           <Text style={[disclaimerStyles.title, { color: theme.text }]}>
             Third-Party Service Notice
           </Text>
@@ -598,7 +553,6 @@ const DisclaimerModal = ({
             ]}
           />
 
-          {/* Checkboxes */}
           <TouchableOpacity
             style={disclaimerStyles.checkRow}
             onPress={() => setUnderstood(!understood)}
@@ -645,7 +599,6 @@ const DisclaimerModal = ({
             </Text>
           </TouchableOpacity>
 
-          {/* Buttons */}
           <View style={disclaimerStyles.btnRow}>
             <TouchableOpacity
               style={[
@@ -811,10 +764,6 @@ const disclaimerStyles = StyleSheet.create({
   },
 });
 
-// ─────────────────────────────────────────────
-// Main Screen
-// ─────────────────────────────────────────────
-
 export default function SwapScreen() {
   const { walletAddress, isDarkMode, mnemonic } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
@@ -824,7 +773,6 @@ export default function SwapScreen() {
     (params.chainId as string) || "ethereum-mainnet"
   ).trim();
 
-  // State
   const [selectedChainId, setSelectedChainId] = useState<ChainId>(
     initialChainId as ChainId,
   );
@@ -836,7 +784,6 @@ export default function SwapScreen() {
   const [disclaimerNeverShow, setDisclaimerNeverShow] = useState(false);
   const pendingSwapRef = useRef<(() => Promise<void>) | null>(null);
 
-  // Custom Alert
   const [alertConfig, setAlertConfig] = useState<CustomAlertConfig>({
     visible: false,
     type: "info",
@@ -850,19 +797,16 @@ export default function SwapScreen() {
   const hideAlert = () =>
     setAlertConfig((prev) => ({ ...prev, visible: false }));
 
-  // Swap Data
   const [fromToken, setFromToken] = useState<SwapToken | null>(null);
   const [toToken, setToToken] = useState<SwapToken | null>(null);
   const [fromAmount, setFromAmount] = useState("");
   const [toAmount, setToAmount] = useState("");
 
-  // Loading & Errors
   const [isLoadingPrices, setIsLoadingPrices] = useState(false);
   const [isLoadingBalances, setIsLoadingBalances] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Settings
   const [slippage, setSlippage] = useState("0.5");
 
   const [tokenBalances, setTokenBalances] = useState<Record<string, string>>(
@@ -1091,9 +1035,6 @@ export default function SwapScreen() {
     return currentChainConfig ? currentChainConfig.name : "Unknown Network";
   };
 
-  // ─────────────────────────────────────────────
-  // Execute Swap (called after disclaimer accepted)
-  // ─────────────────────────────────────────────
   const executeSwap = async () => {
     if (!fromToken || !toToken || !walletAddress || !mnemonic) return;
 
@@ -1122,8 +1063,6 @@ export default function SwapScreen() {
         "0x-version": "v2",
       };
 
-      console.log("🔄 Fetching 0x Quote...");
-
       const quoteResponse = await fetch(
         `https://api.0x.org/swap/allowance-holder/quote?${queryParams.toString()}`,
         { headers },
@@ -1138,14 +1077,12 @@ export default function SwapScreen() {
       }
 
       const quoteData = await quoteResponse.json();
-      console.log("✅ Quote Received");
 
       const estimatedBuyAmount = ethers.formatUnits(
         quoteData.buyAmount,
         toToken.decimals,
       );
 
-      // Show custom confirm modal
       showAlert({
         type: "confirm",
         title: "Confirm Swap",
@@ -1185,13 +1122,11 @@ export default function SwapScreen() {
               const sellAmountBN = BigInt(sellAmountWei);
 
               if (currentAllowance < sellAmountBN) {
-                console.log("🔑 Approving token spend on AllowanceHolder...");
                 const approveTx = await tokenContract.approve(
                   quoteData.transaction.to,
                   ethers.MaxUint256,
                 );
                 await approveTx.wait();
-                console.log("✅ Approved!");
               }
             }
 
@@ -1202,12 +1137,9 @@ export default function SwapScreen() {
               gasLimit: BigInt(quoteData.transaction.gas),
             });
 
-            console.log("⏳ Swap tx sent: ", tx.hash);
-
             setFromAmount("");
             setToAmount("");
 
-            // Show success — replace loading modal
             showAlert({
               type: "success",
               title: "Swap Submitted!",
@@ -1220,7 +1152,7 @@ export default function SwapScreen() {
             fetchAllTokenBalances();
           } catch (execError: any) {
             console.error("Swap execution error: ", execError);
-            // Replace loading modal with error
+
             showAlert({
               type: "error",
               title: "Swap Failed",
@@ -1245,11 +1177,7 @@ export default function SwapScreen() {
     }
   };
 
-  // ─────────────────────────────────────────────
-  // Handle Swap Button Press (with disclaimer check)
-  // ─────────────────────────────────────────────
   const handleSwap = async () => {
-    // Validations
     if (!fromToken || !toToken) {
       showAlert({
         type: "error",
@@ -1324,7 +1252,6 @@ export default function SwapScreen() {
       return;
     }
 
-    // Show disclaimer if not suppressed
     if (!disclaimerNeverShow) {
       setShowDisclaimer(true);
     } else {
@@ -1344,7 +1271,6 @@ export default function SwapScreen() {
     setShowDisclaimer(false);
   };
 
-  // Component for Token Icon
   const TokenIcon = ({ symbol }: { symbol: string }) => {
     const source = TOKEN_ICON_MAP[symbol.toUpperCase().trim()];
     if (source) {
@@ -1397,7 +1323,6 @@ export default function SwapScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={{ flex: 1, backgroundColor: theme.background }}
     >
-      {/* ── Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
           <ChevronLeft size={24} color={theme.text} />
@@ -1414,7 +1339,6 @@ export default function SwapScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* ── From Card */}
         <View style={[styles.card, { backgroundColor: theme.card }]}>
           <View style={styles.cardHeader}>
             <Text style={[styles.label, { color: theme.textSecondary }]}>
@@ -1466,7 +1390,6 @@ export default function SwapScreen() {
           </View>
         </View>
 
-        {/* ── Swap Button */}
         <View style={styles.swapButtonContainer}>
           <TouchableOpacity
             onPress={handleSwapTokens}
@@ -1476,7 +1399,6 @@ export default function SwapScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ── To Card */}
         <View style={[styles.card, { backgroundColor: theme.card }]}>
           <View style={styles.cardHeader}>
             <Text style={[styles.label, { color: theme.textSecondary }]}>
@@ -1524,14 +1446,12 @@ export default function SwapScreen() {
           </View>
         </View>
 
-        {/* ── Error Message */}
         {error && (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
 
-        {/* ── Action Button */}
         <TouchableOpacity
           style={[
             styles.actionBtn,
@@ -1550,7 +1470,6 @@ export default function SwapScreen() {
           )}
         </TouchableOpacity>
 
-        {/* ── Select Network Button (Bottom) */}
         <TouchableOpacity
           style={[styles.networkBtn, { borderColor: theme.text }]}
           onPress={() => setShowNetworkSheet(true)}
@@ -1561,7 +1480,6 @@ export default function SwapScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ── Custom Alert Modal */}
       <CustomAlertModal
         config={alertConfig}
         onClose={hideAlert}
@@ -1569,7 +1487,6 @@ export default function SwapScreen() {
         theme={theme}
       />
 
-      {/* ── Disclaimer Modal */}
       <DisclaimerModal
         visible={showDisclaimer}
         onAccept={handleDisclaimerAccept}
@@ -1577,7 +1494,6 @@ export default function SwapScreen() {
         theme={theme}
       />
 
-      {/* ── Network Bottom Sheet */}
       <Modal visible={showNetworkSheet} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
@@ -1662,7 +1578,6 @@ export default function SwapScreen() {
         </View>
       </Modal>
 
-      {/* ── From Token Selection Sheet */}
       <Modal visible={showFromTokenSheet} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
@@ -1787,7 +1702,6 @@ export default function SwapScreen() {
         </View>
       </Modal>
 
-      {/* ── To Token Selection Sheet */}
       <Modal visible={showToTokenSheet} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>
@@ -1912,7 +1826,6 @@ export default function SwapScreen() {
         </View>
       </Modal>
 
-      {/* ── Settings Bottom Sheet (Slippage only, no fee BPS) */}
       <Modal visible={showSettingsSheet} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.sheetContent, { backgroundColor: theme.card }]}>

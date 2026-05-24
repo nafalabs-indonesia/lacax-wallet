@@ -1,4 +1,3 @@
-// store/appStore.ts
 import { ethers } from "ethers";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
@@ -26,7 +25,6 @@ interface AppState {
   activeChainId: string;
   setActiveChainId: (id: string) => void;
 
-  // ✅ State untuk Konfirmasi WalletConnect
   wcRequest: WcRequestData | null;
   setWcRequest: (request: WcRequestData | null) => void;
 
@@ -48,8 +46,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   mnemonic: null,
   privateKey: null,
   isStorageLoaded: false,
-  
-  // ✅ Inisialisasi State WC Request
+
   wcRequest: null,
   setWcRequest: (request) => set({ wcRequest: request }),
 
@@ -82,7 +79,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   unlockWallet: async (password: string): Promise<boolean> => {
     try {
-      const recoveredMnemonic = await WalletRepository.getMnemonicIfValid(password);
+      const recoveredMnemonic =
+        await WalletRepository.getMnemonicIfValid(password);
 
       if (recoveredMnemonic) {
         const wallet = ethers.Wallet.fromPhrase(recoveredMnemonic);
@@ -113,7 +111,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       walletAddress: null,
       mnemonic: null,
       privateKey: null,
-      wcRequest: null, // Reset juga request WC jika ada
+      wcRequest: null,
       isUnlocked: false,
       isStorageLoaded: true,
       activeChainId: "ethereum-mainnet",

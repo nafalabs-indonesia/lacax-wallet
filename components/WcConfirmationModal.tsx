@@ -1,4 +1,3 @@
-// components/WcConfirmationModal.tsx
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -26,8 +25,6 @@ import {
 import { respondToWcRequest } from "../services/WalletConnectService";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
-
-// ─── Method metadata ────────────────────────────────────────────────────────
 
 type MethodMeta = {
   label: string;
@@ -142,8 +139,6 @@ const getRiskConfig = (
   }[risk];
 };
 
-// ─── Component ───────────────────────────────────────────────────────────────
-
 export const WcConfirmationModal = () => {
   const { isDarkMode, wcRequest } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
@@ -151,25 +146,22 @@ export const WcConfirmationModal = () => {
   const [showRawData, setShowRawData] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // "idle" | "success" | "rejected" | "error"
   const [resultState, setResultState] = useState<
     "idle" | "success" | "rejected" | "error"
   >("idle");
 
-  // State untuk menyimpan pesan error lengkap
   const [errorMessage, setErrorMessage] = useState<string>("");
 
   const slideAnim = useRef(new Animated.Value(60)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
-  // ── Reset & animate in ketika request baru muncul ──────────────────────
   useEffect(() => {
     if (wcRequest?.isVisible) {
       setResultState("idle");
       setIsLoading(false);
       setShowRawData(false);
-      setErrorMessage(""); // Reset error message
+      setErrorMessage("");
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
@@ -186,7 +178,6 @@ export const WcConfirmationModal = () => {
     }
   }, [wcRequest?.isVisible]);
 
-  // ── Auto-dismiss overlay success / rejected setelah 2 detik ───────────
   useEffect(() => {
     if (resultState === "success" || resultState === "rejected") {
       const timer = setTimeout(() => {
@@ -196,7 +187,6 @@ export const WcConfirmationModal = () => {
     }
   }, [resultState]);
 
-  // ── Pulse animasi untuk risk badge ────────────────────────────────────
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
@@ -230,21 +220,16 @@ export const WcConfirmationModal = () => {
     ? JSON.stringify(wcRequest.params, null, 2)
     : "No payload data";
 
-  // ── Handler Approve ────────────────────────────────────────────────────
   const handleApprove = async () => {
     setIsLoading(true);
     setErrorMessage("");
     try {
-      // Respond true akan memicu eksekusi transaksi/signing
       await respondToWcRequest(true);
 
-      // Jika berhasil sampai sini, artinya transaksi terkirim/signed
       setResultState("success");
     } catch (err: any) {
-      // Jika gagal (misal: insufficient funds, user reject di wallet, rpc error)
       console.error("❌ Execution Error:", err);
 
-      // Ambil pesan error yang detail
       const msg: string =
         err?.message ?? "An unknown error occurred. Please try again.";
 
@@ -255,13 +240,10 @@ export const WcConfirmationModal = () => {
     }
   };
 
-  // ── Handler Reject ─────────────────────────────────────────────────────
   const handleReject = async () => {
     await respondToWcRequest(false);
     setResultState("rejected");
   };
-
-  // ── Result overlays ────────────────────────────────────────────────────
 
   if (resultState === "success") {
     return (
@@ -299,7 +281,6 @@ export const WcConfirmationModal = () => {
     );
   }
 
-  // ── Main modal ──────────────────────────────────────────────────────────
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent>
       <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
@@ -310,7 +291,6 @@ export const WcConfirmationModal = () => {
             { transform: [{ translateY: slideAnim }], opacity: opacityAnim },
           ]}
         >
-          {/* ── Top bar ── */}
           <View style={[s.topBar, { borderBottomColor: theme.border }]}>
             <Text style={[s.topBarText, { color: theme.textSecondary }]}>
               WalletConnect Request
@@ -328,7 +308,6 @@ export const WcConfirmationModal = () => {
             contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {/* ── Icon + Title ── */}
             <View style={s.heroSection}>
               <View
                 style={[
@@ -342,7 +321,6 @@ export const WcConfirmationModal = () => {
                 {meta.label}
               </Text>
 
-              {/* Risk badge */}
               <Animated.View
                 style={[
                   s.riskBadge,
@@ -364,7 +342,6 @@ export const WcConfirmationModal = () => {
               </Text>
             </View>
 
-            {/* ── Error banner (tampil jika eksekusi gagal) ── */}
             {resultState === "error" && errorMessage.length > 0 && (
               <View
                 style={[
@@ -382,7 +359,6 @@ export const WcConfirmationModal = () => {
               </View>
             )}
 
-            {/* ── Info card ── */}
             <View
               style={[
                 s.card,
@@ -403,25 +379,21 @@ export const WcConfirmationModal = () => {
               />
             </View>
 
-            {/* ── Transaction details ── */}
             {wcRequest.method === "eth_sendTransaction" &&
               wcRequest.params?.[0] && (
                 <TxCard tx={wcRequest.params[0]} theme={theme} />
               )}
 
-            {/* ── Typed data preview ── */}
             {(wcRequest.method === "eth_signTypedData_v4" ||
               wcRequest.method === "eth_signTypedData") &&
               wcRequest.params?.[1] && (
                 <TypedDataCard data={wcRequest.params[1]} theme={theme} />
               )}
 
-            {/* ── Personal sign message ── */}
             {wcRequest.method === "personal_sign" && wcRequest.params?.[0] && (
               <MessageCard hex={wcRequest.params[0]} theme={theme} />
             )}
 
-            {/* ── Raw payload (collapsible) ── */}
             <TouchableOpacity
               style={[s.rawToggle, { borderColor: theme.border }]}
               onPress={() => setShowRawData((v) => !v)}
@@ -455,7 +427,6 @@ export const WcConfirmationModal = () => {
             <View style={{ height: 100 }} />
           </ScrollView>
 
-          {/* ── Action buttons ── */}
           <View
             style={[
               s.actionBar,
@@ -486,7 +457,7 @@ export const WcConfirmationModal = () => {
                 s.btnApprove,
                 {
                   backgroundColor: theme.primary,
-                  // Sedikit redup saat loading
+
                   opacity: isLoading ? 0.6 : 1,
                   borderRadius: 999,
                 },
@@ -509,8 +480,6 @@ export const WcConfirmationModal = () => {
     </Modal>
   );
 };
-
-// ─── Sub-components ──────────────────────────────────────────────────────────
 
 type Theme = typeof Colors.dark;
 
@@ -648,8 +617,6 @@ const MessageCard = ({ hex, theme }: { hex: string; theme: Theme }) => {
   );
 };
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
 const s = StyleSheet.create({
   fullScreen: { flex: 1 },
   innerContainer: { flex: 1 },
@@ -698,7 +665,7 @@ const s = StyleSheet.create({
     textAlign: "center",
     maxWidth: 300,
   },
-  // ── Error banner ──────────────────────────────────────────────────────
+
   errorBanner: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -714,7 +681,7 @@ const s = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "500",
   },
-  // ─────────────────────────────────────────────────────────────────────
+
   card: {
     borderRadius: 16,
     borderWidth: 1,

@@ -1,5 +1,4 @@
-// app/scan.tsx
-import { ethers } from "ethers"; // Import ethers untuk validasi address
+import { ethers } from "ethers";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import {
@@ -24,7 +23,6 @@ import {
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
-// Import Service WalletConnect
 import {
   initWalletConnect,
   pairWithURI,
@@ -34,9 +32,6 @@ import {
 const { width } = Dimensions.get("window");
 const SCAN_SIZE = width * 0.7;
 
-// ─────────────────────────────────────────────
-// Custom Alert Component
-// ─────────────────────────────────────────────
 type AlertType = "confirm" | "info" | "success" | "loading" | "error";
 
 interface CustomAlertProps {
@@ -134,9 +129,6 @@ function CustomAlert({
   );
 }
 
-// ─────────────────────────────────────────────
-// Main Screen
-// ─────────────────────────────────────────────
 export default function ScanScreen() {
   const router = useRouter();
   const { isDarkMode } = useAppStore();
@@ -146,7 +138,6 @@ export default function ScanScreen() {
   const [torch, setTorch] = useState(false);
   const [scanned, setScanned] = useState(false);
 
-  // Initialize WalletConnect on mount
   useEffect(() => {
     const init = async () => {
       try {
@@ -210,7 +201,6 @@ export default function ScanScreen() {
       if (scanned) return;
       setScanned(true);
 
-      // 1. Cek apakah ini WalletConnect URI
       if (data.startsWith("wc:")) {
         setAlertConfig({
           visible: true,
@@ -255,7 +245,6 @@ export default function ScanScreen() {
                   : null,
               );
             } catch (error: any) {
-              // Tampilkan error detail di modal
               const errorMsg = error?.message || "Unknown error occurred";
               setAlertConfig((prev) =>
                 prev
@@ -274,9 +263,7 @@ export default function ScanScreen() {
             }
           },
         });
-      }
-      // 2. Cek apakah ini Alamat Ethereum (0x...)
-      else if (ethers.isAddress(data)) {
+      } else if (ethers.isAddress(data)) {
         setAlertConfig({
           visible: true,
           title: "Wallet Address Detected",
@@ -285,22 +272,18 @@ export default function ScanScreen() {
           primaryLabel: "Send Now",
           secondaryLabel: "Copy",
           onSecondary: async () => {
-            // Opsional: Copy ke clipboard jika ingin, lalu tutup
-            // await Clipboard.setStringAsync(data);
             closeAlert();
           },
           onPrimary: () => {
             closeAlert();
-            // Arahkan ke halaman Send dengan membawa alamat recipient
+
             router.push({
               pathname: "/send",
               params: { recipient: data },
             });
           },
         });
-      }
-      // 3. Format Tidak Dikenal
-      else {
+      } else {
         setAlertConfig({
           visible: true,
           title: "Invalid QR Code",

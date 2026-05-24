@@ -1,12 +1,9 @@
-// services/swap/ZeroExService.ts
 import { ZEROEX_API_KEY } from "@env";
 import axios from "axios";
 
-// Konfigurasi Fee Affiliate
 const AFFILIATE_FEE_RECIPIENT = "0x70d96B6463533741669cd6fC871a7761e88c50c8";
-const AFFILIATE_FEE_BPS = 100; // 1% fee (100 basis points)
+const AFFILIATE_FEE_BPS = 100;
 
-// Base URL for 0x Swap API V2 (AllowanceHolder)
 const BASE_URL = "https://api.0x.org/swap/allowance-holder/quote";
 
 export interface SwapQuoteParams {
@@ -18,11 +15,10 @@ export interface SwapQuoteParams {
   slippagePercentage?: number;
 }
 
-// Interface disesuaikan dengan response 0x API V2
 export interface SwapQuoteResponse {
   buyAmount: string;
   sellAmount: string;
-  allowanceTarget: string; // Address to approve
+  allowanceTarget: string;
   transaction: {
     to: string;
     data: string;
@@ -49,7 +45,7 @@ export interface SwapQuoteResponse {
     };
     balance?: any;
   };
-  // Legacy fields for compatibility if needed, though V2 nests them in transaction
+
   to?: string;
   data?: string;
   value?: string;
@@ -62,29 +58,25 @@ export class ZeroExService {
     params: SwapQuoteParams,
   ): Promise<SwapQuoteResponse> {
     try {
-      // Prepare headers for V2
       const headers: Record<string, string> = {
         "0x-api-key": ZEROEX_API_KEY || "",
-        "0x-version": "v2", // Wajib untuk V2
+        "0x-version": "v2",
         "Content-Type": "application/json",
       };
 
-      // Prepare query parameters
       const queryParams: Record<string, string | number> = {
         chainId: params.chainId,
         sellToken: params.sellToken,
         buyToken: params.buyToken,
         sellAmount: params.sellAmount,
-        taker: params.takerAddress, // V2 uses 'taker' instead of 'takerAddress'
+        taker: params.takerAddress,
 
-        // Affiliate Fee Parameters
         swapFeeRecipient: AFFILIATE_FEE_RECIPIENT,
         swapFeeBps: AFFILIATE_FEE_BPS.toString(),
 
-        // Slippage (V2 expects decimal string, e.g., "0.01" for 1%)
         slippagePercentage: params.slippagePercentage
           ? params.slippagePercentage.toString()
-          : "0.005", // Default 0.5%
+          : "0.005",
       };
 
       const response = await axios.get(BASE_URL, {
@@ -94,8 +86,6 @@ export class ZeroExService {
 
       const data = response.data;
 
-      // Normalize response to match expected structure in UI
-      // V2 returns transaction details inside 'transaction' object
       return {
         buyAmount: data.buyAmount,
         sellAmount: data.sellAmount,
@@ -103,7 +93,7 @@ export class ZeroExService {
         transaction: data.transaction,
         fees: data.fees,
         issues: data.issues,
-        // Map nested transaction fields to root for backward compatibility if your UI uses them
+
         to: data.transaction?.to,
         data: data.transaction?.data,
         value: data.transaction?.value,
@@ -127,13 +117,9 @@ export class ZeroExService {
     }
   }
 
-  /**
-   * Helper to get token address based on symbol and chain ID
-   */
   static getTokenAddress(symbol: string, chainId: number): string {
     const s = symbol.toUpperCase();
 
-    // Native Token Handling
     if (
       s === "ETH" ||
       s === "POL" ||
@@ -144,8 +130,6 @@ export class ZeroExService {
       return "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
     }
 
-    // ERC-20 Tokens Mapping
-    // Ethereum Mainnet (1)
     if (chainId === 1) {
       switch (s) {
         case "USDT":
@@ -159,13 +143,12 @@ export class ZeroExService {
       }
     }
 
-    // Polygon Mainnet (137)
     if (chainId === 137) {
       switch (s) {
         case "USDT":
           return "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";
         case "USDC":
-          return "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"; // Native USDC
+          return "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359";
         case "DAI":
           return "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063";
         case "WETH":
@@ -173,7 +156,6 @@ export class ZeroExService {
       }
     }
 
-    // BNB Smart Chain (56)
     if (chainId === 56) {
       switch (s) {
         case "USDT":
@@ -187,13 +169,12 @@ export class ZeroExService {
       }
     }
 
-    // Arbitrum One (42161)
     if (chainId === 42161) {
       switch (s) {
         case "USDT":
           return "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9";
         case "USDC":
-          return "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Native USDC
+          return "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
         case "DAI":
           return "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1";
         case "WETH":
@@ -201,7 +182,6 @@ export class ZeroExService {
       }
     }
 
-    // Base Mainnet (8453)
     if (chainId === 8453) {
       switch (s) {
         case "USDC":
@@ -213,7 +193,6 @@ export class ZeroExService {
       }
     }
 
-    // Optimism Mainnet (10)
     if (chainId === 10) {
       switch (s) {
         case "USDT":
@@ -227,7 +206,6 @@ export class ZeroExService {
       }
     }
 
-    // Avalanche C-Chain (43114)
     if (chainId === 43114) {
       switch (s) {
         case "USDT":

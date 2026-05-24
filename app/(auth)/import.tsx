@@ -1,4 +1,3 @@
-// app/(auth)/import.tsx
 import { ethers } from "ethers";
 import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
@@ -53,14 +52,10 @@ export default function ImportWalletScreen() {
 
   const [loadingText, setLoadingText] = useState("Importing your wallet...");
 
-  // Button-level loading for seed validation
   const [isValidating, setIsValidating] = useState(false);
 
-  // ─── Animations ───
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
-
-  // ─── Effects ───
 
   useEffect(() => {
     triggerFadeIn();
@@ -75,7 +70,6 @@ export default function ImportWalletScreen() {
     }
   }, [step]);
 
-  // Password strength
   useEffect(() => {
     if (password.length === 0) {
       setStrengthScore(0);
@@ -107,8 +101,6 @@ export default function ImportWalletScreen() {
     }
   }, [password]);
 
-  // ─── Helpers ───
-
   const triggerFadeIn = () => {
     fadeAnim.setValue(0);
     slideAnim.setValue(20);
@@ -129,14 +121,11 @@ export default function ImportWalletScreen() {
 
   const words = mnemonic ? mnemonic.split(" ") : [];
 
-  // ─── Handlers ───
-
   const handlePasteSeed = async () => {
     const text = await Clipboard.getStringAsync();
     if (text) setMnemonic(text.trim());
   };
 
-  // Show spinner on button first, defer heavy ethers work to next tick
   const handleNextToConfirm = () => {
     setGeneralError("");
     const cleanMnemonic = mnemonic.trim().toLowerCase();
@@ -215,7 +204,6 @@ export default function ImportWalletScreen() {
     }
   };
 
-  // ─── Render: Loading ───
   if (step === "loading") {
     return (
       <View
@@ -233,7 +221,6 @@ export default function ImportWalletScreen() {
     );
   }
 
-  // ─── Render: Main ───
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.background }}
@@ -247,7 +234,6 @@ export default function ImportWalletScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* HEADER */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => {
@@ -271,7 +257,6 @@ export default function ImportWalletScreen() {
           />
         </View>
 
-        {/* ─── STEP: SEED ─── */}
         {step === "seed" && (
           <Animated.View
             style={[
@@ -353,7 +338,6 @@ export default function ImportWalletScreen() {
           </Animated.View>
         )}
 
-        {/* ─── STEP: CONFIRM ─── */}
         {step === "confirm" && (
           <Animated.View
             style={[
@@ -416,7 +400,6 @@ export default function ImportWalletScreen() {
                         </Text>
                       )}
 
-                      {/* Blur — iOS native, Android dimezisBlurView */}
                       {!isHighlighted &&
                         (Platform.OS === "ios" ? (
                           <BlurView
@@ -457,7 +440,6 @@ export default function ImportWalletScreen() {
           </Animated.View>
         )}
 
-        {/* ─── STEP: PASSWORD ─── */}
         {step === "password" && (
           <Animated.View
             style={[
@@ -472,7 +454,6 @@ export default function ImportWalletScreen() {
               This password protects your wallet and authorizes transactions.
             </Text>
 
-            {/* Password */}
             <View style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: theme.text }]}>
                 Password
@@ -508,7 +489,6 @@ export default function ImportWalletScreen() {
               </View>
             </View>
 
-            {/* Repeat Password */}
             <View style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: theme.text }]}>
                 Repeat Password
@@ -545,7 +525,6 @@ export default function ImportWalletScreen() {
               </View>
             </View>
 
-            {/* Strength Indicator */}
             <View style={styles.strengthContainer}>
               <Text
                 style={[styles.strengthText, { color: theme.textSecondary }]}

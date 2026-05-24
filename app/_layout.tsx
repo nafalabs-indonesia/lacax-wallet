@@ -1,4 +1,3 @@
-// app/_layout.tsx
 import {
   DarkTheme,
   DefaultTheme,
@@ -10,7 +9,7 @@ import { useEffect, useState } from "react";
 import "react-native-reanimated";
 import "../polyfills";
 import { useAppStore } from "../store/appStore";
-// ✅ Import Modal Konfirmasi WalletConnect
+
 import { WcConfirmationModal } from "../components/WcConfirmationModal";
 
 export default function RootLayout() {
@@ -27,12 +26,10 @@ export default function RootLayout() {
 
   const navTheme = isDarkMode ? DarkTheme : DefaultTheme;
 
-  // 1. Load wallet dari storage SEKALI
   useEffect(() => {
     loadWalletFromStorage();
   }, []);
 
-  // 2. Splash screen delay (1.5 detik)
   useEffect(() => {
     if (!isStorageLoaded) return;
 
@@ -43,13 +40,11 @@ export default function RootLayout() {
     return () => clearTimeout(timer);
   }, [isStorageLoaded]);
 
-  // 3. Routing guard (jalan setelah splash selesai)
   useEffect(() => {
     if (!isStorageLoaded || !splashDone) return;
 
     const currentPath = segments.join("/");
 
-    // Route publik yang boleh diakses tanpa wallet
     const publicRoutes = [
       "index",
       "get-started",
@@ -65,7 +60,6 @@ export default function RootLayout() {
       (route) => currentPath === route || currentPath.startsWith(route),
     );
 
-    // CASE 1: Belum ada wallet
     if (!walletAddress) {
       if (!isPublic) {
         router.replace("/get-started");
@@ -73,7 +67,6 @@ export default function RootLayout() {
       return;
     }
 
-    // CASE 2: Ada wallet tapi belum unlock
     if (!isUnlocked) {
       const unlockExceptions = ["unlock", "wallet-ready", "index", ""];
       const isException = unlockExceptions.some(
@@ -85,7 +78,6 @@ export default function RootLayout() {
       return;
     }
 
-    // CASE 3: Sudah unlock → blokir halaman onboarding
     const privateOnlyRoutes = [
       "get-started",
       "welcome",
@@ -116,12 +108,10 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={navTheme}>
       <Stack screenOptions={{ headerShown: false }}>
-        {/* Public & Auth Screens */}
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="get-started" options={{ headerShown: false }} />
         <Stack.Screen name="welcome" options={{ headerShown: false }} />
 
-        {/* Auth Group */}
         <Stack.Screen
           name="(auth)/backup-intro"
           options={{ headerShown: false }}
@@ -135,12 +125,8 @@ export default function RootLayout() {
           options={{ headerShown: false }}
         />
 
-        {/* Main Tabs */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
-        {/* Feature Screens (Registered Here) */}
-
-        {/* Swap Screen */}
         <Stack.Screen
           name="swap"
           options={{
@@ -150,7 +136,6 @@ export default function RootLayout() {
           }}
         />
 
-        {/* Coin Detail Screen */}
         <Stack.Screen
           name="coin-detail"
           options={{
@@ -160,7 +145,6 @@ export default function RootLayout() {
           }}
         />
 
-        {/* Security Screen - NEW */}
         <Stack.Screen
           name="security"
           options={{
@@ -170,7 +154,6 @@ export default function RootLayout() {
           }}
         />
 
-        {/* Wallet Address Screen - NEW */}
         <Stack.Screen
           name="wallet-address"
           options={{
@@ -180,7 +163,6 @@ export default function RootLayout() {
           }}
         />
 
-        {/* Other Modals */}
         <Stack.Screen
           name="send"
           options={{ presentation: "modal", headerShown: false }}
@@ -197,7 +179,6 @@ export default function RootLayout() {
 
       <StatusBar style={isDarkMode ? "light" : "dark"} />
 
-      {/* ✅ Render Modal Konfirmasi WC di level root agar selalu muncul di atas */}
       <WcConfirmationModal />
     </ThemeProvider>
   );

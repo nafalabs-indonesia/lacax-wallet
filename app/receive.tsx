@@ -1,4 +1,3 @@
-// app/receive.tsx
 import { ChainConfig, SUPPORTED_CHAINS } from "@/config/chains";
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
@@ -31,7 +30,6 @@ import { Colors } from "../theme/colors";
 
 const { width } = Dimensions.get("window");
 
-// --- KONFIGURASI ASET & TOKEN ---
 const CHAIN_LOGO_MAP: Record<string, any> = {
   "ethereum-mainnet": require("../assets/chains/eth.png"),
   "ethereum-sepolia": require("../assets/chains/eth-sepolia.png"),
@@ -47,7 +45,6 @@ const CHAIN_LOGO_MAP: Record<string, any> = {
   "monad-testnet": require("../assets/chains/monad.png"),
 };
 
-// Definisi Token per Chain
 const TOKEN_CONFIG: Record<string, any[]> = {
   "ethereum-mainnet": [
     {
@@ -175,24 +172,19 @@ export default function ReceiveScreen() {
     useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
 
-  // State
   const [copied, setCopied] = useState(false);
   const [showNetworkSheet, setShowNetworkSheet] = useState(false);
-  const [showTokenSheet, setShowTokenSheet] = useState(false); // State untuk modal token
+  const [showTokenSheet, setShowTokenSheet] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [qrHeight, setQrHeight] = useState(300);
 
-  // State Token
   const [selectedToken, setSelectedToken] = useState<any>(null);
 
-  // Animation for Scan Line
   const scanAnim = useRef(new Animated.Value(0)).current;
 
-  // Get Current Chain Config
   const currentChain =
     SUPPORTED_CHAINS.find((c) => c.id === activeChainId) || SUPPORTED_CHAINS[0];
 
-  // Get Available Tokens for this Chain
   const availableTokens = TOKEN_CONFIG[currentChain.id] || [
     {
       symbol: currentChain.symbol,
@@ -201,7 +193,6 @@ export default function ReceiveScreen() {
     },
   ];
 
-  // Set Default Token when Chain changes
   useEffect(() => {
     if (availableTokens.length > 0) {
       const native = availableTokens.find(
@@ -211,7 +202,6 @@ export default function ReceiveScreen() {
     }
   }, [currentChain.id, availableTokens]);
 
-  // Start Scan Line Animation
   useEffect(() => {
     const startAnimation = () => {
       scanAnim.setValue(0);
@@ -260,12 +250,10 @@ export default function ReceiveScreen() {
     setShowTokenSheet(false);
   };
 
-  // Logo untuk QR Code
   const qrLogo = selectedToken?.logo || CHAIN_LOGO_MAP[currentChain.id];
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
           <ChevronLeft size={24} color={theme.text} />
@@ -287,7 +275,6 @@ export default function ReceiveScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* QR Code Section */}
         <View
           style={[
             styles.qrCard,
@@ -297,7 +284,6 @@ export default function ReceiveScreen() {
             },
           ]}
         >
-          {/* Network Selector Button (Di dalam QR Card) */}
           <TouchableOpacity
             style={[styles.networkBtn, { borderColor: theme.border }]}
             onPress={() => setShowNetworkSheet(true)}
@@ -308,7 +294,6 @@ export default function ReceiveScreen() {
             <ChevronDown size={16} color={theme.textSecondary} />
           </TouchableOpacity>
 
-          {/* QR Code Wrapper */}
           <View
             style={styles.qrWrapper}
             onLayout={(e) => setQrHeight(e.nativeEvent.layout.height)}
@@ -325,7 +310,6 @@ export default function ReceiveScreen() {
               quietZone={10}
             />
 
-            {/* Animated Scan Line */}
             <Animated.View
               style={[
                 styles.scanLine,
@@ -348,8 +332,6 @@ export default function ReceiveScreen() {
           </Text>
         </View>
 
-        {/* --- COIN SELECTOR (DROPDOWN ROUNDED FULL) --- */}
-        {/* Ditempatkan di antara QR Card dan Address Card */}
         <TouchableOpacity
           style={[
             styles.coinSelector,
@@ -364,7 +346,6 @@ export default function ReceiveScreen() {
           <ChevronDown size={20} color={theme.textSecondary} />
         </TouchableOpacity>
 
-        {/* Wallet Address Section */}
         <View
           style={[
             styles.addressCard,
@@ -425,7 +406,6 @@ export default function ReceiveScreen() {
         </View>
       </ScrollView>
 
-      {/* Network Bottom Sheet */}
       <Modal
         visible={showNetworkSheet}
         transparent
@@ -497,7 +477,6 @@ export default function ReceiveScreen() {
         </View>
       </Modal>
 
-      {/* Token Bottom Sheet (Baru) */}
       <Modal
         visible={showTokenSheet}
         transparent
@@ -569,7 +548,6 @@ export default function ReceiveScreen() {
         </View>
       </Modal>
 
-      {/* Info Modal */}
       <Modal
         visible={showInfoModal}
         transparent
@@ -689,7 +667,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // Styles untuk Coin Selector (Rounded Full Dropdown)
   coinSelector: {
     flexDirection: "row",
     alignItems: "center",
@@ -697,9 +674,9 @@ const styles = StyleSheet.create({
     width: "100%",
     paddingVertical: 14,
     paddingHorizontal: 20,
-    borderRadius: 999, // Rounded full
+    borderRadius: 999,
     borderWidth: 1,
-    marginBottom: 24, // Jarak ke Address Card
+    marginBottom: 24,
     gap: 10,
   },
   coinIcon: {
@@ -710,7 +687,7 @@ const styles = StyleSheet.create({
   coinSelectorText: {
     fontSize: 15,
     fontWeight: "600",
-    flex: 1, // Agar teks mengisi ruang tapi tetap center visual
+    flex: 1,
     textAlign: "center",
   },
 
@@ -764,7 +741,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     justifyContent: "flex-end",

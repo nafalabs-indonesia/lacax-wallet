@@ -11,7 +11,6 @@ export default function WelcomeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Bagian Atas: Ilustrasi */}
       <View style={styles.topSection}>
         <Image
           source={require("../assets/welcome.png")}
@@ -20,7 +19,6 @@ export default function WelcomeScreen() {
         />
       </View>
 
-      {/* Bagian Tengah: Judul & Subjudul */}
       <View style={styles.middleSection}>
         <Text style={[styles.title, { color: theme.text }]}>
           Own Your{"\n"}Crypto
@@ -30,10 +28,8 @@ export default function WelcomeScreen() {
         </Text>
       </View>
 
-      {/* Bagian Bawah: Tombol */}
       <View style={styles.bottomSection}>
         <View style={styles.buttonGroup}>
-          {/* Import - Outline */}
           <TouchableOpacity
             style={[
               styles.button,
@@ -48,7 +44,6 @@ export default function WelcomeScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Create Wallet - Solid */}
           <TouchableOpacity
             style={[
               styles.button,
@@ -72,15 +67,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 24,
-    // Kita pakai justifyContent: 'space-between' untuk menyebar 3 bagian utama
-    // Top (Illustration), Middle (Text), Bottom (Buttons)
+
     justifyContent: "space-between",
-    paddingTop: 130, // Jarak dari atas layar ke ilustrasi
-    paddingBottom: 80, // Jarak dari tombol ke bawah layar
+    paddingTop: 130,
+    paddingBottom: 80,
   },
   topSection: {
     alignItems: "center",
-    // Margin bottom ini mengatur jarak antara Ilustrasi dan Judul
+
     marginBottom: 20,
   },
   illustration: {
@@ -89,8 +83,6 @@ const styles = StyleSheet.create({
   },
   middleSection: {
     alignItems: "center",
-    // Flex grow bisa membantu mendorong section ini ke tengah jika diperlukan,
-    // tapi dengan space-between di parent, ini sudah cukup rapi.
   },
   title: {
     fontSize: 40,
@@ -104,12 +96,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 20,
     lineHeight: 22,
-    // Margin bottom ini mengatur jarak antara Subjudul dan Tombol
+
     marginBottom: 20,
   },
   bottomSection: {
     width: "100%",
-    // Jika tombol masih terasa terlalu tinggi, tambah marginTop di sini
+
     marginTop: 20,
   },
   buttonGroup: {

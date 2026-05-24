@@ -11,7 +11,6 @@ export default function GetStartedScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Logo Container - Rounded Full Border */}
       <View style={styles.logoContainer}>
         <Image
           source={require("../assets/lacax-dark.png")}
@@ -20,7 +19,6 @@ export default function GetStartedScreen() {
         />
       </View>
 
-      {/* Headline Gabungan: One Wallet. Secure and Simple. */}
       <Text style={styles.mainHeadline}>
         One Wallet.{"\n"}Secure and Simple.
       </Text>
@@ -29,14 +27,12 @@ export default function GetStartedScreen() {
         Store, manage, and transact crypto safely with ease.
       </Text>
 
-      {/* Illustration - Ukuran Diperkecil */}
       <Image
         source={require("../assets/get-started.png")}
         style={styles.illustration}
         resizeMode="contain"
       />
 
-      {/* CTA Button */}
       <TouchableOpacity style={styles.button} onPress={handlePress}>
         <Text style={styles.buttonText}>Get Started</Text>
       </TouchableOpacity>
@@ -49,8 +45,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#101010",
     alignItems: "center",
-    justifyContent: "space-between", // Menyebar elemen vertikal
-    paddingVertical: 50, // Sedikit dikurangi agar tidak terlalu mepet tepi
+    justifyContent: "space-between",
+    paddingVertical: 50,
     paddingHorizontal: 24,
   },
   logoContainer: {
@@ -69,11 +65,11 @@ const styles = StyleSheet.create({
     height: 30,
   },
   mainHeadline: {
-    fontSize: 38, // Ukuran font besar
+    fontSize: 38,
     fontWeight: "bold",
     color: "#FFFFFF",
     textAlign: "center",
-    lineHeight: 44, // Jarak antar baris diatur agar terlihat menyatu tapi tetap terbaca jelas
+    lineHeight: 44,
     marginTop: 0,
     marginBottom: -40,
   },
@@ -95,8 +91,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 40,
     borderRadius: 30,
-    width: "100%", // Lebar penuh atau sesuai preferensi
-    maxWidth: 350, // Batas lebar maksimal agar tidak terlalu lebar di tablet
+    width: "100%",
+    maxWidth: 350,
     alignItems: "center",
     marginBottom: 30,
   },

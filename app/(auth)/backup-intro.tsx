@@ -12,12 +12,10 @@ export default function BackupIntroScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.content}>
-        {/* Title */}
         <Text style={[styles.title, { color: theme.text }]}>
           Back Up Your Wallet
         </Text>
 
-        {/* Description */}
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
           Your{" "}
           <Text style={{ fontWeight: "600", color: theme.text }}>
@@ -31,7 +29,6 @@ export default function BackupIntroScreen() {
           </Text>
         </Text>
 
-        {/* Illustration */}
         <View style={styles.illustration}>
           <Image
             source={require("../../assets/secure.png")}
@@ -40,7 +37,6 @@ export default function BackupIntroScreen() {
           />
         </View>
 
-        {/* Single CTA Button */}
         <TouchableOpacity
           style={[styles.button, { backgroundColor: theme.primary }]}
           onPress={() => router.push("/(auth)/reveal-seed")}

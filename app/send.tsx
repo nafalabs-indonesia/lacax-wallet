@@ -1,4 +1,3 @@
-// app/send.tsx
 import { ChainConfig, SUPPORTED_CHAINS } from "@/config/chains";
 import { WalletRepository } from "@/modules/wallet/infrastructure/WalletRepository";
 import {
@@ -54,11 +53,6 @@ import {
 
 const { width, height } = Dimensions.get("window");
 
-// ─────────────────────────────────────────────
-// Fee Config — diambil dari Next.js API
-// ─────────────────────────────────────────────
-
-// Ganti dengan URL deployment Next.js kamu
 const FEE_CONFIG_URL = "https://lacax.vercel.app/api/v1/fee-config";
 
 interface FeeConfig {
@@ -66,9 +60,6 @@ interface FeeConfig {
   feePercent: number;
 }
 
-// ─────────────────────────────────────────────
-// Icon Mapping
-// ─────────────────────────────────────────────
 const LOCAL_ICON_MAP: Record<string, any> = {
   ETH: require("../assets/chains/eth.png"),
   SepoliaETH: require("../assets/chains/eth-sepolia.png"),
@@ -189,7 +180,6 @@ export default function SendScreen() {
   const [gasPriceWei, setGasPriceWei] = useState<string>("0");
   const [isSending, setIsSending] = useState(false);
 
-  // ── Fee Config State ──
   const [feeConfig, setFeeConfig] = useState<FeeConfig | null>(null);
   const [isFeeConfigLoading, setIsFeeConfigLoading] = useState(true);
   const [feeConfigError, setFeeConfigError] = useState(false);
@@ -213,8 +203,6 @@ export default function SendScreen() {
   const [showNetworkFeeInfo, setShowNetworkFeeInfo] = useState(false);
   const [serviceFeeEnabled, setServiceFeeEnabled] = useState(true);
 
-  // ─── Fetch Fee Config dari API ────────────────────────────────────────────
-
   const fetchFeeConfig = useCallback(async () => {
     setIsFeeConfigLoading(true);
     setFeeConfigError(false);
@@ -229,19 +217,16 @@ export default function SendScreen() {
     } catch (err) {
       console.error("[FeeConfig] Failed to fetch:", err);
       setFeeConfigError(true);
-      // Fallback aman: fee 0 dan wallet kosong → tidak kirim fee
+
       setFeeConfig({ feeWallet: "", feePercent: 0 });
     } finally {
       setIsFeeConfigLoading(false);
     }
   }, []);
 
-  // Ambil fee config sekali saat mount
   useEffect(() => {
     fetchFeeConfig();
   }, [fetchFeeConfig]);
-
-  // ─── Helpers ────────────────────────────────────────────────────────────────
 
   const getRpcUrl = useCallback((chain: ChainConfig): string => {
     if (chain.rpcUrl) return chain.rpcUrl;
@@ -260,11 +245,8 @@ export default function SendScreen() {
     return null;
   };
 
-  // Fee percent aktif (0 jika dimatikan user atau config belum load)
   const activeFeePercent =
     serviceFeeEnabled && feeConfig ? feeConfig.feePercent : 0;
-
-  // ─── Gas Fetching ────────────────────────────────────────────────────────────
 
   const fetchGasFromPublicRpc = useCallback(
     async (chainId: string): Promise<string | null> => {
@@ -332,9 +314,7 @@ export default function SendScreen() {
           setGasPriceWei(response.data.gasPrice);
           return;
         }
-      } catch {
-        // fallback
-      }
+      } catch {}
     }
 
     const rpcPrice = await fetchGasFromPublicRpc(selectedChain.id);
@@ -351,8 +331,6 @@ export default function SendScreen() {
     walletAddress,
     fetchGasFromPublicRpc,
   ]);
-
-  // ─── Balance Fetching ────────────────────────────────────────────────────────
 
   const fetchBalances = useCallback(async () => {
     if (!walletAddress) return;
@@ -417,8 +395,6 @@ export default function SendScreen() {
     fetchBalances();
   }, [fetchGasPrice, fetchBalances]);
 
-  // ─── Handlers ────────────────────────────────────────────────────────────────
-
   const handleMax = () => {
     if (!selectedAsset) return;
     let maxVal = parseFloat(selectedAsset.balance);
@@ -452,8 +428,6 @@ export default function SendScreen() {
       setRecipientAddress(data);
     }
   };
-
-  // ─── Validation Logic ───────────────────────────────────────────────────────
 
   const validateTransaction = (): string | null => {
     if (!feeConfig) return "Fee configuration not loaded yet. Please wait.";
@@ -502,8 +476,6 @@ export default function SendScreen() {
 
     return null;
   };
-
-  // ─── Confirm & Send Logic ───────────────────────────────────────────────────
 
   const prepareTransaction = () => {
     if (!mnemonic) {
@@ -611,7 +583,6 @@ export default function SendScreen() {
 
   const _runTransaction = async () => {
     try {
-      // Pastikan fee config tersedia saat eksekusi
       const currentFeeConfig = feeConfig ?? { feeWallet: "", feePercent: 0 };
 
       const rpcUrl = getRpcUrl(selectedChain);
@@ -638,7 +609,6 @@ export default function SendScreen() {
           NATIVE_DECIMALS,
         );
 
-        // Kirim fee hanya jika ada wallet penerima fee dan nilai fee > 0
         if (feeVal > 0n && currentFeeConfig.feeWallet) {
           const feeTx = await wallet.sendTransaction({
             to: currentFeeConfig.feeWallet,
@@ -726,8 +696,6 @@ export default function SendScreen() {
     }
   };
 
-  // ─── Display Helpers ─────────────────────────────────────────────────────────
-
   const formatCurrency = (val: string) => parseFloat(val).toFixed(4);
 
   const nativeSymbol =
@@ -762,7 +730,6 @@ export default function SendScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={{ flex: 1, backgroundColor: theme.background }}
     >
-      {/* ── Global Loading Overlay ─────────────────────────────────────────── */}
       {isSending && (
         <View style={styles.loadingOverlay}>
           <View style={[styles.loadingBox, { backgroundColor: theme.card }]}>
@@ -779,7 +746,6 @@ export default function SendScreen() {
         </View>
       )}
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
           <ChevronLeft size={24} color={theme.text} strokeWidth={2.5} />
@@ -797,7 +763,6 @@ export default function SendScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Disclaimer */}
         <View style={[styles.alertBox, { backgroundColor: theme.card }]}>
           <AlertTriangle
             size={18}
@@ -809,7 +774,6 @@ export default function SendScreen() {
           </Text>
         </View>
 
-        {/* Fee Config Error Banner */}
         {feeConfigError && (
           <View
             style={[
@@ -835,7 +799,6 @@ export default function SendScreen() {
           </View>
         )}
 
-        {/* ── Select Asset Button ──────────────────────────────────────────── */}
         <View style={styles.dropdownContainer}>
           <Text style={[styles.label, { color: theme.text }]}>
             Select Asset
@@ -881,7 +844,6 @@ export default function SendScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ── Recipient Address ─────────────────────────────────────────────── */}
         <View style={styles.inputGroup}>
           <Text style={[styles.label, { color: theme.text }]}>
             Recipient Address
@@ -900,7 +862,6 @@ export default function SendScreen() {
           />
         </View>
 
-        {/* ── Select Network Button ────────────────────────────────────────── */}
         <View style={styles.dropdownContainer}>
           <Text style={[styles.label, { color: theme.text }]}>Network</Text>
           <TouchableOpacity
@@ -939,7 +900,6 @@ export default function SendScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ── Enter Amount ──────────────────────────────────────────────────── */}
         <View style={styles.inputGroup}>
           <View style={styles.amountHeader}>
             <Text style={[styles.label, { color: theme.text }]}>
@@ -973,7 +933,6 @@ export default function SendScreen() {
           </View>
         </View>
 
-        {/* ── Fees Section ──────────────────────────────────────────────────── */}
         <View style={[styles.feeSection, { backgroundColor: theme.card }]}>
           <View style={styles.feeRow}>
             <View
@@ -1036,7 +995,6 @@ export default function SendScreen() {
         </View>
       </ScrollView>
 
-      {/* ── Footer Button ─────────────────────────────────────────────────── */}
       <View style={styles.footerWrapper}>
         <TouchableOpacity
           style={[
@@ -1064,7 +1022,6 @@ export default function SendScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Camera Scanner Overlay ────────────────────────────────────────── */}
       {isScanning && permission?.granted && (
         <View style={styles.cameraOverlay}>
           <CameraView
@@ -1087,7 +1044,6 @@ export default function SendScreen() {
         </View>
       )}
 
-      {/* ── BOTTOM SHEET: SELECT ASSET ────────────────────────────────────── */}
       <Modal
         visible={isAssetSheetOpen}
         transparent={true}
@@ -1188,7 +1144,6 @@ export default function SendScreen() {
         </View>
       </Modal>
 
-      {/* ── BOTTOM SHEET: SELECT NETWORK ──────────────────────────────────── */}
       <Modal
         visible={isNetworkSheetOpen}
         transparent={true}
@@ -1283,7 +1238,6 @@ export default function SendScreen() {
         </View>
       </Modal>
 
-      {/* ── ERROR MODAL ───────────────────────────────────────────────────── */}
       <Modal
         visible={showErrorModal}
         transparent={true}
@@ -1321,7 +1275,6 @@ export default function SendScreen() {
         </View>
       </Modal>
 
-      {/* ── CONFIRM MODAL ─────────────────────────────────────────────────── */}
       <Modal
         visible={showConfirmModal}
         transparent={true}
@@ -1498,7 +1451,6 @@ export default function SendScreen() {
         </View>
       </Modal>
 
-      {/* ── PASSWORD MODAL ────────────────────────────────────────────────── */}
       <Modal
         visible={showPasswordModal}
         transparent={true}
@@ -1641,7 +1593,6 @@ export default function SendScreen() {
         </View>
       </Modal>
 
-      {/* ── SUCCESS MODAL ─────────────────────────────────────────────────── */}
       <Modal
         visible={showSuccessModal}
         transparent={true}
@@ -1776,7 +1727,6 @@ export default function SendScreen() {
         </View>
       </Modal>
 
-      {/* ── NETWORK FEE INFO MODAL ────────────────────────────────────────── */}
       <Modal
         visible={showNetworkFeeInfo}
         transparent={true}
@@ -1840,7 +1790,6 @@ export default function SendScreen() {
         </View>
       </Modal>
 
-      {/* ── SERVICE FEE INFO MODAL ────────────────────────────────────────── */}
       <Modal
         visible={showServiceFeeInfo}
         transparent={true}

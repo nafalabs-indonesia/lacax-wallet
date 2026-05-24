@@ -1,4 +1,3 @@
-// app/coin-detail.tsx
 import { router, useLocalSearchParams } from "expo-router";
 import {
   ArrowDownLeft,
@@ -30,9 +29,6 @@ import { Path } from "react-native-svg";
 import { useAppStore } from "../store/appStore";
 import { Colors } from "../theme/colors";
 
-// ─────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────
 const { width } = Dimensions.get("window");
 const CHART_HEIGHT = 250;
 const PRICE_LABEL_WIDTH = 55;
@@ -100,9 +96,6 @@ interface ChartPoint {
 
 type TabType = "chart" | "info" | "market";
 
-// ─────────────────────────────────────────────
-// Price Labels
-// ─────────────────────────────────────────────
 function PriceLabels({ data, theme }: { data: number[]; theme: any }) {
   if (!data || data.length < 2) return null;
 
@@ -150,9 +143,6 @@ function PriceLabels({ data, theme }: { data: number[]; theme: any }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// Date Labels
-// ─────────────────────────────────────────────
 function DateLabels({ points, theme }: { points: ChartPoint[]; theme: any }) {
   if (!points || points.length < 2) return null;
 
@@ -224,9 +214,6 @@ function DateLabels({ points, theme }: { points: ChartPoint[]; theme: any }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// Line Chart Component
-// ─────────────────────────────────────────────
 function SimpleLineChart({ data, theme }: { data: ChartPoint[]; theme: any }) {
   if (!data || data.length < 2) return null;
 
@@ -302,9 +289,6 @@ function SimpleLineChart({ data, theme }: { data: ChartPoint[]; theme: any }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// Disclaimer Bottom Sheet
-// ─────────────────────────────────────────────
 function DisclaimerSheet({
   visible,
   onClose,
@@ -397,9 +381,6 @@ function DisclaimerSheet({
   );
 }
 
-// ─────────────────────────────────────────────
-// Main Screen
-// ─────────────────────────────────────────────
 export default function CoinDetailScreen() {
   const { coinId } = useLocalSearchParams();
   const { isDarkMode, activeChainId } = useAppStore();
@@ -414,8 +395,7 @@ export default function CoinDetailScreen() {
   const [chartLoading, setChartLoading] = useState(false);
   const [disclaimerVisible, setDisclaimerVisible] = useState(false);
 
-  // ── Kurs USD → IDR real-time dari CoinGecko ──
-  const [usdToIdr, setUsdToIdr] = useState<number>(15500); // fallback sementara
+  const [usdToIdr, setUsdToIdr] = useState<number>(15500);
 
   const id = typeof coinId === "string" ? coinId : "ethereum";
   const geckoId = COINGECKO_ID_MAP[id] || id;
@@ -423,11 +403,6 @@ export default function CoinDetailScreen() {
   const change24h = coinData?.price_change_percentage_24h ?? 0;
   const isPositive = change24h >= 0;
 
-  // ─────────────────────────────────────────────
-  // Fetch kurs USD → IDR via CoinGecko
-  // Pakai endpoint simple/price: minta harga USDT dalam IDR.
-  // Karena 1 USDT ≈ 1 USD, nilai idr-nya = kurs USD→IDR saat ini.
-  // ─────────────────────────────────────────────
   const fetchUsdToIdr = useCallback(async () => {
     try {
       const res = await fetch(
@@ -439,9 +414,7 @@ export default function CoinDetailScreen() {
       if (rate && rate > 1000) {
         setUsdToIdr(rate);
       }
-    } catch {
-      // Biarkan fallback 15500 tetap dipakai jika gagal
-    }
+    } catch {}
   }, []);
 
   const fetchChartForTimeframe = useCallback(
@@ -537,13 +510,11 @@ export default function CoinDetailScreen() {
     }
   }, [geckoId, id, timeFrame, fetchChartForTimeframe]);
 
-  // Fetch kurs + coin data saat pertama kali mount
   useEffect(() => {
     fetchUsdToIdr();
     fetchCoinData();
   }, [fetchCoinData, fetchUsdToIdr]);
 
-  // Refresh kurs setiap 60 detik
   useEffect(() => {
     const interval = setInterval(fetchUsdToIdr, 60_000);
     return () => clearInterval(interval);
@@ -561,7 +532,6 @@ export default function CoinDetailScreen() {
     fetchCoinData();
   };
 
-  // ── Format IDR: selalu "IDR 1.234.567" ──
   const formatIDR = (usdValue: number) => {
     const idrValue = usdValue * usdToIdr;
     const formatted = new Intl.NumberFormat("id-ID", {
@@ -604,7 +574,6 @@ export default function CoinDetailScreen() {
         theme={theme}
       />
 
-      {/* 1. HEADER & TABS */}
       <View style={styles.topHeaderContainer}>
         <View style={styles.navHeader}>
           <TouchableOpacity
@@ -667,13 +636,12 @@ export default function CoinDetailScreen() {
           />
         }
       >
-        {/* 2. PRICE CARD */}
         <View style={[styles.priceCard, { borderColor: theme.border }]}>
           <View style={styles.priceInfo}>
             <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>
               Current Price
             </Text>
-            {/* IDR menggunakan kurs real-time dari CoinGecko */}
+
             <Text style={[styles.priceValue, { color: theme.text }]}>
               {formatIDR(coinData.current_price)}
             </Text>
@@ -718,9 +686,6 @@ export default function CoinDetailScreen() {
           </View>
         </View>
 
-        {/* 3. CONTENT */}
-
-        {/* TAB: CHART */}
         {activeTab === "chart" && (
           <View style={[styles.chartCard, { borderColor: theme.border }]}>
             <View style={styles.chartHeader}>
@@ -764,7 +729,6 @@ export default function CoinDetailScreen() {
           </View>
         )}
 
-        {/* TAB: INFO */}
         {activeTab === "info" && (
           <View style={[styles.genericCard, { borderColor: theme.border }]}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>
@@ -778,7 +742,6 @@ export default function CoinDetailScreen() {
           </View>
         )}
 
-        {/* TAB: MARKET */}
         {activeTab === "market" && (
           <View style={[styles.genericCard, { borderColor: theme.border }]}>
             <StatRow
@@ -802,7 +765,6 @@ export default function CoinDetailScreen() {
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* 4. FOOTER */}
       <View style={[styles.footer, { backgroundColor: theme.background }]}>
         <TouchableOpacity
           style={styles.swapBtnContainer}

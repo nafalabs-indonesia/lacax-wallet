@@ -25,10 +25,8 @@ import { useCreateWallet } from "../../hooks/useCreateWallet";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
-// Step: 'seed' | 'confirm' | 'password' | 'loading'
 type Step = "seed" | "confirm" | "password" | "loading";
 
-// Posisi yang akan dikonfirmasi (bisa diubah sesuai kebutuhan)
 const CONFIRM_POSITIONS = [2, 6, 7, 11];
 
 export default function RevealSeedScreen() {
@@ -42,29 +40,24 @@ export default function RevealSeedScreen() {
   const [copied, setCopied] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Password state
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showRepeatPassword, setShowRepeatPassword] = useState(false);
   const [passwordError, setPasswordError] = useState("");
 
-  // Confirmation state
   const [confirmationInputs, setConfirmationInputs] = useState<
     Record<number, string>
   >({});
   const [confirmationError, setConfirmationError] = useState("");
 
-  // Password strength
-  const [strengthScore, setStrengthScore] = useState(0); // 0-4
+  const [strengthScore, setStrengthScore] = useState(0);
   const [strengthLabel, setStrengthLabel] = useState("Weak");
-  const [strengthColor, setStrengthColor] = useState("#EF4444"); // Red by default
+  const [strengthColor, setStrengthColor] = useState("#EF4444");
 
-  // Animations for fade-in content
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
 
-  // State untuk teks loading yang berubah
   const [loadingText, setLoadingText] = useState("Creating your wallet...");
 
   useEffect(() => {
@@ -72,7 +65,6 @@ export default function RevealSeedScreen() {
   }, []);
 
   useEffect(() => {
-    // Fade-in animation when step changes
     fadeAnim.setValue(0);
     slideAnim.setValue(20);
     Animated.parallel([
@@ -89,12 +81,10 @@ export default function RevealSeedScreen() {
       }),
     ]).start();
 
-    // Reset errors when changing steps
     setPasswordError("");
     setConfirmationError("");
   }, [step]);
 
-  // Calculate password strength
   useEffect(() => {
     if (password.length === 0) {
       setStrengthScore(0);
@@ -110,22 +100,21 @@ export default function RevealSeedScreen() {
     if (/[0-9]/.test(password)) score++;
     if (/[^A-Za-z0-9]/.test(password)) score++;
 
-    // Cap at 4 for UI purposes
     const finalScore = Math.min(score, 4);
     setStrengthScore(finalScore);
 
     if (finalScore <= 1) {
       setStrengthLabel("Weak");
-      setStrengthColor("#EF4444"); // Red
+      setStrengthColor("#EF4444");
     } else if (finalScore <= 2) {
       setStrengthLabel("Medium");
-      setStrengthColor("#F59E0B"); // Orange
+      setStrengthColor("#F59E0B");
     } else if (finalScore <= 3) {
       setStrengthLabel("Strong");
-      setStrengthColor("#10B981"); // Green
+      setStrengthColor("#10B981");
     } else {
       setStrengthLabel("Very Strong");
-      setStrengthColor("#10B981"); // Green
+      setStrengthColor("#10B981");
     }
   }, [password]);
 
@@ -144,11 +133,10 @@ export default function RevealSeedScreen() {
   };
 
   const handleConfirmSeed = () => {
-    // Validate confirmation inputs
     let isValid = true;
     for (const pos of CONFIRM_POSITIONS) {
       const userInput = confirmationInputs[pos]?.trim().toLowerCase();
-      const correctWord = words[pos - 1]?.toLowerCase(); // pos is 1-based, array is 0-based
+      const correctWord = words[pos - 1]?.toLowerCase();
       if (userInput !== correctWord) {
         isValid = false;
         break;
@@ -172,19 +160,14 @@ export default function RevealSeedScreen() {
       return;
     }
 
-    // 1. Set Loading True & Teks Awal
     setIsCreating(true);
     setLoadingText("Creating your wallet...");
 
     try {
-      // Simulasi delay kecil agar user melihat teks "Creating..." sebelum berubah
-      // Ini juga memberi waktu bagi animasi loading untuk mulai berjalan smooth
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      // 2. Ubah Teks menjadi "Saving..."
       setLoadingText("Saving your wallet securely...");
 
-      // 3. Proses Finalisasi Wallet
       const ok = await finalizeWallet(password);
 
       if (ok) {
@@ -214,7 +197,6 @@ export default function RevealSeedScreen() {
       scrollEnabled={!isCreating}
       keyboardShouldPersistTaps="handled"
     >
-      {/* HEADER */}
       {!isCreating && (
         <View style={styles.header}>
           <TouchableOpacity
@@ -240,7 +222,6 @@ export default function RevealSeedScreen() {
         </View>
       )}
 
-      {/* ─── STEP: LOADING ─── */}
       {isCreating && (
         <View style={styles.loadingWrapper}>
           <Image
@@ -254,7 +235,6 @@ export default function RevealSeedScreen() {
         </View>
       )}
 
-      {/* ─── STEP: SEED PHRASE ─── */}
       {step === "seed" && !isCreating && (
         <Animated.View
           style={[
@@ -336,7 +316,6 @@ export default function RevealSeedScreen() {
         </Animated.View>
       )}
 
-      {/* ─── STEP: CONFIRM SEED ─── */}
       {step === "confirm" && !isCreating && (
         <Animated.View
           style={[
@@ -398,7 +377,6 @@ export default function RevealSeedScreen() {
                       </Text>
                     )}
 
-                    {/* BlurView dengan fallback untuk Android */}
                     {!isHighlighted &&
                       (Platform.OS === "ios" ? (
                         <BlurView
@@ -439,7 +417,6 @@ export default function RevealSeedScreen() {
         </Animated.View>
       )}
 
-      {/* ─── STEP: PASSWORD ─── */}
       {step === "password" && !isCreating && (
         <Animated.View
           style={[
@@ -454,7 +431,6 @@ export default function RevealSeedScreen() {
             Your password helps keep your wallet secure and private.
           </Text>
 
-          {/* Password Input */}
           <View style={styles.inputGroup}>
             <Text style={[styles.inputLabel, { color: theme.text }]}>
               Password
@@ -484,7 +460,6 @@ export default function RevealSeedScreen() {
             </View>
           </View>
 
-          {/* Repeat Password Input */}
           <View style={styles.inputGroup}>
             <Text style={[styles.inputLabel, { color: theme.text }]}>
               Repeat Password
@@ -514,13 +489,11 @@ export default function RevealSeedScreen() {
             </View>
           </View>
 
-          {/* Strength Indicator - Bars always visible, Label hidden until typing */}
           <View style={styles.strengthContainer}>
             <Text style={[styles.strengthText, { color: theme.textSecondary }]}>
               Use at least 8 characters, including letters and numbers.
             </Text>
 
-            {/* Bars - Always Visible */}
             <View style={styles.strengthBars}>
               {[1, 2, 3, 4].map((level) => (
                 <View
@@ -536,7 +509,6 @@ export default function RevealSeedScreen() {
               ))}
             </View>
 
-            {/* Label - Only show if password is being typed */}
             {password.length > 0 && (
               <Text style={[styles.strengthLabel, { color: strengthColor }]}>
                 {strengthLabel}
@@ -548,7 +520,6 @@ export default function RevealSeedScreen() {
             <Text style={styles.errorText}>{passwordError}</Text>
           ) : null}
 
-          {/* Button at the bottom */}
           <TouchableOpacity
             style={[
               styles.primaryBtn,
@@ -594,7 +565,6 @@ const styles = StyleSheet.create({
     height: 30,
   },
 
-  // Seed & Confirm Styles
   content: {
     flex: 1,
     justifyContent: "space-between",
@@ -641,8 +611,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 0.5,
     gap: 8,
-    overflow: "hidden", // Penting agar BlurView tidak keluar dari border radius
-    position: "relative", // Diperlukan untuk absolute positioning BlurView
+    overflow: "hidden",
+    position: "relative",
   },
   confirmInput: {
     flex: 1,
@@ -694,7 +664,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // Password Styles
   passwordContent: {
     flex: 1,
     paddingBottom: 20,

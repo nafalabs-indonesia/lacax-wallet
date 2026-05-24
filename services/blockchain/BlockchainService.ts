@@ -1,9 +1,7 @@
-// services/blockchain/BlockchainService.ts
 import { ChainConfig, getChainById } from "@/config/chains";
 import { ETHERSCAN_API_KEY } from "@env";
 import { ethers } from "ethers";
 
-// UPDATED: Added new chains to ChainId type
 export type ChainId =
   | "ethereum-mainnet"
   | "polygon-mainnet"
@@ -31,7 +29,6 @@ export class BlockchainService {
 
   static resetProviders(): void {
     this.providers = {};
-    console.log("🔄 BlockchainService: provider cache direset");
   }
 
   static getProvider(chainId: string): ethers.JsonRpcProvider {
@@ -46,7 +43,6 @@ export class BlockchainService {
 
     let provider: ethers.JsonRpcProvider;
 
-    // Handle custom headers if needed
     if (config.rpcHeaders && Object.keys(config.rpcHeaders).length > 0) {
       const fetchReq = new ethers.FetchRequest(config.rpcUrl);
       Object.entries(config.rpcHeaders).forEach(([key, value]) => {
@@ -54,7 +50,6 @@ export class BlockchainService {
       });
       provider = new ethers.JsonRpcProvider(fetchReq);
     } else {
-      // StaticNetworkProvider helps avoid unnecessary chain verification calls
       const network = new ethers.Network(config.name, config.chainId);
       provider = new ethers.JsonRpcProvider(config.rpcUrl, network, {
         staticNetwork: true,
@@ -114,28 +109,18 @@ export class BlockchainService {
     const config = getChainById(chainId);
     if (!config) return [];
 
-    // 1. Handle BNB (BSC) - Not supported on Free V2 Etherscan API usually
     if (config.chainId === 56 || config.chainId === 97) {
-      console.log(
-        `ℹ️ Skipping ${config.name}: BNB Chain history requires Paid API or custom integration.`,
-      );
       return [];
     }
 
-    // 2. Handle BlockDAG - Use Native Explorer API
     if (config.chainId === 1404 || config.chainId === 1043) {
       return this.getBlockDAGHistory(config, address);
     }
 
-    // 3. Handle Monad
     if (config.chainId === 143 || config.chainId === 10143) {
-      console.log(
-        `ℹ️ Monad history fetching via standard Etherscan V2 is currently limited.`,
-      );
       return [];
     }
 
-    // 4. Handle Etherscan V2 Supported Chains
     if (!apiKey) {
       console.warn(`⚠️ ETHERSCAN_API_KEY is missing.`);
       return [];
@@ -166,33 +151,25 @@ export class BlockchainService {
     }
   }
 
-  /**
-   * Helper khusus untuk BlockDAG Explorer (Updated with Custom Endpoint)
-   */
   private static async getBlockDAGHistory(
     config: ChainConfig,
     address: string,
   ): Promise<any[]> {
     let baseUrl = "";
 
-    // Menggunakan subdomain api.bdagscan.com sesuai temuan
     if (config.chainId === 1404) {
-      // Mainnet
       baseUrl = "https://api.bdagscan.com";
     } else if (config.chainId === 1043) {
-      // Testnet Awakening
       baseUrl = "https://api.awakening.bdagscan.com";
     } else {
       return [];
     }
 
     try {
-      // Endpoint kustom BDAGScan dengan double slash (//) sesuai inspect network
       const url = `${baseUrl}/v1/api//transaction/getTransactionByAddress?address=${address}&limit=50&page=1&export=false`;
 
       const response = await fetch(url);
 
-      // Cek apakah respons bukan JSON
       const contentType = response.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
         console.warn(
@@ -203,31 +180,19 @@ export class BlockchainService {
 
       const json = await response.json();
 
-      // Struktur respons BDAGScan: { "data": [ ...array transaksi... ] }
       if (json && json.data && Array.isArray(json.data)) {
-        // Map data dari format BDAGScan ke format standar aplikasi kita
         const mappedTxs = json.data.map((tx: any) => {
-          // PENTING: Cek apakah value sudah desimal atau wei
-          // API BDAGScan sering mengembalikan value dalam bentuk desimal string (e.g. "0.5")
-          // Atau kadang dalam Wei. Kita coba deteksi sederhana.
-          // Jika mengandung titik '.', anggap sudah desimal. Jika tidak, anggap Wei.
-
           let finalValue = tx.value;
 
-          // Jika value ada dan berisi titik desimal, biarkan sebagai string desimal
-          // Jika tidak, format dari Wei ke Ether
           if (
             finalValue &&
             typeof finalValue === "string" &&
             finalValue.includes(".")
           ) {
-            // Sudah desimal, biarkan saja
           } else if (finalValue) {
-            // Coba format sebagai Wei
             try {
               finalValue = ethers.formatEther(finalValue);
             } catch (e) {
-              // Jika gagal format (misal bukan number valid), set 0
               finalValue = "0";
             }
           } else {
@@ -235,10 +200,10 @@ export class BlockchainService {
           }
 
           return {
-            hash: tx.txnHash, // BDAGScan menggunakan txnHash
+            hash: tx.txnHash,
             from: tx.from,
             to: tx.to,
-            value: finalValue, // Simpan sebagai string desimal ("0.5")
+            value: finalValue,
             timeStamp: tx.timeStamp || Math.floor(Date.now() / 1000),
             isError: tx.status === "success" ? "0" : "1",
             blockNumber: tx.blockId,
@@ -270,17 +235,9 @@ export class BlockchainService {
       let valueFormatted = "0";
 
       try {
-        // Di sini tx.value SUDAH berupa string desimal dari mapping BlockDAG
-        // atau dari Etherscan (yang biasanya Wei, tapi kita handle di bawah)
-
-        // Untuk Etherscan standar, tx.value biasanya Wei (string angka besar tanpa titik)
-        // Untuk BlockDAG yang sudah di-map di atas, tx.value sudah desimal
-
-        // Cek sederhana: jika ada titik, itu sudah desimal. Jika tidak, format dari Wei.
         if (typeof tx.value === "string" && tx.value.includes(".")) {
           valueFormatted = parseFloat(tx.value).toFixed(4);
         } else {
-          // Asumsi Wei (untuk chain lain seperti ETH/BSC)
           valueFormatted = parseFloat(
             ethers.formatEther(tx.value || "0"),
           ).toFixed(4);
@@ -294,9 +251,9 @@ export class BlockchainService {
         hash: tx.hash,
         from: tx.from,
         to: tx.to,
-        value: valueFormatted, // String desimal, misal "0.5000"
+        value: valueFormatted,
         symbol: config.symbol,
-        // Handle timeStamp: Etherscan pakai seconds, BlockDAG map kita pakai seconds juga
+
         timestamp:
           typeof tx.timeStamp === "number"
             ? tx.timeStamp * 1000

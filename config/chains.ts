@@ -1,4 +1,3 @@
-// config/chains.ts
 import { ALCHEMY_API_KEY } from "@env";
 
 export interface TokenConfig {
@@ -35,7 +34,6 @@ const getAlchemyRpc = (network: string) => {
 const PROXY_BASE_URL = "https://lacax.vercel.app/api/v1/rpc";
 
 export const SUPPORTED_CHAINS: ChainConfig[] = [
-  // --- Existing Chains ---
   {
     id: "ethereum-mainnet",
     name: "Ethereum Mainnet",
@@ -163,9 +161,6 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     type: "evm",
   },
 
-  // --- NEW CHAINS: ARBITRUM & MONAD ---
-
-  // Arbitrum One Mainnet
   {
     id: "arbitrum-mainnet",
     name: "Arbitrum One",
@@ -178,7 +173,6 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     type: "evm",
   },
 
-  // Arbitrum Sepolia Testnet
   {
     id: "arbitrum-sepolia",
     name: "Arbitrum Sepolia",
@@ -191,7 +185,6 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     type: "evm",
   },
 
-  // Monad Mainnet
   {
     id: "monad-mainnet",
     name: "Monad Mainnet",
@@ -204,7 +197,6 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     type: "evm",
   },
 
-  // Monad Testnet
   {
     id: "monad-testnet",
     name: "Monad Testnet",

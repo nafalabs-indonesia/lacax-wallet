@@ -1,4 +1,3 @@
-// app/(tabs)/discover.tsx
 import { router } from "expo-router";
 import { Construction } from "lucide-react-native";
 import React from "react";
@@ -13,7 +12,6 @@ export default function DiscoverScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header using Shared Component */}
       <HomeHeader
         onSettingsPress={() => router.push("/settings")}
         onScanPress={() => router.push("/scan")}
@@ -23,7 +21,6 @@ export default function DiscoverScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Coming Soon Content */}
         <View style={styles.comingSoonContainer}>
           <View
             style={[
@@ -65,9 +62,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    flexGrow: 1, // Penting agar ScrollView mengisi ruang kosong
-    justifyContent: "center", // Menengahkan konten secara vertikal
-    alignItems: "center", // Menengahkan konten secara horizontal
+    flexGrow: 1,
+    justifyContent: "center",
+    alignItems: "center",
     padding: 24,
     paddingTop: 0,
     paddingBottom: 100,

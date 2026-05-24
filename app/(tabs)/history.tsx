@@ -1,4 +1,3 @@
-// app/(tabs)/history.tsx
 import { ChainConfig, SUPPORTED_CHAINS } from "@/config/chains";
 import {
   BlockchainService,
@@ -34,10 +33,6 @@ import { HomeHeader } from "../../components/HomeHeader";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
 
-// ─────────────────────────────────────────────
-// Chain Icon Map (local assets)
-// Pastikan path asset ini sesuai dengan struktur project Anda
-// ────────────────────────────────────────────
 const CHAIN_ICONS: Record<number, any> = {
   1: require("../../assets/chains/eth.png"),
   11155111: require("../../assets/chains/eth-sepolia.png"),
@@ -54,9 +49,6 @@ const CHAIN_ICONS: Record<number, any> = {
   10143: require("../../assets/chains/monad.png"),
 };
 
-// ────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────
 type TxStatus = "confirmed" | "pending" | "failed";
 type TxType = "send" | "receive" | "swap";
 
@@ -64,7 +56,7 @@ interface TxEntity {
   hash: string;
   from: string;
   to: string;
-  value: string; // Format string siap tampil: "+1.23 BDAG" atau "-0.5 ETH"
+  value: string;
   symbol: string;
   timestamp: number;
   status: TxStatus;
@@ -80,14 +72,10 @@ interface DisplayTransaction extends TxEntity {
   displayTime?: string;
 }
 
-// ─────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────
 const getRelativeDate = (ts: number) => {
   const now = new Date();
-  const txDate = new Date(ts); // ts sudah dalam ms dari service
+  const txDate = new Date(ts);
 
-  // Reset time parts for accurate date comparison
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const transactionDay = new Date(
     txDate.getFullYear(),
@@ -101,7 +89,6 @@ const getRelativeDate = (ts: number) => {
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
 
-  // Format: Jan 01, 2025
   return txDate.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -122,42 +109,29 @@ const truncate = (str: string, s = 6, e = 4) =>
 const shortChainName = (name: string) =>
   name.replace(" Mainnet", "").replace(" Testnet", "");
 
-// ─────────────────────────────────────────────
-// TxRow Component (Redesigned to match screenshot)
-// ─────────────────────────────────────────────
 function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
-  // ─────────────────────────────────────────────
-  // 1. Normalize Value & Determine Direction
-  // ─────────────────────────────────────────────
-
   let displayValue = tx.value;
   let isIncoming = false;
 
-  // Cek tipe transaksi terlebih dahulu jika ada field 'type'
   if (tx.type === "receive") {
     isIncoming = true;
   } else if (tx.type === "send") {
     isIncoming = false;
   } else {
-    // Jika type swap atau tidak jelas, cek tanda + / - di string value
     const rawVal = tx.value.trim();
     if (rawVal.startsWith("+")) {
       isIncoming = true;
     } else if (rawVal.startsWith("-")) {
       isIncoming = false;
     } else {
-      // Fallback
       if (tx.type === "swap") {
         isIncoming = false;
       }
     }
   }
 
-  // Pastikan string value memiliki tanda + atau - untuk ditampilkan
-  // Hapus tanda lama jika ada, lalu tambahkan yang baru sesuai status
   const cleanValue = displayValue.replace(/^[-+]/, "").trim();
 
-  // Logika Parsing untuk Memisahkan Angka dan Simbol Token
   const spaceIndex = cleanValue.indexOf(" ");
   let amountPart = cleanValue;
   let symbolPart = "";
@@ -169,31 +143,22 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
     symbolPart = tx.symbol || "";
   }
 
-  // Tambahkan tanda +/- kembali ke amountPart
   const signedAmount = isIncoming ? `+${amountPart}` : `-${amountPart}`;
 
-  // ────────────────────────────────────────────
-  // 2. Styling Colors
-  // ─────────────────────────────────────────────
   let iconBgColor = "";
   let iconTintColor = "";
   let valueTextColor = "";
 
   if (isIncoming) {
-    // Received / Swap In -> HIJAU
     iconBgColor = theme.isDarkMode ? "#064E3B" : "#DCFCE7";
     iconTintColor = "#7ed957";
     valueTextColor = "#7ed957";
   } else {
-    // Sent / Swap Out -> ORANYE/KREM
     iconBgColor = theme.isDarkMode ? "#451A03" : "#FFEDD5";
     iconTintColor = "#F97316";
     valueTextColor = theme.isDarkMode ? "#FFFFFF" : "#1F2937";
   }
 
-  // ────────────────────────────────────────────
-  // 3. Icon & Text Content
-  // ─────────────────────────────────────────────
   let IconComponent = ArrowDownLeft;
   let BadgeComponent: React.ElementType | null = null;
 
@@ -222,7 +187,6 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
     subtitle = `From ${truncate(tx.from)}`;
   }
 
-  // Determine Badge Content
   let BadgeContent = null;
   if (tx.type === "swap") {
     if (tx.chainId && CHAIN_ICONS[tx.chainId]) {
@@ -242,7 +206,6 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
 
   return (
     <View style={styles.txRow}>
-      {/* Left Icon Container with Badge */}
       <View style={[styles.iconWrapper]}>
         <View style={[styles.iconContainer, { backgroundColor: iconBgColor }]}>
           {tx.chainId && CHAIN_ICONS[tx.chainId] ? (
@@ -256,7 +219,6 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
           )}
         </View>
 
-        {/* Badge Circle Bottom Right */}
         {BadgeContent && (
           <View
             style={[
@@ -269,7 +231,6 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
         )}
       </View>
 
-      {/* Middle Content */}
       <View style={styles.contentContainer}>
         <Text style={[styles.txTitle, { color: theme.text }]}>{title}</Text>
         <Text style={[styles.txSubtitle, { color: theme.textSecondary }]}>
@@ -277,7 +238,6 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
         </Text>
       </View>
 
-      {/* Right Value */}
       <View style={styles.valueContainer}>
         <View
           style={{
@@ -307,9 +267,6 @@ function TxRow({ tx, theme }: { tx: DisplayTransaction; theme: any }) {
   );
 }
 
-// ────────────────────────────────────────────
-// Main Screen
-// ─────────────────────────────────────────────
 export default function HistoryScreen() {
   const { walletAddress, isDarkMode } = useAppStore();
   const theme = {
@@ -327,7 +284,6 @@ export default function HistoryScreen() {
     new Animated.Value(Dimensions.get("window").height),
   ).current;
 
-  // ── Fetch ────────────────────────────────
   const fetchHistory = useCallback(async () => {
     if (!walletAddress) return;
     setIsLoading(true);
@@ -339,23 +295,17 @@ export default function HistoryScreen() {
 
       for (const chain of chains) {
         try {
-          // Ambil data mentah dari service
           const rawTxs = await BlockchainService.getTransactionHistory(
             chain.id as ChainId,
             walletAddress,
           );
 
           if (rawTxs.length) {
-            // Normalisasi data agar cocok dengan UI
             const normalizedTxs = rawTxs.map((tx: any) => {
-              // Tentukan type send/receive
               const isSend =
                 tx.from.toLowerCase() === walletAddress.toLowerCase();
               const type: TxType = isSend ? "send" : "receive";
 
-              // Format value string: "-1.23 BDAG" atau "+1.23 BDAG"
-              // tx.value dari service seharusnya sudah dalam format Ether string (bukan Wei)
-              // Jika masih Wei, gunakan ethers.formatEther(tx.value)
               let valNum = parseFloat(tx.value);
               if (isNaN(valNum)) valNum = 0;
 
@@ -364,15 +314,14 @@ export default function HistoryScreen() {
 
               return {
                 ...tx,
-                hash: tx.hash || tx.txnHash, // Handle perbedaan nama field
+                hash: tx.hash || tx.txnHash,
                 type,
-                value: formattedValue, // Set value string yang sudah diformat
+                value: formattedValue,
                 symbol: chain.symbol,
                 chainId: chain.chainId,
                 chainName: chain.name,
                 chainIcon: chain.icon,
-                // Timestamp dari service BDAG baru mungkin sudah ms atau seconds
-                // Service kita mengalikan * 1000, jadi ini sudah ms
+
                 timestamp: tx.timestamp,
                 displayDate: getRelativeDate(tx.timestamp),
                 displayTime: formatTime(tx.timestamp),
@@ -384,7 +333,7 @@ export default function HistoryScreen() {
         } catch (e) {
           console.warn(`Failed to fetch ${chain.name}:`, e);
         }
-        // Small delay to prevent rate limiting
+
         await new Promise((r) => setTimeout(r, 300));
       }
 
@@ -407,7 +356,6 @@ export default function HistoryScreen() {
     setFilteredTx(transactions);
   }, [transactions]);
 
-  // ── Modal ──────────────────────────────────
   const openModal = () => {
     setIsModalVisible(true);
     Animated.spring(slideAnim, {
@@ -430,7 +378,6 @@ export default function HistoryScreen() {
     closeModal();
   };
 
-  // ── Group by date ──────────────────────────
   const grouped = filteredTx.reduce(
     (acc, tx) => {
       const key = tx.displayDate ?? "Unknown";
@@ -440,7 +387,6 @@ export default function HistoryScreen() {
     {} as Record<string, DisplayTransaction[]>,
   );
 
-  // ────────────────────────────────────────────
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <HomeHeader
@@ -452,9 +398,7 @@ export default function HistoryScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Toolbar ───────────────────────── */}
         <View style={styles.toolbar}>
-          {/* Chain picker pill */}
           <TouchableOpacity
             style={[
               styles.pill,
@@ -486,7 +430,6 @@ export default function HistoryScreen() {
             <ChevronDown size={14} color={theme.textSecondary} />
           </TouchableOpacity>
 
-          {/* Refresh */}
           <TouchableOpacity
             style={[
               styles.iconBtn,
@@ -503,7 +446,6 @@ export default function HistoryScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ─ Content ───────────────────────── */}
         {isLoading && transactions.length === 0 ? (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={theme.text} />
@@ -562,7 +504,6 @@ export default function HistoryScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ── Chain Bottom Sheet ─────────────── */}
       <Modal
         visible={isModalVisible}
         transparent
@@ -580,7 +521,6 @@ export default function HistoryScreen() {
                 },
               ]}
             >
-              {/* Sheet header */}
               <View
                 style={[styles.sheetHead, { borderBottomColor: theme.border }]}
               >
@@ -593,7 +533,6 @@ export default function HistoryScreen() {
               </View>
 
               <ScrollView bounces={false}>
-                {/* All chains option */}
                 <ChainRow
                   label="All Chains"
                   subLabel={`${SUPPORTED_CHAINS.filter((c) => !c.disabled).length} networks`}
@@ -626,9 +565,6 @@ export default function HistoryScreen() {
   );
 }
 
-// ─────────────────────────────────────────────
-// ChainRow helper
-// ─────────────────────────────────────────────
 function ChainRow({
   label,
   subLabel,
@@ -654,7 +590,6 @@ function ChainRow({
       onPress={onPress}
       activeOpacity={0.7}
     >
-      {/* Icon */}
       <View
         style={[styles.chainIconWrap, { backgroundColor: theme.background }]}
       >
@@ -674,7 +609,6 @@ function ChainRow({
         )}
       </View>
 
-      {/* Labels */}
       <View style={{ flex: 1 }}>
         <Text style={[styles.chainLabel, { color: theme.text }]}>{label}</Text>
         {subLabel && (
@@ -691,14 +625,10 @@ function ChainRow({
   );
 }
 
-// ─────────────────────────────────────────────
-// Styles
-// ─────────────────────────────────────────────
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { padding: 20, paddingTop: 8 },
 
-  // Toolbar
   toolbar: {
     flexDirection: "row",
     alignItems: "center",
@@ -727,7 +657,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
 
-  // Date group
   dateLabel: {
     fontSize: 13,
     fontWeight: "600",
@@ -735,7 +664,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-  // Card
   card: {
     borderRadius: 16,
     borderWidth: 1,
@@ -747,7 +675,6 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  // Tx Row
   txRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -836,7 +763,6 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 
-  // Empty / loading
   centered: {
     paddingVertical: 64,
     alignItems: "center",
@@ -853,7 +779,6 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 17, fontWeight: "700" },
   hint: { fontSize: 13, textAlign: "center", maxWidth: 240, lineHeight: 19 },
 
-  // Modal / sheet
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
@@ -874,7 +799,6 @@ const styles = StyleSheet.create({
   },
   sheetTitle: { fontSize: 16, fontWeight: "700" },
 
-  // Chain row
   chainRow: {
     flexDirection: "row",
     alignItems: "center",
