@@ -13,7 +13,7 @@ const bytesToUtf8 = (bytes: Uint8Array): string =>
 import { gcm } from "@noble/ciphers/aes.js";
 import { bytesToHex, hexToBytes } from "@noble/ciphers/utils.js";
 
-const PBKDF2_ITERATIONS = 30_000;
+const PBKDF2_ITERATIONS = 600_000;
 const KEY_LENGTH = 32;
 const SALT_LENGTH = 16;
 const NONCE_LENGTH = 12;
