@@ -49,18 +49,14 @@ const { width: W } = Dimensions.get("window");
 const STORAGE_KEYS = {
   ENABLED_NETWORKS: "@wallet_enabled_networks",
   ENABLED_ASSETS: "@wallet_enabled_assets",
-  // Snapshot saldo 24 jam lalu: { timestamp, balances: { [assetId]: string } }
   BALANCE_SNAPSHOT_24H: "@wallet_balance_snapshot_24h",
 };
 
-// ─── Snapshot helpers ─────────────────────────────────────────────────────────
-
 interface BalanceSnapshot {
   timestamp: number;
-  balances: Record<string, string>; // assetId → balance string
+  balances: Record<string, string>;
 }
 
-/** Simpan snapshot saldo sekarang, hanya jika belum ada snapshot atau snapshot sudah > 24 jam. */
 const maybeSaveBalanceSnapshot = async (
   balances: Record<string, string>,
 ): Promise<void> => {
@@ -71,7 +67,6 @@ const maybeSaveBalanceSnapshot = async (
 
     if (raw) {
       const snapshot: BalanceSnapshot = JSON.parse(raw);
-      // Jika snapshot masih < 24 jam, jangan overwrite
       if (now - snapshot.timestamp < ONE_DAY_MS) return;
     }
 
@@ -85,7 +80,6 @@ const maybeSaveBalanceSnapshot = async (
   }
 };
 
-/** Ambil snapshot saldo 24 jam lalu. Return null jika belum ada. */
 const loadBalanceSnapshot = async (): Promise<BalanceSnapshot | null> => {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.BALANCE_SNAPSHOT_24H);
@@ -94,8 +88,6 @@ const loadBalanceSnapshot = async (): Promise<BalanceSnapshot | null> => {
     return null;
   }
 };
-
-// ─── Helpers umum ─────────────────────────────────────────────────────────────
 
 const isTestnet = (id: string) => {
   return (
@@ -179,8 +171,6 @@ const formatIDRWithDecimal = (val: number): string => {
     maximumFractionDigits: 2,
   }).format(val)}`;
 };
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -332,7 +322,7 @@ function AssetIcon({
         </View>
       );
     }
-    // Token: API logoURI first → local map → letter placeholder
+
     if (logoURI) {
       return (
         <Image
@@ -436,8 +426,6 @@ function WalletAddressBar({ address }: { address: string }) {
   );
 }
 
-// ─── Main screen ──────────────────────────────────────────────────────────────
-
 export default function HomeScreen() {
   const { walletAddress, isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
@@ -457,7 +445,6 @@ export default function HomeScreen() {
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
 
-  // Snapshot saldo 24 jam lalu (untuk hitung delta deposit/withdraw)
   const [balanceSnapshot24h, setBalanceSnapshot24h] =
     useState<BalanceSnapshot | null>(null);
 
@@ -478,7 +465,6 @@ export default function HomeScreen() {
   );
   const [networkSearch, setNetworkSearch] = useState("");
 
-  // ── Load preferences + snapshot on mount ──
   useEffect(() => {
     const loadPreferences = async () => {
       try {
@@ -535,11 +521,6 @@ export default function HomeScreen() {
     }
   }, [displayAssets, enabledNetworks]);
 
-  // ── Portfolio calculations ──────────────────────────────────────────────────
-
-  /**
-   * Total fiat value saldo sekarang (IDR), hanya aset enabled & non-testnet.
-   */
   const totalFiat = displayAssets.reduce((sum, asset) => {
     if (!enabledAssets[asset.id]) return sum;
     if (isTestnet(asset.chainId)) return sum;
@@ -548,10 +529,6 @@ export default function HomeScreen() {
     return sum + parseFloat(asset.balance || "0") * priceIDR;
   }, 0);
 
-  /**
-   * Total fiat value dari snapshot 24 jam lalu, dihitung dengan harga SEKARANG
-   * (supaya kita bisa pisahkan mana yang berubah karena harga vs karena transfer).
-   */
   const totalFiat24hAgo = displayAssets.reduce((sum, asset) => {
     if (!enabledAssets[asset.id]) return sum;
     if (isTestnet(asset.chainId)) return sum;
@@ -563,11 +540,6 @@ export default function HomeScreen() {
     return sum + bal24h * priceIDR;
   }, 0);
 
-  /**
-   * Delta dari perubahan harga token (price change 24h dari CoinGecko).
-   * = Σ (balance_sekarang × harga_sekarang) - Σ (balance_sekarang × harga_24h_lalu)
-   * = Σ balance_sekarang × harga_sekarang × (change24h / 100)
-   */
   const priceChangeFiat = displayAssets.reduce((sum, asset) => {
     if (!enabledAssets[asset.id]) return sum;
     if (isTestnet(asset.chainId)) return sum;
@@ -578,10 +550,6 @@ export default function HomeScreen() {
     return sum + bal * priceData.idr * (priceData.change24h / 100);
   }, 0);
 
-  /**
-   * Delta dari perubahan saldo (deposit / withdraw).
-   * = (saldo_sekarang - saldo_24h_lalu) × harga_sekarang
-   */
   const balanceChangeFiat = balanceSnapshot24h
     ? displayAssets.reduce((sum, asset) => {
         if (!enabledAssets[asset.id]) return sum;
@@ -596,18 +564,13 @@ export default function HomeScreen() {
       }, 0)
     : 0;
 
-  /** Total perubahan portfolio 24h = price change + balance change */
   const totalFiatChange = priceChangeFiat + balanceChangeFiat;
 
-  /**
-   * Persentase perubahan portfolio relatif terhadap nilai 24 jam lalu.
-   * Jika belum ada snapshot, fall back ke weighted price change saja.
-   */
   const portfolioChangePercent = (() => {
     if (balanceSnapshot24h && totalFiat24hAgo > 0) {
       return (totalFiatChange / totalFiat24hAgo) * 100;
     }
-    // Fallback: weighted average of price change24h
+
     let weightedChangeSum = 0;
     let totalWeight = 0;
     displayAssets.forEach((asset) => {
@@ -626,12 +589,8 @@ export default function HomeScreen() {
 
   const isPortfolioUp = portfolioChangePercent >= 0;
 
-  /**
-   * Label keterangan di bawah badge persen:
-   * menjelaskan dari mana perubahan itu berasal.
-   */
   const portfolioChangeLabel = (() => {
-    if (!balanceSnapshot24h) return "24h"; // belum ada data saldo
+    if (!balanceSnapshot24h) return "24h";
     const hasPriceChange = Math.abs(priceChangeFiat) >= 1;
     const hasBalChange = Math.abs(balanceChangeFiat) >= 1;
     if (hasPriceChange && hasBalChange) {
@@ -660,8 +619,6 @@ export default function HomeScreen() {
     }).format(val)}`;
   };
 
-  // ── Fetch prices ────────────────────────────────────────────────────────────
-
   const fetchPrices = useCallback(async () => {
     try {
       const ids = Object.values(COINGECKO_IDS).join(",");
@@ -686,8 +643,6 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // ── Fetch balances (dengan token dari API) ──────────────────────────────────
-
   const fetchAllBalances = useCallback(async () => {
     if (!walletAddress) return;
     setIsLoading(true);
@@ -699,7 +654,6 @@ export default function HomeScreen() {
         SUPPORTED_CHAINS.map(async (chain) => {
           if (chain.disabled) return;
 
-          // ── Native balance ──
           let nativeBal = "0.0000";
           try {
             nativeBal = await BlockchainService.getBalance(
@@ -718,7 +672,6 @@ export default function HomeScreen() {
             isNative: true,
           });
 
-          // ── Token list: coba ambil dari API, fallback ke lokal ──
           const tokens = await fetchTokensByChainId(chain.chainId);
 
           if (tokens.length > 0) {
@@ -754,14 +707,12 @@ export default function HomeScreen() {
 
       setDisplayAssets(newAssets);
 
-      // Simpan snapshot saldo (hanya jika snapshot belum ada atau sudah > 24 jam)
       const balancesMap: Record<string, string> = {};
       newAssets.forEach((a) => {
         balancesMap[a.id] = a.balance;
       });
       await maybeSaveBalanceSnapshot(balancesMap);
 
-      // Refresh snapshot state lokal setelah save
       const freshSnap = await loadBalanceSnapshot();
       setBalanceSnapshot24h(freshSnap);
     } catch (error) {
@@ -851,8 +802,6 @@ export default function HomeScreen() {
       chain.name.toLowerCase().includes(networkSearch.toLowerCase()) ||
       chain.symbol.toLowerCase().includes(networkSearch.toLowerCase()),
   );
-
-  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
@@ -945,7 +894,6 @@ export default function HomeScreen() {
                           {Math.abs(portfolioChangePercent).toFixed(2)}%
                         </Text>
                       </View>
-                      {/* Label sumber perubahan di kanan badge */}
                       {!isBalanceHidden && (
                         <Text style={styles.changeLabel}>
                           {portfolioChangeLabel}
@@ -1057,9 +1005,6 @@ export default function HomeScreen() {
                   const priceData = prices[priceKey];
                   const isTest = isTestnet(asset.chainId);
                   const displayPriceData = isTest ? null : priceData;
-                  // Sembunyikan otomatis hanya jika: bukan testnet, balance 0,
-                  // tidak ada harga, DAN user TIDAK pernah aktifkan manual.
-                  // Kalau user sudah toggle ON di Manage → tetap tampil.
                   const userExplicitlyEnabled =
                     enabledAssets[asset.id] === true;
                   if (
@@ -1200,7 +1145,6 @@ export default function HomeScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ── Manage Assets sheet ── */}
       <Modal
         visible={showAssetSheet}
         transparent
@@ -1286,7 +1230,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* ── Network Settings sheet ── */}
       <Modal
         visible={showNetworkSheet}
         transparent
@@ -1407,7 +1350,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* ── Testnet alert ── */}
       <Modal
         visible={showTestnetAlert}
         transparent
@@ -1438,8 +1380,6 @@ export default function HomeScreen() {
     </View>
   );
 }
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   scrollContent: { padding: 16, paddingTop: 10 },
@@ -1519,7 +1459,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   changeBadgeText: { fontSize: 12, fontWeight: "700" },
-  // Label sumber perubahan — inline di kanan badge
   changeLabel: {
     fontSize: 10,
     color: "rgba(255,255,255,0.50)",

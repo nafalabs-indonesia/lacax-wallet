@@ -28,10 +28,6 @@ export interface ChainConfig {
   tokens?: TokenConfig[];
 }
 
-// ---------------------------------------------------------------------------
-// RPC helpers
-// ---------------------------------------------------------------------------
-
 const getAlchemyRpc = (network: string) => {
   const key = ALCHEMY_API_KEY || "";
   if (!key) {
@@ -43,12 +39,7 @@ const getAlchemyRpc = (network: string) => {
 const PROXY_BASE_URL = "https://lacax.vercel.app/api/v1/rpc";
 const TOKEN_API_BASE_URL = "https://lacax.nafalabs.com/api/v1/tokens";
 
-// ---------------------------------------------------------------------------
-// Local fallback token lists (keyed by chainId)
-// ---------------------------------------------------------------------------
-
 const LOCAL_FALLBACK_TOKENS: Record<number, TokenConfig[]> = {
-  // Ethereum Mainnet
   1: [
     {
       name: "Tether USD",
@@ -63,7 +54,7 @@ const LOCAL_FALLBACK_TOKENS: Record<number, TokenConfig[]> = {
       decimals: 6,
     },
   ],
-  // Polygon Mainnet
+
   137: [
     {
       name: "Tether USD",
@@ -78,7 +69,7 @@ const LOCAL_FALLBACK_TOKENS: Record<number, TokenConfig[]> = {
       decimals: 6,
     },
   ],
-  // BNB Smart Chain Mainnet
+
   56: [
     {
       name: "Tether USD",
@@ -89,30 +80,17 @@ const LOCAL_FALLBACK_TOKENS: Record<number, TokenConfig[]> = {
   ],
 };
 
-// ---------------------------------------------------------------------------
-// Token fetch with local fallback
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch token list for a given chainId from the remote API.
- * - 400 → chain not yet supported by API, silently use local fallback.
- * - 200 with tokens → return API data (includes logoURI, isVerified, etc).
- * - Other errors → warn once, use local fallback.
- */
 export const fetchTokensByChainId = async (
   chainId: number,
 ): Promise<TokenConfig[]> => {
   try {
     const response = await fetch(`${TOKEN_API_BASE_URL}?chainId=${chainId}`);
 
-    // 400 = chain not in TOKEN_LIST_SOURCES on the server → silent fallback,
-    // no warning spam. When the API adds the chain later, it just works.
     if (response.status === 400) {
       return LOCAL_FALLBACK_TOKENS[chainId] ?? [];
     }
 
     if (!response.ok) {
-      // Unexpected server error — worth a single warn
       console.warn(
         `⚠️ fetchTokensByChainId(${chainId}): unexpected HTTP ${response.status}`,
       );
@@ -126,21 +104,12 @@ export const fetchTokensByChainId = async (
       return data.tokens;
     }
 
-    // API returned an empty list → fall back silently
     return LOCAL_FALLBACK_TOKENS[chainId] ?? [];
   } catch (err) {
-    // Network error etc.
     console.warn(`⚠️ fetchTokensByChainId(${chainId}) network error:`, err);
     return LOCAL_FALLBACK_TOKENS[chainId] ?? [];
   }
 };
-
-// ---------------------------------------------------------------------------
-// Chain definitions
-// NOTE: The `tokens` field here is the static fallback used before any
-// async fetch. Call fetchTokensByChainId(chain.chainId) at runtime to get
-// the full, up-to-date list.
-// ---------------------------------------------------------------------------
 
 export const SUPPORTED_CHAINS: ChainConfig[] = [
   {
@@ -281,10 +250,6 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     type: "evm",
   },
 ];
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 export const getChainById = (id: string): ChainConfig | undefined => {
   return SUPPORTED_CHAINS.find((chain) => chain.id === id);
