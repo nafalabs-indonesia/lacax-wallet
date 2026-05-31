@@ -252,7 +252,7 @@ export default function SettingsScreen() {
   const handleAbout = () => {
     showAlert(
       "About LacaX Wallet",
-      "Version: 1.0.0\n\nA secure and simple crypto wallet for everyone.",
+      "Version: 1.0.1\n\nA secure and simple crypto wallet for everyone.",
     );
   };
 
@@ -398,7 +398,7 @@ export default function SettingsScreen() {
             >
               <Info size={20} color={theme.textSecondary} />
               <Text style={[styles.aboutText, { color: theme.textSecondary }]}>
-                LacaX Wallet v1.0.0
+                LacaX Wallet v1.0.1
               </Text>
             </View>
           </TouchableOpacity>

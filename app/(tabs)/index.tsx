@@ -1,4 +1,8 @@
-import { SUPPORTED_CHAINS, TokenConfig } from "@/config/chains";
+import {
+  fetchTokensByChainId,
+  SUPPORTED_CHAINS,
+  TokenConfig,
+} from "@/config/chains";
 import {
   BlockchainService,
   ChainId,
@@ -35,6 +39,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { AnnouncementBanner } from "../../components/AnnouncementBanner";
 import { HomeHeader } from "../../components/HomeHeader";
 import { useAppStore } from "../../store/appStore";
@@ -45,6 +50,44 @@ const { width: W } = Dimensions.get("window");
 const STORAGE_KEYS = {
   ENABLED_NETWORKS: "@wallet_enabled_networks",
   ENABLED_ASSETS: "@wallet_enabled_assets",
+  BALANCE_SNAPSHOT_24H: "@wallet_balance_snapshot_24h",
+};
+
+interface BalanceSnapshot {
+  timestamp: number;
+  balances: Record<string, string>;
+}
+
+const maybeSaveBalanceSnapshot = async (
+  balances: Record<string, string>,
+): Promise<void> => {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.BALANCE_SNAPSHOT_24H);
+    const now = Date.now();
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+    if (raw) {
+      const snapshot: BalanceSnapshot = JSON.parse(raw);
+      if (now - snapshot.timestamp < ONE_DAY_MS) return;
+    }
+
+    const newSnapshot: BalanceSnapshot = { timestamp: now, balances };
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.BALANCE_SNAPSHOT_24H,
+      JSON.stringify(newSnapshot),
+    );
+  } catch (e) {
+    console.warn("Failed to save balance snapshot", e);
+  }
+};
+
+const loadBalanceSnapshot = async (): Promise<BalanceSnapshot | null> => {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.BALANCE_SNAPSHOT_24H);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 };
 
 const isTestnet = (id: string) => {
@@ -82,7 +125,6 @@ const NETWORK_BADGE_ICON: Record<string, any> = {
   "monad-mainnet": require("../../assets/chains/monad.png"),
   "monad-testnet": require("../../assets/chains/monad.png"),
 };
-
 const COINGECKO_IDS: Record<string, string> = {
   "ethereum-mainnet": "ethereum",
   "blockdag-mainnet": "blockdag",
@@ -96,8 +138,93 @@ const COINGECKO_IDS: Record<string, string> = {
   "arbitrum-sepolia": "ethereum",
   "monad-testnet": "monad",
   USDT: "tether",
+  USDT0: "usdt0",
   USDC: "usd-coin",
+  BUSD: "binance-usd",
+  DAI: "dai",
+  FRAX: "frax",
+  TUSD: "true-usd",
+  USDP: "paxos-standard",
+  LUSD: "liquity-usd",
+  CRVUSD: "crvusd",
+  PYUSD: "paypal-usd",
+  FDUSD: "first-digital-usd",
+  USDE: "ethena-usde",
+  USDS: "usds",
+  WETH: "weth",
+  WBTC: "wrapped-bitcoin",
+  WBNB: "wbnb",
+  WMATIC: "wmatic",
+  WPOL: "wmatic",
+  WEETH: "wrapped-eeth",
+  WSTETH: "wrapped-steth",
+  STETH: "staked-ether",
+  RETH: "rocket-pool-eth",
+  CBETH: "coinbase-wrapped-staked-eth",
+  EZETH: "renzo-restaked-eth",
+  RSETH: "kelp-dao-restaked-eth",
+  SFRXETH: "staked-frax-ether",
+  SWETH: "sweth",
+  LINK: "chainlink",
+  UNI: "uniswap",
+  AAVE: "aave",
+  CRV: "curve-dao-token",
+  CVX: "convex-finance",
+  LDO: "lido-dao",
+  MKR: "maker",
+  SNX: "havven",
+  BAL: "balancer",
+  COMP: "compound-governance-token",
+  "1INCH": "1inch",
+  SUSHI: "sushi",
+  RPL: "rocket-pool",
+  ENS: "ethereum-name-service",
+  GRT: "the-graph",
+  IMX: "immutable-x",
+  OP: "optimism",
+  ARB: "arbitrum",
+  PENDLE: "pendle",
+  ENA: "ethena",
+  EIGEN: "eigenlayer",
+  BNB: "binancecoin",
+  OKB: "okb",
+  CRO: "crypto-com-chain",
+  HT: "huobi-token",
+  GT: "gatechain-token",
+  KCS: "kucoin-shares",
+  CAKE: "pancakeswap-token",
+  BAKE: "bakerytoken",
+  XVS: "venus",
+  ALPACA: "alpaca-finance",
+  DODO: "dodo",
+  POL: "matic-network",
+  QUICK: "quick",
+  GHST: "aavegotchi",
+  MUST: "must",
+  SHIB: "shiba-inu",
+  PEPE: "pepe",
+  FLOKI: "floki",
+  BONE: "bone-shibaswap",
+  APE: "apecoin",
+  BLUR: "blur",
+  LOOKS: "looksrare",
+  X2Y2: "x2y2",
+  NFT: "nftx",
+  SAND: "the-sandbox",
+  MANA: "decentraland",
+  AXS: "axie-infinity",
+  CHZ: "chiliz",
+  GALA: "gala",
+  GMT: "stepn",
+  DYDX: "dydx",
+  PERP: "perpetual-protocol",
+  MAGIC: "magic",
+  GMX: "gmx",
+  RDNT: "radiant-capital",
+  WOO: "wootrade-network",
 };
+
+const NO_PRICE_TOKENS = new Set(["BTCB"]);
 
 interface PriceData {
   usd: number;
@@ -222,7 +349,6 @@ function SkeletonBalanceAmount() {
           marginBottom: 12,
         }}
       />
-
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <View
           style={{
@@ -249,38 +375,76 @@ function AssetIcon({
   symbol,
   chainId,
   isNative,
+  logoURI,
 }: {
   symbol: string;
   chainId: string;
   isNative: boolean;
+  logoURI?: string;
 }) {
-  let mainSource = LOCAL_ICON_MAP[symbol];
-  if (!mainSource) mainSource = LOCAL_ICON_MAP[chainId];
-
+  const localChainSource = LOCAL_ICON_MAP[chainId];
+  const localTokenSource = LOCAL_ICON_MAP[symbol];
   const showBadge = !isNative;
   const badgeSource = NETWORK_BADGE_ICON[chainId];
 
+  const renderIcon = () => {
+    if (isNative) {
+      return localChainSource ? (
+        <Image
+          source={localChainSource}
+          style={{
+            width: 40,
+            height: 40,
+            resizeMode: "contain",
+            borderRadius: 20,
+          }}
+        />
+      ) : (
+        <View style={[styles.fallbackIcon, { backgroundColor: "#627EEA18" }]}>
+          <Text style={{ fontSize: 12, fontWeight: "800", color: "#627EEA" }}>
+            {symbol.charAt(0)}
+          </Text>
+        </View>
+      );
+    }
+    if (logoURI) {
+      return (
+        <Image
+          source={{ uri: logoURI }}
+          style={{
+            width: 40,
+            height: 40,
+            resizeMode: "contain",
+            borderRadius: 20,
+          }}
+        />
+      );
+    }
+    if (localTokenSource) {
+      return (
+        <Image
+          source={localTokenSource}
+          style={{
+            width: 40,
+            height: 40,
+            resizeMode: "contain",
+            borderRadius: 20,
+          }}
+        />
+      );
+    }
+    return (
+      <View style={[styles.fallbackIcon, { backgroundColor: "#627EEA18" }]}>
+        <Text style={{ fontSize: 12, fontWeight: "800", color: "#627EEA" }}>
+          {symbol.charAt(0)}
+        </Text>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.assetIconContainer}>
-      <View style={styles.assetIcon}>
-        {mainSource ? (
-          <Image
-            source={mainSource}
-            style={{
-              width: 40,
-              height: 40,
-              resizeMode: "contain",
-              borderRadius: 20,
-            }}
-          />
-        ) : (
-          <View style={[styles.fallbackIcon, { backgroundColor: "#627EEA18" }]}>
-            <Text style={{ fontSize: 12, fontWeight: "800", color: "#627EEA" }}>
-              {symbol.charAt(0)}
-            </Text>
-          </View>
-        )}
-      </View>
+      <View style={styles.assetIcon}>{renderIcon()}</View>
       {showBadge && badgeSource && (
         <View style={styles.networkBadge}>
           <Image
@@ -363,8 +527,9 @@ export default function HomeScreen() {
   const [showTestnetAlert, setShowTestnetAlert] = useState(false);
 
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
-
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+  const [balanceSnapshot24h, setBalanceSnapshot24h] =
+    useState<BalanceSnapshot | null>(null);
 
   const [enabledNetworks, setEnabledNetworks] = useState<
     Record<string, boolean>
@@ -382,7 +547,6 @@ export default function HomeScreen() {
     {},
   );
   const [networkSearch, setNetworkSearch] = useState("");
-
   useEffect(() => {
     const loadPreferences = async () => {
       try {
@@ -396,7 +560,12 @@ export default function HomeScreen() {
         console.warn("Failed to load preferences", e);
       }
     };
+    const loadSnapshot = async () => {
+      const snap = await loadBalanceSnapshot();
+      setBalanceSnapshot24h(snap);
+    };
     loadPreferences();
+    loadSnapshot();
   }, []);
 
   useEffect(() => {
@@ -442,7 +611,47 @@ export default function HomeScreen() {
     return sum + parseFloat(asset.balance || "0") * priceIDR;
   }, 0);
 
-  const { portfolioChangePercent, totalFiatChange } = (() => {
+  const totalFiat24hAgo = displayAssets.reduce((sum, asset) => {
+    if (!enabledAssets[asset.id]) return sum;
+    if (isTestnet(asset.chainId)) return sum;
+    const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+    const priceIDR = prices[priceKey]?.idr || 0;
+    const bal24h = parseFloat(
+      balanceSnapshot24h?.balances[asset.id] ?? asset.balance ?? "0",
+    );
+    return sum + bal24h * priceIDR;
+  }, 0);
+
+  const priceChangeFiat = displayAssets.reduce((sum, asset) => {
+    if (!enabledAssets[asset.id]) return sum;
+    if (isTestnet(asset.chainId)) return sum;
+    const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+    const priceData = prices[priceKey];
+    if (!priceData) return sum;
+    const bal = parseFloat(asset.balance || "0");
+    return sum + bal * priceData.idr * (priceData.change24h / 100);
+  }, 0);
+
+  const balanceChangeFiat = balanceSnapshot24h
+    ? displayAssets.reduce((sum, asset) => {
+        if (!enabledAssets[asset.id]) return sum;
+        if (isTestnet(asset.chainId)) return sum;
+        const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+        const priceIDR = prices[priceKey]?.idr || 0;
+        const balNow = parseFloat(asset.balance || "0");
+        const bal24h = parseFloat(
+          balanceSnapshot24h.balances[asset.id] ?? asset.balance ?? "0",
+        );
+        return sum + (balNow - bal24h) * priceIDR;
+      }, 0)
+    : 0;
+
+  const totalFiatChange = priceChangeFiat + balanceChangeFiat;
+
+  const portfolioChangePercent = (() => {
+    if (balanceSnapshot24h && totalFiat24hAgo > 0) {
+      return (totalFiatChange / totalFiat24hAgo) * 100;
+    }
     let weightedChangeSum = 0;
     let totalWeight = 0;
     displayAssets.forEach((asset) => {
@@ -456,14 +665,25 @@ export default function HomeScreen() {
       weightedChangeSum += assetFiat * priceData.change24h;
       totalWeight += assetFiat;
     });
-    const pct = totalWeight > 0 ? weightedChangeSum / totalWeight : 0;
-    return {
-      portfolioChangePercent: pct,
-      totalFiatChange: totalFiat * (pct / 100),
-    };
+    return totalWeight > 0 ? weightedChangeSum / totalWeight : 0;
   })();
 
   const isPortfolioUp = portfolioChangePercent >= 0;
+
+  const portfolioChangeLabel = (() => {
+    if (!balanceSnapshot24h) return "24h";
+    const hasPriceChange = Math.abs(priceChangeFiat) >= 1;
+    const hasBalChange = Math.abs(balanceChangeFiat) >= 1;
+    if (hasPriceChange && hasBalChange) {
+      const balSign = balanceChangeFiat >= 0 ? "+" : "-";
+      return `harga & saldo ${balSign}${formatIDRWithDecimal(Math.abs(balanceChangeFiat))}`;
+    }
+    if (hasBalChange) {
+      const balSign = balanceChangeFiat >= 0 ? "+" : "-";
+      return `saldo ${balSign}${formatIDRWithDecimal(Math.abs(balanceChangeFiat))}`;
+    }
+    return "24h";
+  })();
 
   const formatIDR = (val: number) => {
     return `IDR ${new Intl.NumberFormat("id-ID", {
@@ -482,7 +702,7 @@ export default function HomeScreen() {
 
   const fetchPrices = useCallback(async () => {
     try {
-      const ids = Object.values(COINGECKO_IDS).join(",");
+      const ids = [...new Set(Object.values(COINGECKO_IDS))].join(",");
       const response = await fetch(
         `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd,idr&include_24hr_change=true`,
       );
@@ -509,6 +729,7 @@ export default function HomeScreen() {
     setIsLoading(true);
     BlockchainService.resetProviders();
     const newAssets: DisplayAsset[] = [];
+
     try {
       await Promise.all(
         SUPPORTED_CHAINS.map(async (chain) => {
@@ -530,9 +751,11 @@ export default function HomeScreen() {
             balance: nativeBal,
             isNative: true,
           });
-          if (chain.tokens && chain.tokens.length > 0) {
+          const tokens = await fetchTokensByChainId(chain.chainId);
+
+          if (tokens.length > 0) {
             await Promise.all(
-              chain.tokens.map(async (token) => {
+              tokens.map(async (token) => {
                 let tokenBal = "0.0000";
                 try {
                   tokenBal = await BlockchainService.getTokenBalance(
@@ -560,7 +783,15 @@ export default function HomeScreen() {
           }
         }),
       );
+
       setDisplayAssets(newAssets);
+      const balancesMap: Record<string, string> = {};
+      newAssets.forEach((a) => {
+        balancesMap[a.id] = a.balance;
+      });
+      await maybeSaveBalanceSnapshot(balancesMap);
+      const freshSnap = await loadBalanceSnapshot();
+      setBalanceSnapshot24h(freshSnap);
     } catch (error) {
       console.error("Failed to fetch balances:", error);
     } finally {
@@ -650,7 +881,10 @@ export default function HomeScreen() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.background }}>
+    <SafeAreaView
+      edges={["bottom"]}
+      style={{ flex: 1, backgroundColor: theme.background }}
+    >
       <HomeHeader
         onSettingsPress={() => router.push("/settings")}
         onScanPress={() => router.push("/scan")}
@@ -698,6 +932,7 @@ export default function HomeScreen() {
                     <Text style={styles.balanceAmount}>
                       {formatIDRCompact(totalFiat)}
                     </Text>
+
                     <View style={styles.changeRow}>
                       <Text
                         style={[
@@ -738,6 +973,12 @@ export default function HomeScreen() {
                           {Math.abs(portfolioChangePercent).toFixed(2)}%
                         </Text>
                       </View>
+
+                      {!isBalanceHidden && (
+                        <Text style={styles.changeLabel}>
+                          {portfolioChangeLabel}
+                        </Text>
+                      )}
                     </View>
                   </>
                 )}
@@ -837,14 +1078,23 @@ export default function HomeScreen() {
               <>
                 {sortedVisibleAssets.map((asset) => {
                   const bal = parseFloat(asset.balance);
-                  if (isTestnet(asset.chainId) && bal === 0) return null;
+                  const userExplicitlyEnabled =
+                    enabledAssets[asset.id] === true;
+                  const isTest = isTestnet(asset.chainId);
+                  if (isTest && bal === 0 && !userExplicitlyEnabled)
+                    return null;
                   const priceKey = asset.isNative
                     ? asset.chainId
                     : asset.symbol;
                   const priceData = prices[priceKey];
-                  const isTest = isTestnet(asset.chainId);
                   const displayPriceData = isTest ? null : priceData;
-                  if (!isTest && bal === 0 && !displayPriceData) return null;
+                  if (
+                    !isTest &&
+                    bal === 0 &&
+                    !displayPriceData &&
+                    !userExplicitlyEnabled
+                  )
+                    return null;
                   const assetFiatVal = isTest
                     ? 0
                     : bal * (displayPriceData?.idr || 0);
@@ -865,6 +1115,7 @@ export default function HomeScreen() {
                         symbol={asset.symbol}
                         chainId={asset.chainId}
                         isNative={asset.isNative}
+                        logoURI={asset.tokenConfig?.logoURI}
                       />
                       <View style={styles.assetInfo}>
                         <Text style={[styles.assetName, { color: theme.text }]}>
@@ -913,7 +1164,7 @@ export default function HomeScreen() {
                               {displayPriceData.change24h.toFixed(2)}%
                             </Text>
                           </View>
-                        ) : (
+                        ) : isTest ? (
                           <Text
                             style={[
                               styles.assetUnitPrice,
@@ -921,6 +1172,24 @@ export default function HomeScreen() {
                             ]}
                           >
                             Testnet
+                          </Text>
+                        ) : NO_PRICE_TOKENS.has(asset.symbol) ? (
+                          <Text
+                            style={[
+                              styles.assetUnitPrice,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            Harga tidak tersedia
+                          </Text>
+                        ) : (
+                          <Text
+                            style={[
+                              styles.assetUnitPrice,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            — no price data
                           </Text>
                         )}
                       </View>
@@ -1010,6 +1279,7 @@ export default function HomeScreen() {
                           symbol={asset.symbol}
                           chainId={asset.chainId}
                           isNative={asset.isNative}
+                          logoURI={asset.tokenConfig?.logoURI}
                         />
                         <View style={styles.networkInfo}>
                           <Text
@@ -1206,23 +1476,14 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    padding: 16,
-    paddingTop: 10,
-  },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  balanceCardContainer: {
-    marginBottom: 13,
-  },
+  scrollContent: { padding: 16, paddingTop: 10 },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
+  balanceCardContainer: { marginBottom: 13 },
   balanceCard: {
     width: "100%",
     height: 320,
@@ -1286,15 +1547,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 8,
   },
-  changeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  changeAbsolute: {
-    fontSize: 13,
-    fontWeight: "500",
-  },
+  changeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  changeAbsolute: { fontSize: 13, fontWeight: "500" },
   changeBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1303,9 +1557,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
   },
-  changeBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
+  changeBadgeText: { fontSize: 12, fontWeight: "700" },
+  changeLabel: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.50)",
+    fontWeight: "500",
+    letterSpacing: 0.1,
+    marginLeft: 2,
   },
   actionsRow: {
     flexDirection: "row",
@@ -1344,17 +1602,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  tabText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  tabTextActive: {
-    color: "#000",
-  },
-  networkPreviewContainer: {
-    padding: 16,
-    alignItems: "center",
-  },
+  tabText: { fontSize: 14, fontWeight: "600" },
+  tabTextActive: { color: "#000" },
+  networkPreviewContainer: { padding: 16, alignItems: "center" },
   openNetworkSheetBtn: {
     paddingVertical: 12,
     paddingHorizontal: 32,
@@ -1362,20 +1612,14 @@ const styles = StyleSheet.create({
     borderColor: "rgba(128,128,128,0.3)",
     borderRadius: 999,
   },
-  openNetworkSheetText: {
-    fontWeight: "600",
-    fontSize: 14,
-  },
+  openNetworkSheetText: { fontWeight: "600", fontSize: 14 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 12,
   },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
+  sectionTitle: { fontSize: 15, fontWeight: "600" },
   manageBtn: {
     paddingHorizontal: 14,
     paddingVertical: 4,
@@ -1383,10 +1627,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
   },
-  manageBtnText: {
-    fontSize: 13,
-    fontWeight: "500",
-  },
+  manageBtnText: { fontSize: 13, fontWeight: "500" },
   assetRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1395,10 +1636,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginBottom: 8,
   },
-  assetIconContainer: {
-    marginRight: 12,
-    position: "relative",
-  },
+  assetIconContainer: { marginRight: 12, position: "relative" },
   assetIcon: {
     width: 44,
     height: 44,
@@ -1428,49 +1666,16 @@ const styles = StyleSheet.create({
     borderColor: "#fff",
     zIndex: 10,
   },
-  assetInfo: {
-    flex: 1,
-  },
-  assetName: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  assetSub: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  assetRight: {
-    alignItems: "flex-end",
-    minWidth: 100,
-  },
-  assetTotalValue: {
-    fontSize: 15,
-    fontWeight: "700",
-    marginBottom: 2,
-  },
-  assetUnitPrice: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  assetChangeText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  skeletonCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginRight: 12,
-  },
-  skeletonLine: {
-    height: 13,
-    borderRadius: 6,
-  },
-  sheetOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
+  assetInfo: { flex: 1 },
+  assetName: { fontSize: 14, fontWeight: "600", marginBottom: 2 },
+  assetSub: { fontSize: 12, fontWeight: "500" },
+  assetRight: { alignItems: "flex-end", minWidth: 100 },
+  assetTotalValue: { fontSize: 15, fontWeight: "700", marginBottom: 2 },
+  assetUnitPrice: { fontSize: 12, fontWeight: "500" },
+  assetChangeText: { fontSize: 12, fontWeight: "600" },
+  skeletonCircle: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
+  skeletonLine: { height: 13, borderRadius: 6 },
+  sheetOverlay: { flex: 1, justifyContent: "flex-end" },
   sheetBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -1500,9 +1705,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: "center",
   },
-  sheetList: {
-    marginBottom: 20,
-  },
+  sheetList: { marginBottom: 20 },
   networkRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1511,34 +1714,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "rgba(128,128,128,0.1)",
   },
-  networkRowLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  networkInfo: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  networkName: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  networkSymbol: {
-    fontSize: 13,
-    marginTop: 2,
-  },
+  networkRowLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+  networkInfo: { marginLeft: 12, flex: 1 },
+  networkName: { fontSize: 15, fontWeight: "600" },
+  networkSymbol: { fontSize: 13, marginTop: 2 },
   closeSheetBtn: {
     paddingVertical: 14,
     borderRadius: 999,
     alignItems: "center",
     backgroundColor: "#5573ef",
   },
-  closeSheetText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
+  closeSheetText: { fontSize: 16, fontWeight: "600", color: "#FFFFFF" },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1549,14 +1735,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(128,128,128,0.2)",
   },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    height: 40,
-  },
+  searchIcon: { marginRight: 8 },
+  searchInput: { flex: 1, fontSize: 14, height: 40 },
   alertOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -1576,9 +1756,7 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
   },
-  alertIconContainer: {
-    marginBottom: 16,
-  },
+  alertIconContainer: { marginBottom: 16 },
   alertTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -1598,9 +1776,5 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
-  alertButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 16,
-  },
+  alertButtonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
 });

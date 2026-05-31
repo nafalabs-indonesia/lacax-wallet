@@ -1,4 +1,8 @@
-import { ChainConfig, SUPPORTED_CHAINS } from "@/config/chains";
+import {
+  ChainConfig,
+  fetchTokensByChainId,
+  SUPPORTED_CHAINS,
+} from "@/config/chains";
 import { WalletRepository } from "@/modules/wallet/infrastructure/WalletRepository";
 import {
   BlockchainService,
@@ -7,6 +11,7 @@ import {
 import { useAppStore } from "@/store/appStore";
 import { Colors } from "@/theme/colors";
 import { ZEROEX_API_KEY } from "@env";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { ethers } from "ethers";
 import {
@@ -54,10 +59,20 @@ import {
 const { width, height } = Dimensions.get("window");
 
 const FEE_CONFIG_URL = "https://lacax.vercel.app/api/v1/fee-config";
+const CUSTOM_TOKENS_KEY = "@wallet_custom_tokens";
 
 interface FeeConfig {
   feeWallet: string;
   feePercent: number;
+}
+
+interface CustomToken {
+  chainId: string;
+  address: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  logoURI?: string;
 }
 
 const LOCAL_ICON_MAP: Record<string, any> = {
@@ -140,6 +155,7 @@ interface AssetOption {
   balance: string;
   chainId: string;
   isNative: boolean;
+  logoURI?: string;
 }
 
 interface TxDetails {
@@ -150,6 +166,46 @@ interface TxDetails {
   gasEstimate: string;
   nativeSymbol: string;
   totalDeducted: string;
+}
+
+function AssetRowIcon({
+  symbol,
+  logoURI,
+  size = 40,
+}: {
+  symbol: string;
+  logoURI?: string;
+  size?: number;
+}) {
+  const local = LOCAL_ICON_MAP[symbol];
+  const s = { width: size, height: size, borderRadius: size / 2 };
+
+  if (local) {
+    return <Image source={local} style={[s, { resizeMode: "contain" }]} />;
+  }
+  if (logoURI) {
+    return (
+      <Image source={{ uri: logoURI }} style={[s, { resizeMode: "contain" }]} />
+    );
+  }
+  return (
+    <View
+      style={[
+        s,
+        {
+          backgroundColor: "#555",
+          alignItems: "center",
+          justifyContent: "center",
+        },
+      ]}
+    >
+      <Text
+        style={{ color: "#fff", fontWeight: "bold", fontSize: size * 0.35 }}
+      >
+        {symbol.charAt(0).toUpperCase()}
+      </Text>
+    </View>
+  );
 }
 
 export default function SendScreen() {
@@ -165,6 +221,7 @@ export default function SendScreen() {
   );
   const [selectedAsset, setSelectedAsset] = useState<AssetOption | null>(null);
   const [availableAssets, setAvailableAssets] = useState<AssetOption[]>([]);
+  const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
 
   const [recipientAddress, setRecipientAddress] = useState("");
   const [amount, setAmount] = useState("");
@@ -203,6 +260,12 @@ export default function SendScreen() {
   const [showNetworkFeeInfo, setShowNetworkFeeInfo] = useState(false);
   const [serviceFeeEnabled, setServiceFeeEnabled] = useState(true);
 
+  useEffect(() => {
+    AsyncStorage.getItem(CUSTOM_TOKENS_KEY)
+      .then((raw) => raw && setCustomTokens(JSON.parse(raw)))
+      .catch(() => {});
+  }, []);
+
   const fetchFeeConfig = useCallback(async () => {
     setIsFeeConfigLoading(true);
     setFeeConfigError(false);
@@ -217,7 +280,6 @@ export default function SendScreen() {
     } catch (err) {
       console.error("[FeeConfig] Failed to fetch:", err);
       setFeeConfigError(true);
-
       setFeeConfig({ feeWallet: "", feePercent: 0 });
     } finally {
       setIsFeeConfigLoading(false);
@@ -230,17 +292,16 @@ export default function SendScreen() {
 
   const getRpcUrl = useCallback((chain: ChainConfig): string => {
     if (chain.rpcUrl) return chain.rpcUrl;
-    const fallbacks = PUBLIC_RPC_MAP[chain.id];
-    return fallbacks?.[0] ?? "";
+    return PUBLIC_RPC_MAP[chain.id]?.[0] ?? "";
   }, []);
 
   const getExplorerUrl = (chainId: string, hash: string) => {
     const chain = ALL_CHAINS.find((c) => c.id === chainId);
     if (chain?.explorerUrl) {
-      const baseUrl = chain.explorerUrl.endsWith("/")
+      const base = chain.explorerUrl.endsWith("/")
         ? chain.explorerUrl.slice(0, -1)
         : chain.explorerUrl;
-      return `${baseUrl}/tx/${hash}`;
+      return `${base}/tx/${hash}`;
     }
     return null;
   };
@@ -252,18 +313,15 @@ export default function SendScreen() {
     async (chainId: string): Promise<string | null> => {
       const rpcUrls = PUBLIC_RPC_MAP[chainId];
       if (!rpcUrls?.length) return null;
-
       const body = JSON.stringify({
         jsonrpc: "2.0",
         method: "eth_gasPrice",
         params: [],
         id: 1,
       });
-
       for (const rpcUrl of rpcUrls) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 5000);
-
         try {
           const response = await fetch(rpcUrl, {
             method: "POST",
@@ -271,21 +329,15 @@ export default function SendScreen() {
             body,
             signal: controller.signal,
           });
-
           clearTimeout(timer);
-
           if (!response.ok) continue;
-
           const json = await response.json();
           const hexPrice: string | undefined = json?.result;
-
-          if (hexPrice && hexPrice.startsWith("0x")) {
+          if (hexPrice?.startsWith("0x")) {
             const parsed = parseInt(hexPrice, 16);
-            if (!isNaN(parsed) && parsed > 0) {
-              return parsed.toString();
-            }
+            if (!isNaN(parsed) && parsed > 0) return parsed.toString();
           }
-        } catch (err: any) {
+        } catch {
           clearTimeout(timer);
         }
       }
@@ -298,7 +350,7 @@ export default function SendScreen() {
     const supported0xChains = [1, 137, 56, 42161];
     if (ZEROEX_API_KEY && supported0xChains.includes(selectedChain.chainId)) {
       try {
-        const response = await axios.get(`https://api.0x.org/swap/v1/price`, {
+        const response = await axios.get("https://api.0x.org/swap/v1/price", {
           params: {
             sellToken: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             buyToken: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
@@ -309,22 +361,18 @@ export default function SendScreen() {
           headers: { "0x-api-key": ZEROEX_API_KEY },
           timeout: 6000,
         });
-
         if (response.data?.gasPrice) {
           setGasPriceWei(response.data.gasPrice);
           return;
         }
       } catch {}
     }
-
     const rpcPrice = await fetchGasFromPublicRpc(selectedChain.id);
     if (rpcPrice) {
       setGasPriceWei(rpcPrice);
       return;
     }
-
-    const fallback = HARDCODED_GAS_FALLBACK[selectedChain.id] ?? "5000000000";
-    setGasPriceWei(fallback);
+    setGasPriceWei(HARDCODED_GAS_FALLBACK[selectedChain.id] ?? "5000000000");
   }, [
     selectedChain.id,
     selectedChain.chainId,
@@ -342,9 +390,9 @@ export default function SendScreen() {
         walletAddress,
       );
 
-      let assets: AssetOption[] = [];
+      const assetsMap = new Map<string, AssetOption>();
 
-      assets.push({
+      const nativeAsset: AssetOption = {
         symbol: selectedChain.symbol,
         name: selectedChain.name.split(" ")[0],
         address: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
@@ -352,43 +400,97 @@ export default function SendScreen() {
         balance: nativeBal,
         chainId: selectedChain.id,
         isNative: true,
-      });
+      };
+      assetsMap.set(nativeAsset.address.toLowerCase(), nativeAsset);
 
-      if (selectedChain.tokens) {
-        for (const token of selectedChain.tokens) {
-          try {
-            const tokBal = await BlockchainService.getTokenBalance(
-              selectedChain.id as ChainId,
-              walletAddress,
-              token.address,
-              token.decimals,
-            );
-            assets.push({
-              symbol: token.symbol,
-              name: token.name,
-              address: token.address,
-              decimals: token.decimals,
-              balance: tokBal,
-              chainId: selectedChain.id,
-              isNative: false,
-            });
-          } catch (e) {
-            console.error(e);
-          }
+      const apiTokens = await fetchTokensByChainId(selectedChain.chainId);
+
+      for (const token of apiTokens) {
+        const addrLower = token.address.toLowerCase();
+
+        if (assetsMap.has(addrLower)) {
+          continue;
+        }
+
+        try {
+          const tokBal = await BlockchainService.getTokenBalance(
+            selectedChain.id as ChainId,
+            walletAddress,
+            token.address,
+            token.decimals,
+          );
+
+          assetsMap.set(addrLower, {
+            symbol: token.symbol,
+            name: token.name,
+            address: token.address,
+            decimals: token.decimals,
+            balance: tokBal,
+            chainId: selectedChain.id,
+            isNative: false,
+            logoURI: token.logoURI,
+          });
+        } catch (e) {
+          console.error("[Send] Token balance fetch failed");
         }
       }
 
-      setAvailableAssets(assets);
+      const chainCustomTokens = customTokens.filter(
+        (ct) => ct.chainId === selectedChain.id,
+      );
+
+      for (const ct of chainCustomTokens) {
+        const addrLower = ct.address.toLowerCase();
+
+        if (assetsMap.has(addrLower)) {
+          continue;
+        }
+
+        try {
+          const tokBal = await BlockchainService.getTokenBalance(
+            selectedChain.id as ChainId,
+            walletAddress,
+            ct.address,
+            ct.decimals,
+          );
+
+          assetsMap.set(addrLower, {
+            symbol: ct.symbol,
+            name: ct.name,
+            address: ct.address,
+            decimals: ct.decimals,
+            balance: tokBal,
+            chainId: selectedChain.id,
+            isNative: false,
+            logoURI: ct.logoURI,
+          });
+        } catch {
+          console.error("[Send] Custom token balance failed");
+        }
+      }
+
+      const finalAssets = Array.from(assetsMap.values());
+
+      setAvailableAssets(finalAssets);
 
       const defaultAsset =
-        assets.find((a) => a.symbol === initialSymbol) || assets[0];
+        finalAssets.find((a) => a.symbol === initialSymbol) ||
+        finalAssets.find((a) => a.isNative) ||
+        finalAssets[0];
+
       setSelectedAsset(defaultAsset);
     } catch (error) {
       console.error("Error fetching balances:", error);
     } finally {
       setIsLoadingBalance(false);
     }
-  }, [walletAddress, selectedChain.id, initialSymbol]);
+  }, [
+    walletAddress,
+    selectedChain.id,
+    selectedChain.chainId,
+    initialSymbol,
+    customTokens,
+  ]);
 
   useEffect(() => {
     fetchGasPrice();
@@ -398,19 +500,16 @@ export default function SendScreen() {
   const handleMax = () => {
     if (!selectedAsset) return;
     let maxVal = parseFloat(selectedAsset.balance);
-
     if (selectedAsset.isNative) {
       const gasCostEth =
         (GAS_LIMIT_NATIVE * parseInt(gasPriceWei)) /
         Math.pow(10, NATIVE_DECIMALS);
-      if (1 + activeFeePercent > 0) {
-        maxVal = (maxVal - gasCostEth * 1.1) / (1 + activeFeePercent);
-      } else {
-        maxVal = Math.max(0, maxVal - gasCostEth * 1.1);
-      }
+      maxVal =
+        1 + activeFeePercent > 0
+          ? (maxVal - gasCostEth * 1.1) / (1 + activeFeePercent)
+          : Math.max(0, maxVal - gasCostEth * 1.1);
     }
-    if (maxVal < 0) maxVal = 0;
-    setAmount(maxVal.toFixed(6));
+    setAmount(Math.max(0, maxVal).toFixed(6));
   };
 
   const handleScanPress = async () => {
@@ -424,9 +523,7 @@ export default function SendScreen() {
 
   const handleBarCodeScanned = ({ data }: BarcodeScanningResult) => {
     setIsScanning(false);
-    if (data.startsWith("0x") && data.length === 42) {
-      setRecipientAddress(data);
-    }
+    if (data.startsWith("0x") && data.length === 42) setRecipientAddress(data);
   };
 
   const validateTransaction = (): string | null => {
@@ -435,45 +532,32 @@ export default function SendScreen() {
     if (!recipientAddress) return "Please enter a recipient address.";
     if (!ethers.isAddress(recipientAddress))
       return "Invalid recipient address format.";
-
     const sendAmount = parseFloat(amount);
     if (isNaN(sendAmount) || sendAmount <= 0)
       return "Please enter a valid amount greater than 0.";
-
     const serviceFee = sendAmount * activeFeePercent;
-
     const txGasLimit = selectedAsset.isNative
       ? GAS_LIMIT_NATIVE
       : GAS_LIMIT_TOKEN;
-
     const gasCostNative =
       (txGasLimit * parseInt(gasPriceWei || "0")) /
       Math.pow(10, NATIVE_DECIMALS);
-
     const nativeAsset = availableAssets.find((a) => a.isNative);
     const nativeBalance = nativeAsset ? parseFloat(nativeAsset.balance) : 0;
     const assetBalance = parseFloat(selectedAsset.balance);
-
     if (selectedAsset.isNative) {
       const totalRequired = sendAmount + serviceFee + gasCostNative;
       if (totalRequired > assetBalance) {
-        return `Insufficient ${selectedAsset.symbol} balance. You need ${totalRequired.toFixed(
-          6,
-        )} (Amount + Fee + Gas), but you have ${assetBalance.toFixed(6)}.`;
+        return `Insufficient ${selectedAsset.symbol} balance. Need ${totalRequired.toFixed(6)} (Amount+Fee+Gas), have ${assetBalance.toFixed(6)}.`;
       }
     } else {
       if (sendAmount + serviceFee > assetBalance) {
-        return `Insufficient ${selectedAsset.symbol} balance. You need ${(
-          sendAmount + serviceFee
-        ).toFixed(6)} (Amount + Fee), but you have ${assetBalance.toFixed(6)}.`;
+        return `Insufficient ${selectedAsset.symbol} balance. Need ${(sendAmount + serviceFee).toFixed(6)} (Amount+Fee), have ${assetBalance.toFixed(6)}.`;
       }
       if (gasCostNative > nativeBalance) {
-        return `Insufficient ${nativeAsset?.symbol} balance for gas. You need ${gasCostNative.toFixed(
-          6,
-        )} for network fees, but you have ${nativeBalance.toFixed(6)}.`;
+        return `Insufficient ${nativeAsset?.symbol} for gas. Need ${gasCostNative.toFixed(6)}, have ${nativeBalance.toFixed(6)}.`;
       }
     }
-
     return null;
   };
 
@@ -483,38 +567,29 @@ export default function SendScreen() {
       setShowErrorModal(true);
       return;
     }
-
     if (isFeeConfigLoading) {
-      setErrorMsg("Loading fee configuration. Please wait a moment.");
+      setErrorMsg("Loading fee configuration. Please wait.");
       setShowErrorModal(true);
       return;
     }
-
     const error = validateTransaction();
     if (error) {
       setErrorMsg(error);
       setShowErrorModal(true);
       return;
     }
-
     const sendAmount = parseFloat(amount);
     const serviceFee = sendAmount * activeFeePercent;
-
     const txGasLimit = selectedAsset!.isNative
       ? GAS_LIMIT_NATIVE
       : GAS_LIMIT_TOKEN;
-
     const gasCostEth =
       (txGasLimit * parseInt(gasPriceWei)) / Math.pow(10, NATIVE_DECIMALS);
-
     let totalDeducted = sendAmount + serviceFee;
-    if (selectedAsset!.isNative) {
-      totalDeducted += gasCostEth;
-    }
-
+    if (selectedAsset!.isNative) totalDeducted += gasCostEth;
     setPendingTxDetails({
       recipient: recipientAddress,
-      amount: amount,
+      amount,
       symbol: selectedAsset!.symbol,
       serviceFee: serviceFee.toFixed(6),
       gasEstimate: gasCostEth.toFixed(6),
@@ -522,7 +597,6 @@ export default function SendScreen() {
         availableAssets.find((a) => a.isNative)?.symbol ?? selectedChain.symbol,
       totalDeducted: totalDeducted.toFixed(6),
     });
-
     setShowConfirmModal(true);
   };
 
@@ -546,35 +620,27 @@ export default function SendScreen() {
 
   const handlePasswordSubmit = async () => {
     if (!passwordInput || isVerifying) return;
-
     setPasswordError("");
     setIsVerifying(true);
-
     try {
       const isValid = await WalletRepository.verifyPassword(passwordInput);
-
       if (!isValid) {
         setIsVerifying(false);
-        setPasswordError("Incorrect password. Please try again.");
+        setPasswordError("Incorrect password.");
         setPasswordInput("");
         return;
       }
-
       setIsVerifying(false);
       setIsSending(true);
       setShowPasswordModal(false);
-
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          _runTransaction();
-        }, 300);
-      });
+      requestAnimationFrame(() => setTimeout(_runTransaction, 300));
     } catch (error: any) {
       setIsVerifying(false);
       const msg = error?.message ?? "";
       if (msg.startsWith("RATE_LIMITED:")) {
-        const secs = msg.split(":")[1];
-        setPasswordError(`Too many attempts. Try again in ${secs} seconds.`);
+        setPasswordError(
+          `Too many attempts. Try again in ${msg.split(":")[1]} seconds.`,
+        );
       } else {
         setPasswordError("Verification failed. Please try again.");
       }
@@ -584,31 +650,23 @@ export default function SendScreen() {
   const _runTransaction = async () => {
     try {
       const currentFeeConfig = feeConfig ?? { feeWallet: "", feePercent: 0 };
-
       const rpcUrl = getRpcUrl(selectedChain);
       if (!rpcUrl) throw new Error("No RPC URL available.");
-
       const provider = new ethers.JsonRpcProvider(rpcUrl);
       const wallet = ethers.Wallet.fromPhrase(mnemonic!).connect(provider);
-
-      if (wallet.address.toLowerCase() !== walletAddress?.toLowerCase()) {
+      if (wallet.address.toLowerCase() !== walletAddress?.toLowerCase())
         throw new Error("Wallet address mismatch.");
-      }
-
       const baseNonce = await provider.getTransactionCount(
         wallet.address,
         "pending",
       );
       const gasPrice = ethers.parseUnits(gasPriceWei, "wei");
-
       let finalHash = "";
-
       if (selectedAsset!.isNative) {
         const feeVal = ethers.parseUnits(
           pendingTxDetails!.serviceFee,
           NATIVE_DECIMALS,
         );
-
         if (feeVal > 0n && currentFeeConfig.feeWallet) {
           const feeTx = await wallet.sendTransaction({
             to: currentFeeConfig.feeWallet,
@@ -619,7 +677,6 @@ export default function SendScreen() {
           });
           await feeTx.wait(1);
         }
-
         const mainNonce =
           feeVal > 0n && currentFeeConfig.feeWallet ? baseNonce + 1 : baseNonce;
         const mainTx = await wallet.sendTransaction({
@@ -629,14 +686,12 @@ export default function SendScreen() {
           gasPrice,
           nonce: mainNonce,
         });
-
         finalHash = mainTx.hash;
       } else {
         const feeVal = ethers.parseUnits(
           pendingTxDetails!.serviceFee,
           NATIVE_DECIMALS,
         );
-
         if (feeVal > 0n && currentFeeConfig.feeWallet) {
           const feeTx = await wallet.sendTransaction({
             to: currentFeeConfig.feeWallet,
@@ -647,7 +702,6 @@ export default function SendScreen() {
           });
           await feeTx.wait(1);
         }
-
         const mainNonce =
           feeVal > 0n && currentFeeConfig.feeWallet ? baseNonce + 1 : baseNonce;
         const contract = new ethers.Contract(
@@ -658,20 +712,13 @@ export default function SendScreen() {
         const tokenTx = await contract.transfer(
           pendingTxDetails!.recipient,
           ethers.parseUnits(pendingTxDetails!.amount, selectedAsset!.decimals),
-          {
-            gasLimit: GAS_LIMIT_TOKEN,
-            gasPrice,
-            nonce: mainNonce,
-          },
+          { gasLimit: GAS_LIMIT_TOKEN, gasPrice, nonce: mainNonce },
         );
-
         finalHash = tokenTx.hash;
       }
-
       setTxHash(finalHash);
       setIsCopied(false);
       setShowSuccessModal(true);
-
       setTimeout(() => {
         fetchBalances();
         setAmount("");
@@ -681,14 +728,12 @@ export default function SendScreen() {
       console.error("[Send] Error:", error);
       let message = error?.message ?? "Unknown error occurred.";
       if (error?.reason) message = error.reason;
-      if (error?.code === "INSUFFICIENT_FUNDS") {
+      if (error?.code === "INSUFFICIENT_FUNDS")
         message = "Insufficient funds for gas or transfer.";
-      } else if (message.includes("user rejected")) {
+      else if (message.includes("user rejected"))
         message = "Transaction rejected by user.";
-      } else if (message.includes("nonce")) {
+      else if (message.includes("nonce"))
         message = "Nonce error. Please try again.";
-      }
-
       setErrorMsg(message);
       setShowErrorModal(true);
     } finally {
@@ -697,24 +742,21 @@ export default function SendScreen() {
   };
 
   const formatCurrency = (val: string) => parseFloat(val).toFixed(4);
-
   const nativeSymbol =
     availableAssets.find((a) => a.isNative)?.symbol ?? selectedChain.symbol;
-
   const gasLimit = selectedAsset?.isNative ? GAS_LIMIT_NATIVE : GAS_LIMIT_TOKEN;
   const estimatedGasEth =
     (gasLimit * parseInt(gasPriceWei || "0")) / Math.pow(10, NATIVE_DECIMALS);
 
   const filteredAssets = availableAssets.filter(
-    (asset) =>
-      asset.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      asset.name.toLowerCase().includes(searchQuery.toLowerCase()),
+    (a) =>
+      a.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
-
   const filteredChains = ALL_CHAINS.filter(
-    (chain) =>
-      chain.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      chain.symbol.toLowerCase().includes(searchQuery.toLowerCase()),
+    (c) =>
+      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.symbol.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   if (isLoadingBalance && !selectedAsset) {
@@ -812,22 +854,12 @@ export default function SendScreen() {
             activeOpacity={0.8}
           >
             <View style={styles.assetIconWrapper}>
-              {LOCAL_ICON_MAP[selectedAsset?.symbol || ""] ? (
-                <Image
-                  source={LOCAL_ICON_MAP[selectedAsset?.symbol || ""]}
-                  style={styles.assetIcon}
-                />
-              ) : (
-                <View
-                  style={[styles.fallbackIcon, { backgroundColor: "#555" }]}
-                >
-                  <Text style={{ color: "#fff", fontWeight: "bold" }}>
-                    {selectedAsset?.symbol.charAt(0)}
-                  </Text>
-                </View>
-              )}
+              <AssetRowIcon
+                symbol={selectedAsset?.symbol ?? ""}
+                logoURI={selectedAsset?.logoURI}
+                size={40}
+              />
             </View>
-
             <View style={styles.assetDetails}>
               <Text style={[styles.assetName, { color: theme.text }]}>
                 {selectedAsset?.name}
@@ -839,7 +871,6 @@ export default function SendScreen() {
                 {selectedAsset?.symbol}
               </Text>
             </View>
-
             <ChevronDown size={20} color={theme.textSecondary} />
           </TouchableOpacity>
         </View>
@@ -891,11 +922,9 @@ export default function SendScreen() {
                 </Text>
               </View>
             )}
-
             <Text style={[styles.networkText, { color: theme.text, flex: 1 }]}>
               {selectedChain.name}
             </Text>
-
             <ChevronDown size={16} color={theme.textSecondary} />
           </TouchableOpacity>
         </View>
@@ -949,7 +978,6 @@ export default function SendScreen() {
               ~{estimatedGasEth.toFixed(6)} {nativeSymbol}
             </Text>
           </View>
-
           <View style={styles.feeRow}>
             <View
               style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
@@ -968,7 +996,6 @@ export default function SendScreen() {
               {selectedAsset?.symbol}
             </Text>
           </View>
-
           {selectedAsset && !selectedAsset.isNative && (
             <View
               style={[
@@ -1046,7 +1073,7 @@ export default function SendScreen() {
 
       <Modal
         visible={isAssetSheetOpen}
-        transparent={true}
+        transparent
         animationType="slide"
         onRequestClose={() => setIsAssetSheetOpen(false)}
       >
@@ -1060,7 +1087,6 @@ export default function SendScreen() {
                 <X size={24} color={theme.textSecondary} />
               </TouchableOpacity>
             </View>
-
             <View
               style={[styles.searchContainer, { backgroundColor: theme.card }]}
             >
@@ -1074,7 +1100,6 @@ export default function SendScreen() {
                 autoFocus
               />
             </View>
-
             <FlatList
               data={filteredAssets}
               keyExtractor={(item) => item.address}
@@ -1089,23 +1114,11 @@ export default function SendScreen() {
                   }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    {LOCAL_ICON_MAP[asset.symbol] ? (
-                      <Image
-                        source={LOCAL_ICON_MAP[asset.symbol]}
-                        style={styles.ddAssetIcon}
-                      />
-                    ) : (
-                      <View
-                        style={[
-                          styles.ddFallbackIcon,
-                          { backgroundColor: "#555" },
-                        ]}
-                      >
-                        <Text style={{ color: "#fff", fontWeight: "bold" }}>
-                          {asset.symbol.charAt(0)}
-                        </Text>
-                      </View>
-                    )}
+                    <AssetRowIcon
+                      symbol={asset.symbol}
+                      logoURI={asset.logoURI}
+                      size={32}
+                    />
                     <View style={{ marginLeft: 12 }}>
                       <Text style={[styles.ddItemTitle, { color: theme.text }]}>
                         {asset.symbol}
@@ -1146,7 +1159,7 @@ export default function SendScreen() {
 
       <Modal
         visible={isNetworkSheetOpen}
-        transparent={true}
+        transparent
         animationType="slide"
         onRequestClose={() => setIsNetworkSheetOpen(false)}
       >
@@ -1160,7 +1173,6 @@ export default function SendScreen() {
                 <X size={24} color={theme.textSecondary} />
               </TouchableOpacity>
             </View>
-
             <View
               style={[styles.searchContainer, { backgroundColor: theme.card }]}
             >
@@ -1174,7 +1186,6 @@ export default function SendScreen() {
                 autoFocus
               />
             </View>
-
             <FlatList
               data={filteredChains}
               keyExtractor={(item) => item.id}
@@ -1240,7 +1251,7 @@ export default function SendScreen() {
 
       <Modal
         visible={showErrorModal}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={() => setShowErrorModal(false)}
       >
@@ -1251,17 +1262,14 @@ export default function SendScreen() {
             <View style={styles.errorIconWrapper}>
               <AlertCircle size={36} color="#EF4444" />
             </View>
-
             <Text style={[styles.errorModalTitle, { color: theme.text }]}>
               Something Went Wrong
             </Text>
-
             <Text
               style={[styles.errorModalMessage, { color: theme.textSecondary }]}
             >
               {errorMsg}
             </Text>
-
             <TouchableOpacity
               style={[
                 styles.errorDismissBtn,
@@ -1277,7 +1285,7 @@ export default function SendScreen() {
 
       <Modal
         visible={showConfirmModal}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={() => setShowConfirmModal(false)}
       >
@@ -1302,7 +1310,6 @@ export default function SendScreen() {
                 <X size={18} color={theme.textSecondary} />
               </TouchableOpacity>
             </View>
-
             <View
               style={[
                 styles.confirmSection,
@@ -1331,7 +1338,6 @@ export default function SendScreen() {
                   : ""}
               </Text>
             </View>
-
             <View
               style={[
                 styles.confirmAmountBlock,
@@ -1353,7 +1359,6 @@ export default function SendScreen() {
                 <Text style={{ fontSize: 18 }}>{pendingTxDetails?.symbol}</Text>
               </Text>
             </View>
-
             <View style={styles.confirmFeeBreakdown}>
               <View style={styles.confirmFeeRow}>
                 <Text
@@ -1420,7 +1425,6 @@ export default function SendScreen() {
                 </Text>
               )}
             </View>
-
             <View style={styles.confirmActions}>
               <TouchableOpacity
                 style={[
@@ -1436,7 +1440,6 @@ export default function SendScreen() {
                   Cancel
                 </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[
                   styles.confirmSendBtn,
@@ -1453,7 +1456,7 @@ export default function SendScreen() {
 
       <Modal
         visible={showPasswordModal}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={() => {
           if (!isVerifying) {
@@ -1485,7 +1488,6 @@ export default function SendScreen() {
                 <LockKeyhole size={28} color={theme.primary} />
               </View>
             </View>
-
             <Text style={[styles.passwordModalTitle, { color: theme.text }]}>
               Verify Identity
             </Text>
@@ -1497,7 +1499,6 @@ export default function SendScreen() {
             >
               Enter your wallet password to authorize this transfer.
             </Text>
-
             <View
               style={[
                 styles.passwordInputWrapper,
@@ -1539,14 +1540,12 @@ export default function SendScreen() {
                 )}
               </TouchableOpacity>
             </View>
-
             {!!passwordError && (
               <View style={styles.passwordErrorRow}>
                 <AlertCircle size={14} color="#EF4444" />
                 <Text style={styles.passwordErrorText}>{passwordError}</Text>
               </View>
             )}
-
             <View style={styles.passwordActions}>
               <TouchableOpacity
                 style={[
@@ -1570,7 +1569,6 @@ export default function SendScreen() {
                   Cancel
                 </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[
                   styles.passwordSubmitBtn,
@@ -1595,7 +1593,7 @@ export default function SendScreen() {
 
       <Modal
         visible={showSuccessModal}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={() => {
           setShowSuccessModal(false);
@@ -1624,7 +1622,6 @@ export default function SendScreen() {
                 <Check size={36} color={theme.primary} strokeWidth={3} />
               </View>
             </View>
-
             <Text style={[styles.successTitle, { color: theme.text }]}>
               Transfer Successful!
             </Text>
@@ -1633,7 +1630,6 @@ export default function SendScreen() {
             >
               Your transaction has been broadcast to the network.
             </Text>
-
             <View
               style={[styles.txHashBox, { backgroundColor: theme.background }]}
             >
@@ -1669,7 +1665,6 @@ export default function SendScreen() {
                 </Text>
               )}
             </View>
-
             {getExplorerUrl(selectedChain.id, txHash) && (
               <TouchableOpacity
                 style={[
@@ -1686,7 +1681,6 @@ export default function SendScreen() {
                 </Text>
               </TouchableOpacity>
             )}
-
             <View style={styles.successActions}>
               <TouchableOpacity
                 style={[
@@ -1701,7 +1695,6 @@ export default function SendScreen() {
                 <ArrowLeft size={18} color="#FFF" />
                 <Text style={styles.successBackText}>Back to Home</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[
                   styles.successSendAgainBtn,
@@ -1729,7 +1722,7 @@ export default function SendScreen() {
 
       <Modal
         visible={showNetworkFeeInfo}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={() => setShowNetworkFeeInfo(false)}
       >
@@ -1754,7 +1747,6 @@ export default function SendScreen() {
                 <X size={18} color={theme.textSecondary} />
               </TouchableOpacity>
             </View>
-
             <View style={{ padding: 10, alignItems: "center" }}>
               <AlertCircle
                 size={40}
@@ -1771,7 +1763,6 @@ export default function SendScreen() {
                 transaction on the blockchain. This fee varies based on network
                 congestion and complexity.
               </Text>
-
               <TouchableOpacity
                 style={[
                   styles.confirmSendBtn,
@@ -1792,7 +1783,7 @@ export default function SendScreen() {
 
       <Modal
         visible={showServiceFeeInfo}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={() => setShowServiceFeeInfo(false)}
       >
@@ -1817,11 +1808,9 @@ export default function SendScreen() {
                 <X size={18} color={theme.textSecondary} />
               </TouchableOpacity>
             </View>
-
             <View style={styles.serviceFeeIconWrapper}>
               <AlertCircle size={36} color={theme.primary} />
             </View>
-
             <Text
               style={[
                 styles.serviceFeeDescription,
@@ -1832,7 +1821,6 @@ export default function SendScreen() {
               maintain wallet infrastructure, ensure security, and provide
               seamless transactions.
             </Text>
-
             <View
               style={[
                 styles.serviceFeeToggleRow,
@@ -1864,7 +1852,6 @@ export default function SendScreen() {
                 ios_backgroundColor="#EF444440"
               />
             </View>
-
             <TouchableOpacity
               style={[
                 styles.serviceFeeCloseBtn,
@@ -1883,7 +1870,6 @@ export default function SendScreen() {
 
 const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
-
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.55)",
@@ -1905,12 +1891,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: "center",
   },
-  loadingSubtitle: {
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 20,
-  },
-
+  loadingSubtitle: { fontSize: 13, textAlign: "center", lineHeight: 20 },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -1922,17 +1903,15 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: "700" },
   iconBtn: { padding: 8 },
   content: { padding: 20, paddingBottom: 40 },
-
   alertBox: {
     flexDirection: "row",
     padding: 14,
     borderRadius: 12,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "rgba(245, 158, 11, 0.3)",
+    borderColor: "rgba(245,158,11,0.3)",
   },
   alertText: { fontSize: 13, lineHeight: 18, flex: 1 },
-
   dropdownContainer: { marginBottom: 20 },
   selectorRow: {
     flexDirection: "row",
@@ -1957,7 +1936,6 @@ const styles = StyleSheet.create({
   assetDetails: { flex: 1 },
   assetName: { fontSize: 16, fontWeight: "700" },
   assetBalance: { fontSize: 13, marginTop: 2 },
-
   ddAssetIcon: { width: 32, height: 32, borderRadius: 16 },
   ddFallbackIcon: {
     width: 32,
@@ -1966,7 +1944,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   networkSelector: {
     height: 52,
     borderRadius: 12,
@@ -1982,11 +1959,9 @@ const styles = StyleSheet.create({
   },
   chainIcon: { width: 28, height: 28, borderRadius: 14, marginRight: 10 },
   networkText: { fontSize: 16 },
-
   inputGroup: { marginBottom: 20 },
   label: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
   input: { height: 54, borderRadius: 12, paddingHorizontal: 16, fontSize: 16 },
-
   amountHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -2003,7 +1978,6 @@ const styles = StyleSheet.create({
   },
   amountInput: { flex: 1, fontSize: 22, fontWeight: "600" },
   currencySymbol: { fontSize: 16, fontWeight: "600" },
-
   feeSection: { borderRadius: 16, padding: 16, marginBottom: 16 },
   feeRow: {
     flexDirection: "row",
@@ -2012,7 +1986,6 @@ const styles = StyleSheet.create({
   },
   feeLabel: { fontSize: 13 },
   feeValue: { fontSize: 13, fontWeight: "600" },
-
   footerWrapper: { padding: 20, paddingTop: 10 },
   sendButton: {
     height: 56,
@@ -2027,7 +2000,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   sendButtonText: { color: "#FFF", fontSize: 18, fontWeight: "700" },
-
   cameraOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "black",
@@ -2059,7 +2031,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -2104,7 +2075,6 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(128,128,128,0.1)",
   },
   emptyState: { padding: 20, alignItems: "center" },
-
   centeredModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -2112,7 +2082,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 20,
   },
-
   errorModalContent: {
     width: "100%",
     maxWidth: 360,
@@ -2149,7 +2118,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   errorDismissBtnText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
-
   confirmModalContent: {
     width: "100%",
     maxWidth: 400,
@@ -2175,12 +2143,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  confirmSection: {
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 14,
-    gap: 4,
-  },
+  confirmSection: { borderRadius: 14, padding: 14, marginBottom: 14, gap: 4 },
   confirmSectionLabel: {
     fontSize: 12,
     fontWeight: "600",
@@ -2245,7 +2208,6 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   confirmSendText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
-
   successModalContent: {
     width: "100%",
     maxWidth: 380,
@@ -2337,10 +2299,8 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   successSendAgainText: { fontSize: 16, fontWeight: "700" },
-
   ddItemTitle: { fontSize: 15, fontWeight: "600" },
   ddItemSub: { fontSize: 12 },
-
   passwordModalContent: {
     width: "100%",
     maxWidth: 360,
@@ -2429,7 +2389,6 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   passwordSubmitText: { color: "#FFF", fontSize: 16, fontWeight: "700" },
-
   serviceFeeModalContent: {
     width: "100%",
     maxWidth: 400,

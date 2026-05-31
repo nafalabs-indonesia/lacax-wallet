@@ -5,6 +5,11 @@ export interface TokenConfig {
   symbol: string;
   address: string;
   decimals: number;
+  isVerified?: boolean;
+  logoURI?: string;
+  extensions?: {
+    urlContract?: string;
+  };
 }
 
 export interface ChainConfig {
@@ -32,6 +37,79 @@ const getAlchemyRpc = (network: string) => {
 };
 
 const PROXY_BASE_URL = "https://lacax.vercel.app/api/v1/rpc";
+const TOKEN_API_BASE_URL = "https://lacax.nafalabs.com/api/v1/tokens";
+
+const LOCAL_FALLBACK_TOKENS: Record<number, TokenConfig[]> = {
+  1: [
+    {
+      name: "Tether USD",
+      symbol: "USDT",
+      address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      decimals: 6,
+    },
+    {
+      name: "USD Coin",
+      symbol: "USDC",
+      address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      decimals: 6,
+    },
+  ],
+
+  137: [
+    {
+      name: "Tether USD",
+      symbol: "USDT",
+      address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+      decimals: 6,
+    },
+    {
+      name: "USD Coin",
+      symbol: "USDC",
+      address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+      decimals: 6,
+    },
+  ],
+
+  56: [
+    {
+      name: "Tether USD",
+      symbol: "USDT",
+      address: "0x55d398326f99059fF775485246999027B3197955",
+      decimals: 18,
+    },
+  ],
+};
+
+export const fetchTokensByChainId = async (
+  chainId: number,
+): Promise<TokenConfig[]> => {
+  try {
+    const response = await fetch(`${TOKEN_API_BASE_URL}?chainId=${chainId}`);
+
+    if (response.status === 400) {
+      return LOCAL_FALLBACK_TOKENS[chainId] ?? [];
+    }
+
+    if (!response.ok) {
+      console.warn(
+        `⚠️ fetchTokensByChainId(${chainId}): unexpected HTTP ${response.status}`,
+      );
+      return LOCAL_FALLBACK_TOKENS[chainId] ?? [];
+    }
+
+    const data: { name: string; chainId: number; tokens: TokenConfig[] } =
+      await response.json();
+
+    if (data.tokens && data.tokens.length > 0) {
+      return data.tokens;
+    }
+
+    return LOCAL_FALLBACK_TOKENS[chainId] ?? [];
+  } catch (err) {
+    console.warn(`⚠️ fetchTokensByChainId(${chainId}) network error:`, err);
+    return LOCAL_FALLBACK_TOKENS[chainId] ?? [];
+  }
+};
 
 export const SUPPORTED_CHAINS: ChainConfig[] = [
   {
@@ -44,20 +122,7 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     symbol: "ETH",
     decimals: 18,
     type: "evm",
-    tokens: [
-      {
-        name: "Tether USD",
-        symbol: "USDT",
-        address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-        decimals: 6,
-      },
-      {
-        name: "USD Coin",
-        symbol: "USDC",
-        address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-        decimals: 6,
-      },
-    ],
+    tokens: LOCAL_FALLBACK_TOKENS[1],
   },
   {
     id: "polygon-mainnet",
@@ -69,20 +134,7 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     symbol: "POL",
     decimals: 18,
     type: "evm",
-    tokens: [
-      {
-        name: "Tether USD",
-        symbol: "USDT",
-        address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
-        decimals: 6,
-      },
-      {
-        name: "USD Coin",
-        symbol: "USDC",
-        address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
-        decimals: 6,
-      },
-    ],
+    tokens: LOCAL_FALLBACK_TOKENS[137],
   },
   {
     id: "bnb-mainnet",
@@ -94,14 +146,7 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     symbol: "BNB",
     decimals: 18,
     type: "evm",
-    tokens: [
-      {
-        name: "Tether USD",
-        symbol: "USDT",
-        address: "0x55d398326f99059fF775485246999027B3197955",
-        decimals: 18,
-      },
-    ],
+    tokens: LOCAL_FALLBACK_TOKENS[56],
   },
   {
     id: "blockdag-mainnet",
@@ -160,7 +205,6 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     decimals: 18,
     type: "evm",
   },
-
   {
     id: "arbitrum-mainnet",
     name: "Arbitrum One",
@@ -172,7 +216,6 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     decimals: 18,
     type: "evm",
   },
-
   {
     id: "arbitrum-sepolia",
     name: "Arbitrum Sepolia",
@@ -184,7 +227,6 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     decimals: 18,
     type: "evm",
   },
-
   {
     id: "monad-mainnet",
     name: "Monad Mainnet",
@@ -196,7 +238,6 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     decimals: 18,
     type: "evm",
   },
-
   {
     id: "monad-testnet",
     name: "Monad Testnet",
@@ -212,4 +253,8 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
 
 export const getChainById = (id: string): ChainConfig | undefined => {
   return SUPPORTED_CHAINS.find((chain) => chain.id === id);
+};
+
+export const getChainByChainId = (chainId: number): ChainConfig | undefined => {
+  return SUPPORTED_CHAINS.find((chain) => chain.chainId === chainId);
 };
