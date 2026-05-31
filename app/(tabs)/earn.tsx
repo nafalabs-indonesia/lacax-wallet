@@ -1,7 +1,14 @@
+import * as Linking from "expo-linking";
 import { router } from "expo-router";
-import { Coins } from "lucide-react-native";
+import { Coins, ExternalLink } from "lucide-react-native";
 import React from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { HomeHeader } from "../../components/HomeHeader";
 import { useAppStore } from "../../store/appStore";
 import { Colors } from "../../theme/colors";
@@ -9,6 +16,10 @@ import { Colors } from "../../theme/colors";
 export default function EarnScreen() {
   const { isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
+
+  const openStaking = async () => {
+    await Linking.openURL("https://lacax.nafalabs.com/staking");
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -21,23 +32,27 @@ export default function EarnScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        <View style={styles.comingSoonContainer}>
+        <View style={styles.contentContainer}>
           <View
             style={[
               styles.iconBox,
-              { backgroundColor: theme.card, borderColor: theme.border },
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+              },
             ]}
           >
             <Coins size={48} color={theme.primary} strokeWidth={1.5} />
           </View>
 
           <Text style={[styles.title, { color: theme.text }]}>
-            Earn & Staking
+            LXW Staking Testnet
           </Text>
 
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-            Grow your crypto assets with high-yield staking pools and flexible
-            earning options.
+            LacaX Wallet is currently running a public staking testnet for the
+            LXW utility token. Help us test staking features, explore the user
+            experience, and share your feedback before the official launch.
           </Text>
 
           <Text
@@ -49,7 +64,20 @@ export default function EarnScreen() {
               },
             ]}
           >
-            Coming Soon
+            Public Testnet Live
+          </Text>
+
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={openStaking}
+            style={[styles.stakingButton, { backgroundColor: theme.primary }]}
+          >
+            <Text style={styles.stakingButtonText}>Open Staking Testnet</Text>
+            <ExternalLink size={18} color="#fff" strokeWidth={2} />
+          </TouchableOpacity>
+
+          <Text style={[styles.linkText, { color: theme.textSecondary }]}>
+            lacax.nafalabs.com/staking
           </Text>
         </View>
       </ScrollView>
@@ -69,9 +97,9 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     paddingBottom: 100,
   },
-  comingSoonContainer: {
+  contentContainer: {
     alignItems: "center",
-    maxWidth: 320,
+    maxWidth: 340,
     gap: 16,
   },
   iconBox: {
@@ -92,11 +120,11 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     textAlign: "center",
-    lineHeight: 22,
+    lineHeight: 24,
     fontWeight: "400",
   },
   badge: {
-    marginTop: 12,
+    marginTop: 4,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 99,
@@ -104,5 +132,24 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.5,
     textTransform: "uppercase",
+  },
+  stakingButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 999,
+  },
+  stakingButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  linkText: {
+    fontSize: 13,
+    fontWeight: "500",
+    marginTop: 4,
   },
 });

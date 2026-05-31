@@ -190,9 +190,7 @@ export const registerEventListeners = () => {
           id: proposalId,
           reason: { code: 4001, message: "Proposal expired" },
         });
-      } catch {
-        /* stale — abaikan */
-      }
+      } catch {}
       return;
     }
 

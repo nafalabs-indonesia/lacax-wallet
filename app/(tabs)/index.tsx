@@ -39,6 +39,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { AnnouncementBanner } from "../../components/AnnouncementBanner";
 import { HomeHeader } from "../../components/HomeHeader";
 import { useAppStore } from "../../store/appStore";
@@ -124,7 +125,6 @@ const NETWORK_BADGE_ICON: Record<string, any> = {
   "monad-mainnet": require("../../assets/chains/monad.png"),
   "monad-testnet": require("../../assets/chains/monad.png"),
 };
-
 const COINGECKO_IDS: Record<string, string> = {
   "ethereum-mainnet": "ethereum",
   "blockdag-mainnet": "blockdag",
@@ -138,8 +138,93 @@ const COINGECKO_IDS: Record<string, string> = {
   "arbitrum-sepolia": "ethereum",
   "monad-testnet": "monad",
   USDT: "tether",
+  USDT0: "usdt0",
   USDC: "usd-coin",
+  BUSD: "binance-usd",
+  DAI: "dai",
+  FRAX: "frax",
+  TUSD: "true-usd",
+  USDP: "paxos-standard",
+  LUSD: "liquity-usd",
+  CRVUSD: "crvusd",
+  PYUSD: "paypal-usd",
+  FDUSD: "first-digital-usd",
+  USDE: "ethena-usde",
+  USDS: "usds",
+  WETH: "weth",
+  WBTC: "wrapped-bitcoin",
+  WBNB: "wbnb",
+  WMATIC: "wmatic",
+  WPOL: "wmatic",
+  WEETH: "wrapped-eeth",
+  WSTETH: "wrapped-steth",
+  STETH: "staked-ether",
+  RETH: "rocket-pool-eth",
+  CBETH: "coinbase-wrapped-staked-eth",
+  EZETH: "renzo-restaked-eth",
+  RSETH: "kelp-dao-restaked-eth",
+  SFRXETH: "staked-frax-ether",
+  SWETH: "sweth",
+  LINK: "chainlink",
+  UNI: "uniswap",
+  AAVE: "aave",
+  CRV: "curve-dao-token",
+  CVX: "convex-finance",
+  LDO: "lido-dao",
+  MKR: "maker",
+  SNX: "havven",
+  BAL: "balancer",
+  COMP: "compound-governance-token",
+  "1INCH": "1inch",
+  SUSHI: "sushi",
+  RPL: "rocket-pool",
+  ENS: "ethereum-name-service",
+  GRT: "the-graph",
+  IMX: "immutable-x",
+  OP: "optimism",
+  ARB: "arbitrum",
+  PENDLE: "pendle",
+  ENA: "ethena",
+  EIGEN: "eigenlayer",
+  BNB: "binancecoin",
+  OKB: "okb",
+  CRO: "crypto-com-chain",
+  HT: "huobi-token",
+  GT: "gatechain-token",
+  KCS: "kucoin-shares",
+  CAKE: "pancakeswap-token",
+  BAKE: "bakerytoken",
+  XVS: "venus",
+  ALPACA: "alpaca-finance",
+  DODO: "dodo",
+  POL: "matic-network",
+  QUICK: "quick",
+  GHST: "aavegotchi",
+  MUST: "must",
+  SHIB: "shiba-inu",
+  PEPE: "pepe",
+  FLOKI: "floki",
+  BONE: "bone-shibaswap",
+  APE: "apecoin",
+  BLUR: "blur",
+  LOOKS: "looksrare",
+  X2Y2: "x2y2",
+  NFT: "nftx",
+  SAND: "the-sandbox",
+  MANA: "decentraland",
+  AXS: "axie-infinity",
+  CHZ: "chiliz",
+  GALA: "gala",
+  GMT: "stepn",
+  DYDX: "dydx",
+  PERP: "perpetual-protocol",
+  MAGIC: "magic",
+  GMX: "gmx",
+  RDNT: "radiant-capital",
+  WOO: "wootrade-network",
 };
+
+const NO_PRICE_TOKENS = new Set(["BTCB"]);
 
 interface PriceData {
   usd: number;
@@ -322,7 +407,6 @@ function AssetIcon({
         </View>
       );
     }
-
     if (logoURI) {
       return (
         <Image
@@ -444,7 +528,6 @@ export default function HomeScreen() {
 
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
-
   const [balanceSnapshot24h, setBalanceSnapshot24h] =
     useState<BalanceSnapshot | null>(null);
 
@@ -464,7 +547,6 @@ export default function HomeScreen() {
     {},
   );
   const [networkSearch, setNetworkSearch] = useState("");
-
   useEffect(() => {
     const loadPreferences = async () => {
       try {
@@ -570,7 +652,6 @@ export default function HomeScreen() {
     if (balanceSnapshot24h && totalFiat24hAgo > 0) {
       return (totalFiatChange / totalFiat24hAgo) * 100;
     }
-
     let weightedChangeSum = 0;
     let totalWeight = 0;
     displayAssets.forEach((asset) => {
@@ -621,7 +702,7 @@ export default function HomeScreen() {
 
   const fetchPrices = useCallback(async () => {
     try {
-      const ids = Object.values(COINGECKO_IDS).join(",");
+      const ids = [...new Set(Object.values(COINGECKO_IDS))].join(",");
       const response = await fetch(
         `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd,idr&include_24hr_change=true`,
       );
@@ -653,7 +734,6 @@ export default function HomeScreen() {
       await Promise.all(
         SUPPORTED_CHAINS.map(async (chain) => {
           if (chain.disabled) return;
-
           let nativeBal = "0.0000";
           try {
             nativeBal = await BlockchainService.getBalance(
@@ -671,7 +751,6 @@ export default function HomeScreen() {
             balance: nativeBal,
             isNative: true,
           });
-
           const tokens = await fetchTokensByChainId(chain.chainId);
 
           if (tokens.length > 0) {
@@ -706,13 +785,11 @@ export default function HomeScreen() {
       );
 
       setDisplayAssets(newAssets);
-
       const balancesMap: Record<string, string> = {};
       newAssets.forEach((a) => {
         balancesMap[a.id] = a.balance;
       });
       await maybeSaveBalanceSnapshot(balancesMap);
-
       const freshSnap = await loadBalanceSnapshot();
       setBalanceSnapshot24h(freshSnap);
     } catch (error) {
@@ -804,7 +881,10 @@ export default function HomeScreen() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.background }}>
+    <SafeAreaView
+      edges={["bottom"]}
+      style={{ flex: 1, backgroundColor: theme.background }}
+    >
       <HomeHeader
         onSettingsPress={() => router.push("/settings")}
         onScanPress={() => router.push("/scan")}
@@ -853,7 +933,6 @@ export default function HomeScreen() {
                       {formatIDRCompact(totalFiat)}
                     </Text>
 
-                    {/* Row: delta absolut + badge persen + label 24h */}
                     <View style={styles.changeRow}>
                       <Text
                         style={[
@@ -894,6 +973,7 @@ export default function HomeScreen() {
                           {Math.abs(portfolioChangePercent).toFixed(2)}%
                         </Text>
                       </View>
+
                       {!isBalanceHidden && (
                         <Text style={styles.changeLabel}>
                           {portfolioChangeLabel}
@@ -998,15 +1078,16 @@ export default function HomeScreen() {
               <>
                 {sortedVisibleAssets.map((asset) => {
                   const bal = parseFloat(asset.balance);
-                  if (isTestnet(asset.chainId) && bal === 0) return null;
+                  const userExplicitlyEnabled =
+                    enabledAssets[asset.id] === true;
+                  const isTest = isTestnet(asset.chainId);
+                  if (isTest && bal === 0 && !userExplicitlyEnabled)
+                    return null;
                   const priceKey = asset.isNative
                     ? asset.chainId
                     : asset.symbol;
                   const priceData = prices[priceKey];
-                  const isTest = isTestnet(asset.chainId);
                   const displayPriceData = isTest ? null : priceData;
-                  const userExplicitlyEnabled =
-                    enabledAssets[asset.id] === true;
                   if (
                     !isTest &&
                     bal === 0 &&
@@ -1083,7 +1164,7 @@ export default function HomeScreen() {
                               {displayPriceData.change24h.toFixed(2)}%
                             </Text>
                           </View>
-                        ) : (
+                        ) : isTest ? (
                           <Text
                             style={[
                               styles.assetUnitPrice,
@@ -1091,6 +1172,24 @@ export default function HomeScreen() {
                             ]}
                           >
                             Testnet
+                          </Text>
+                        ) : NO_PRICE_TOKENS.has(asset.symbol) ? (
+                          <Text
+                            style={[
+                              styles.assetUnitPrice,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            Harga tidak tersedia
+                          </Text>
+                        ) : (
+                          <Text
+                            style={[
+                              styles.assetUnitPrice,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            — no price data
                           </Text>
                         )}
                       </View>
@@ -1377,7 +1476,7 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
