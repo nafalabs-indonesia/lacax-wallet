@@ -1,4 +1,8 @@
-import { SUPPORTED_CHAINS, TokenConfig } from "@/config/chains";
+import {
+  fetchTokensByChainId,
+  SUPPORTED_CHAINS,
+  TokenConfig,
+} from "@/config/chains";
 import {
   BlockchainService,
   ChainId,
@@ -45,7 +49,53 @@ const { width: W } = Dimensions.get("window");
 const STORAGE_KEYS = {
   ENABLED_NETWORKS: "@wallet_enabled_networks",
   ENABLED_ASSETS: "@wallet_enabled_assets",
+  // Snapshot saldo 24 jam lalu: { timestamp, balances: { [assetId]: string } }
+  BALANCE_SNAPSHOT_24H: "@wallet_balance_snapshot_24h",
 };
+
+// ─── Snapshot helpers ─────────────────────────────────────────────────────────
+
+interface BalanceSnapshot {
+  timestamp: number;
+  balances: Record<string, string>; // assetId → balance string
+}
+
+/** Simpan snapshot saldo sekarang, hanya jika belum ada snapshot atau snapshot sudah > 24 jam. */
+const maybeSaveBalanceSnapshot = async (
+  balances: Record<string, string>,
+): Promise<void> => {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.BALANCE_SNAPSHOT_24H);
+    const now = Date.now();
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+    if (raw) {
+      const snapshot: BalanceSnapshot = JSON.parse(raw);
+      // Jika snapshot masih < 24 jam, jangan overwrite
+      if (now - snapshot.timestamp < ONE_DAY_MS) return;
+    }
+
+    const newSnapshot: BalanceSnapshot = { timestamp: now, balances };
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.BALANCE_SNAPSHOT_24H,
+      JSON.stringify(newSnapshot),
+    );
+  } catch (e) {
+    console.warn("Failed to save balance snapshot", e);
+  }
+};
+
+/** Ambil snapshot saldo 24 jam lalu. Return null jika belum ada. */
+const loadBalanceSnapshot = async (): Promise<BalanceSnapshot | null> => {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.BALANCE_SNAPSHOT_24H);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+// ─── Helpers umum ─────────────────────────────────────────────────────────────
 
 const isTestnet = (id: string) => {
   return (
@@ -129,6 +179,8 @@ const formatIDRWithDecimal = (val: number): string => {
     maximumFractionDigits: 2,
   }).format(val)}`;
 };
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -222,7 +274,6 @@ function SkeletonBalanceAmount() {
           marginBottom: 12,
         }}
       />
-
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <View
           style={{
@@ -249,38 +300,77 @@ function AssetIcon({
   symbol,
   chainId,
   isNative,
+  logoURI,
 }: {
   symbol: string;
   chainId: string;
   isNative: boolean;
+  logoURI?: string;
 }) {
-  let mainSource = LOCAL_ICON_MAP[symbol];
-  if (!mainSource) mainSource = LOCAL_ICON_MAP[chainId];
-
+  const localChainSource = LOCAL_ICON_MAP[chainId];
+  const localTokenSource = LOCAL_ICON_MAP[symbol];
   const showBadge = !isNative;
   const badgeSource = NETWORK_BADGE_ICON[chainId];
 
+  const renderIcon = () => {
+    if (isNative) {
+      return localChainSource ? (
+        <Image
+          source={localChainSource}
+          style={{
+            width: 40,
+            height: 40,
+            resizeMode: "contain",
+            borderRadius: 20,
+          }}
+        />
+      ) : (
+        <View style={[styles.fallbackIcon, { backgroundColor: "#627EEA18" }]}>
+          <Text style={{ fontSize: 12, fontWeight: "800", color: "#627EEA" }}>
+            {symbol.charAt(0)}
+          </Text>
+        </View>
+      );
+    }
+    // Token: API logoURI first → local map → letter placeholder
+    if (logoURI) {
+      return (
+        <Image
+          source={{ uri: logoURI }}
+          style={{
+            width: 40,
+            height: 40,
+            resizeMode: "contain",
+            borderRadius: 20,
+          }}
+        />
+      );
+    }
+    if (localTokenSource) {
+      return (
+        <Image
+          source={localTokenSource}
+          style={{
+            width: 40,
+            height: 40,
+            resizeMode: "contain",
+            borderRadius: 20,
+          }}
+        />
+      );
+    }
+    return (
+      <View style={[styles.fallbackIcon, { backgroundColor: "#627EEA18" }]}>
+        <Text style={{ fontSize: 12, fontWeight: "800", color: "#627EEA" }}>
+          {symbol.charAt(0)}
+        </Text>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.assetIconContainer}>
-      <View style={styles.assetIcon}>
-        {mainSource ? (
-          <Image
-            source={mainSource}
-            style={{
-              width: 40,
-              height: 40,
-              resizeMode: "contain",
-              borderRadius: 20,
-            }}
-          />
-        ) : (
-          <View style={[styles.fallbackIcon, { backgroundColor: "#627EEA18" }]}>
-            <Text style={{ fontSize: 12, fontWeight: "800", color: "#627EEA" }}>
-              {symbol.charAt(0)}
-            </Text>
-          </View>
-        )}
-      </View>
+      <View style={styles.assetIcon}>{renderIcon()}</View>
       {showBadge && badgeSource && (
         <View style={styles.networkBadge}>
           <Image
@@ -346,6 +436,8 @@ function WalletAddressBar({ address }: { address: string }) {
   );
 }
 
+// ─── Main screen ──────────────────────────────────────────────────────────────
+
 export default function HomeScreen() {
   const { walletAddress, isDarkMode } = useAppStore();
   const theme = isDarkMode ? Colors.dark : Colors.light;
@@ -363,8 +455,11 @@ export default function HomeScreen() {
   const [showTestnetAlert, setShowTestnetAlert] = useState(false);
 
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
-
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+
+  // Snapshot saldo 24 jam lalu (untuk hitung delta deposit/withdraw)
+  const [balanceSnapshot24h, setBalanceSnapshot24h] =
+    useState<BalanceSnapshot | null>(null);
 
   const [enabledNetworks, setEnabledNetworks] = useState<
     Record<string, boolean>
@@ -383,6 +478,7 @@ export default function HomeScreen() {
   );
   const [networkSearch, setNetworkSearch] = useState("");
 
+  // ── Load preferences + snapshot on mount ──
   useEffect(() => {
     const loadPreferences = async () => {
       try {
@@ -396,7 +492,12 @@ export default function HomeScreen() {
         console.warn("Failed to load preferences", e);
       }
     };
+    const loadSnapshot = async () => {
+      const snap = await loadBalanceSnapshot();
+      setBalanceSnapshot24h(snap);
+    };
     loadPreferences();
+    loadSnapshot();
   }, []);
 
   useEffect(() => {
@@ -434,6 +535,11 @@ export default function HomeScreen() {
     }
   }, [displayAssets, enabledNetworks]);
 
+  // ── Portfolio calculations ──────────────────────────────────────────────────
+
+  /**
+   * Total fiat value saldo sekarang (IDR), hanya aset enabled & non-testnet.
+   */
   const totalFiat = displayAssets.reduce((sum, asset) => {
     if (!enabledAssets[asset.id]) return sum;
     if (isTestnet(asset.chainId)) return sum;
@@ -442,7 +548,66 @@ export default function HomeScreen() {
     return sum + parseFloat(asset.balance || "0") * priceIDR;
   }, 0);
 
-  const { portfolioChangePercent, totalFiatChange } = (() => {
+  /**
+   * Total fiat value dari snapshot 24 jam lalu, dihitung dengan harga SEKARANG
+   * (supaya kita bisa pisahkan mana yang berubah karena harga vs karena transfer).
+   */
+  const totalFiat24hAgo = displayAssets.reduce((sum, asset) => {
+    if (!enabledAssets[asset.id]) return sum;
+    if (isTestnet(asset.chainId)) return sum;
+    const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+    const priceIDR = prices[priceKey]?.idr || 0;
+    const bal24h = parseFloat(
+      balanceSnapshot24h?.balances[asset.id] ?? asset.balance ?? "0",
+    );
+    return sum + bal24h * priceIDR;
+  }, 0);
+
+  /**
+   * Delta dari perubahan harga token (price change 24h dari CoinGecko).
+   * = Σ (balance_sekarang × harga_sekarang) - Σ (balance_sekarang × harga_24h_lalu)
+   * = Σ balance_sekarang × harga_sekarang × (change24h / 100)
+   */
+  const priceChangeFiat = displayAssets.reduce((sum, asset) => {
+    if (!enabledAssets[asset.id]) return sum;
+    if (isTestnet(asset.chainId)) return sum;
+    const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+    const priceData = prices[priceKey];
+    if (!priceData) return sum;
+    const bal = parseFloat(asset.balance || "0");
+    return sum + bal * priceData.idr * (priceData.change24h / 100);
+  }, 0);
+
+  /**
+   * Delta dari perubahan saldo (deposit / withdraw).
+   * = (saldo_sekarang - saldo_24h_lalu) × harga_sekarang
+   */
+  const balanceChangeFiat = balanceSnapshot24h
+    ? displayAssets.reduce((sum, asset) => {
+        if (!enabledAssets[asset.id]) return sum;
+        if (isTestnet(asset.chainId)) return sum;
+        const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+        const priceIDR = prices[priceKey]?.idr || 0;
+        const balNow = parseFloat(asset.balance || "0");
+        const bal24h = parseFloat(
+          balanceSnapshot24h.balances[asset.id] ?? asset.balance ?? "0",
+        );
+        return sum + (balNow - bal24h) * priceIDR;
+      }, 0)
+    : 0;
+
+  /** Total perubahan portfolio 24h = price change + balance change */
+  const totalFiatChange = priceChangeFiat + balanceChangeFiat;
+
+  /**
+   * Persentase perubahan portfolio relatif terhadap nilai 24 jam lalu.
+   * Jika belum ada snapshot, fall back ke weighted price change saja.
+   */
+  const portfolioChangePercent = (() => {
+    if (balanceSnapshot24h && totalFiat24hAgo > 0) {
+      return (totalFiatChange / totalFiat24hAgo) * 100;
+    }
+    // Fallback: weighted average of price change24h
     let weightedChangeSum = 0;
     let totalWeight = 0;
     displayAssets.forEach((asset) => {
@@ -456,14 +621,29 @@ export default function HomeScreen() {
       weightedChangeSum += assetFiat * priceData.change24h;
       totalWeight += assetFiat;
     });
-    const pct = totalWeight > 0 ? weightedChangeSum / totalWeight : 0;
-    return {
-      portfolioChangePercent: pct,
-      totalFiatChange: totalFiat * (pct / 100),
-    };
+    return totalWeight > 0 ? weightedChangeSum / totalWeight : 0;
   })();
 
   const isPortfolioUp = portfolioChangePercent >= 0;
+
+  /**
+   * Label keterangan di bawah badge persen:
+   * menjelaskan dari mana perubahan itu berasal.
+   */
+  const portfolioChangeLabel = (() => {
+    if (!balanceSnapshot24h) return "24h"; // belum ada data saldo
+    const hasPriceChange = Math.abs(priceChangeFiat) >= 1;
+    const hasBalChange = Math.abs(balanceChangeFiat) >= 1;
+    if (hasPriceChange && hasBalChange) {
+      const balSign = balanceChangeFiat >= 0 ? "+" : "-";
+      return `harga & saldo ${balSign}${formatIDRWithDecimal(Math.abs(balanceChangeFiat))}`;
+    }
+    if (hasBalChange) {
+      const balSign = balanceChangeFiat >= 0 ? "+" : "-";
+      return `saldo ${balSign}${formatIDRWithDecimal(Math.abs(balanceChangeFiat))}`;
+    }
+    return "24h";
+  })();
 
   const formatIDR = (val: number) => {
     return `IDR ${new Intl.NumberFormat("id-ID", {
@@ -479,6 +659,8 @@ export default function HomeScreen() {
       maximumFractionDigits: 0,
     }).format(val)}`;
   };
+
+  // ── Fetch prices ────────────────────────────────────────────────────────────
 
   const fetchPrices = useCallback(async () => {
     try {
@@ -504,15 +686,20 @@ export default function HomeScreen() {
     }
   }, []);
 
+  // ── Fetch balances (dengan token dari API) ──────────────────────────────────
+
   const fetchAllBalances = useCallback(async () => {
     if (!walletAddress) return;
     setIsLoading(true);
     BlockchainService.resetProviders();
     const newAssets: DisplayAsset[] = [];
+
     try {
       await Promise.all(
         SUPPORTED_CHAINS.map(async (chain) => {
           if (chain.disabled) return;
+
+          // ── Native balance ──
           let nativeBal = "0.0000";
           try {
             nativeBal = await BlockchainService.getBalance(
@@ -530,9 +717,13 @@ export default function HomeScreen() {
             balance: nativeBal,
             isNative: true,
           });
-          if (chain.tokens && chain.tokens.length > 0) {
+
+          // ── Token list: coba ambil dari API, fallback ke lokal ──
+          const tokens = await fetchTokensByChainId(chain.chainId);
+
+          if (tokens.length > 0) {
             await Promise.all(
-              chain.tokens.map(async (token) => {
+              tokens.map(async (token) => {
                 let tokenBal = "0.0000";
                 try {
                   tokenBal = await BlockchainService.getTokenBalance(
@@ -560,7 +751,19 @@ export default function HomeScreen() {
           }
         }),
       );
+
       setDisplayAssets(newAssets);
+
+      // Simpan snapshot saldo (hanya jika snapshot belum ada atau sudah > 24 jam)
+      const balancesMap: Record<string, string> = {};
+      newAssets.forEach((a) => {
+        balancesMap[a.id] = a.balance;
+      });
+      await maybeSaveBalanceSnapshot(balancesMap);
+
+      // Refresh snapshot state lokal setelah save
+      const freshSnap = await loadBalanceSnapshot();
+      setBalanceSnapshot24h(freshSnap);
     } catch (error) {
       console.error("Failed to fetch balances:", error);
     } finally {
@@ -649,6 +852,8 @@ export default function HomeScreen() {
       chain.symbol.toLowerCase().includes(networkSearch.toLowerCase()),
   );
 
+  // ── Render ──────────────────────────────────────────────────────────────────
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       <HomeHeader
@@ -698,6 +903,8 @@ export default function HomeScreen() {
                     <Text style={styles.balanceAmount}>
                       {formatIDRCompact(totalFiat)}
                     </Text>
+
+                    {/* Row: delta absolut + badge persen + label 24h */}
                     <View style={styles.changeRow}>
                       <Text
                         style={[
@@ -738,6 +945,12 @@ export default function HomeScreen() {
                           {Math.abs(portfolioChangePercent).toFixed(2)}%
                         </Text>
                       </View>
+                      {/* Label sumber perubahan di kanan badge */}
+                      {!isBalanceHidden && (
+                        <Text style={styles.changeLabel}>
+                          {portfolioChangeLabel}
+                        </Text>
+                      )}
                     </View>
                   </>
                 )}
@@ -844,7 +1057,18 @@ export default function HomeScreen() {
                   const priceData = prices[priceKey];
                   const isTest = isTestnet(asset.chainId);
                   const displayPriceData = isTest ? null : priceData;
-                  if (!isTest && bal === 0 && !displayPriceData) return null;
+                  // Sembunyikan otomatis hanya jika: bukan testnet, balance 0,
+                  // tidak ada harga, DAN user TIDAK pernah aktifkan manual.
+                  // Kalau user sudah toggle ON di Manage → tetap tampil.
+                  const userExplicitlyEnabled =
+                    enabledAssets[asset.id] === true;
+                  if (
+                    !isTest &&
+                    bal === 0 &&
+                    !displayPriceData &&
+                    !userExplicitlyEnabled
+                  )
+                    return null;
                   const assetFiatVal = isTest
                     ? 0
                     : bal * (displayPriceData?.idr || 0);
@@ -865,6 +1089,7 @@ export default function HomeScreen() {
                         symbol={asset.symbol}
                         chainId={asset.chainId}
                         isNative={asset.isNative}
+                        logoURI={asset.tokenConfig?.logoURI}
                       />
                       <View style={styles.assetInfo}>
                         <Text style={[styles.assetName, { color: theme.text }]}>
@@ -975,6 +1200,7 @@ export default function HomeScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
+      {/* ── Manage Assets sheet ── */}
       <Modal
         visible={showAssetSheet}
         transparent
@@ -1010,6 +1236,7 @@ export default function HomeScreen() {
                           symbol={asset.symbol}
                           chainId={asset.chainId}
                           isNative={asset.isNative}
+                          logoURI={asset.tokenConfig?.logoURI}
                         />
                         <View style={styles.networkInfo}>
                           <Text
@@ -1059,6 +1286,7 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
+      {/* ── Network Settings sheet ── */}
       <Modal
         visible={showNetworkSheet}
         transparent
@@ -1179,6 +1407,7 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
+      {/* ── Testnet alert ── */}
       <Modal
         visible={showTestnetAlert}
         transparent
@@ -1210,19 +1439,12 @@ export default function HomeScreen() {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  scrollContent: {
-    padding: 16,
-    paddingTop: 10,
-  },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  balanceCardContainer: {
-    marginBottom: 13,
-  },
+  scrollContent: { padding: 16, paddingTop: 10 },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
+  balanceCardContainer: { marginBottom: 13 },
   balanceCard: {
     width: "100%",
     height: 320,
@@ -1286,15 +1508,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 8,
   },
-  changeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  changeAbsolute: {
-    fontSize: 13,
-    fontWeight: "500",
-  },
+  changeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  changeAbsolute: { fontSize: 13, fontWeight: "500" },
   changeBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1303,9 +1518,14 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
   },
-  changeBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
+  changeBadgeText: { fontSize: 12, fontWeight: "700" },
+  // Label sumber perubahan — inline di kanan badge
+  changeLabel: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.50)",
+    fontWeight: "500",
+    letterSpacing: 0.1,
+    marginLeft: 2,
   },
   actionsRow: {
     flexDirection: "row",
@@ -1344,17 +1564,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  tabText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  tabTextActive: {
-    color: "#000",
-  },
-  networkPreviewContainer: {
-    padding: 16,
-    alignItems: "center",
-  },
+  tabText: { fontSize: 14, fontWeight: "600" },
+  tabTextActive: { color: "#000" },
+  networkPreviewContainer: { padding: 16, alignItems: "center" },
   openNetworkSheetBtn: {
     paddingVertical: 12,
     paddingHorizontal: 32,
@@ -1362,20 +1574,14 @@ const styles = StyleSheet.create({
     borderColor: "rgba(128,128,128,0.3)",
     borderRadius: 999,
   },
-  openNetworkSheetText: {
-    fontWeight: "600",
-    fontSize: 14,
-  },
+  openNetworkSheetText: { fontWeight: "600", fontSize: 14 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 12,
   },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
+  sectionTitle: { fontSize: 15, fontWeight: "600" },
   manageBtn: {
     paddingHorizontal: 14,
     paddingVertical: 4,
@@ -1383,10 +1589,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
   },
-  manageBtnText: {
-    fontSize: 13,
-    fontWeight: "500",
-  },
+  manageBtnText: { fontSize: 13, fontWeight: "500" },
   assetRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1395,10 +1598,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginBottom: 8,
   },
-  assetIconContainer: {
-    marginRight: 12,
-    position: "relative",
-  },
+  assetIconContainer: { marginRight: 12, position: "relative" },
   assetIcon: {
     width: 44,
     height: 44,
@@ -1428,49 +1628,16 @@ const styles = StyleSheet.create({
     borderColor: "#fff",
     zIndex: 10,
   },
-  assetInfo: {
-    flex: 1,
-  },
-  assetName: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  assetSub: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  assetRight: {
-    alignItems: "flex-end",
-    minWidth: 100,
-  },
-  assetTotalValue: {
-    fontSize: 15,
-    fontWeight: "700",
-    marginBottom: 2,
-  },
-  assetUnitPrice: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  assetChangeText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  skeletonCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginRight: 12,
-  },
-  skeletonLine: {
-    height: 13,
-    borderRadius: 6,
-  },
-  sheetOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
+  assetInfo: { flex: 1 },
+  assetName: { fontSize: 14, fontWeight: "600", marginBottom: 2 },
+  assetSub: { fontSize: 12, fontWeight: "500" },
+  assetRight: { alignItems: "flex-end", minWidth: 100 },
+  assetTotalValue: { fontSize: 15, fontWeight: "700", marginBottom: 2 },
+  assetUnitPrice: { fontSize: 12, fontWeight: "500" },
+  assetChangeText: { fontSize: 12, fontWeight: "600" },
+  skeletonCircle: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
+  skeletonLine: { height: 13, borderRadius: 6 },
+  sheetOverlay: { flex: 1, justifyContent: "flex-end" },
   sheetBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -1500,9 +1667,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: "center",
   },
-  sheetList: {
-    marginBottom: 20,
-  },
+  sheetList: { marginBottom: 20 },
   networkRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1511,34 +1676,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "rgba(128,128,128,0.1)",
   },
-  networkRowLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  networkInfo: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  networkName: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  networkSymbol: {
-    fontSize: 13,
-    marginTop: 2,
-  },
+  networkRowLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+  networkInfo: { marginLeft: 12, flex: 1 },
+  networkName: { fontSize: 15, fontWeight: "600" },
+  networkSymbol: { fontSize: 13, marginTop: 2 },
   closeSheetBtn: {
     paddingVertical: 14,
     borderRadius: 999,
     alignItems: "center",
     backgroundColor: "#5573ef",
   },
-  closeSheetText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
+  closeSheetText: { fontSize: 16, fontWeight: "600", color: "#FFFFFF" },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1549,14 +1697,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(128,128,128,0.2)",
   },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    height: 40,
-  },
+  searchIcon: { marginRight: 8 },
+  searchInput: { flex: 1, fontSize: 14, height: 40 },
   alertOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -1576,9 +1718,7 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
   },
-  alertIconContainer: {
-    marginBottom: 16,
-  },
+  alertIconContainer: { marginBottom: 16 },
   alertTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -1598,9 +1738,5 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
-  alertButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 16,
-  },
+  alertButtonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
 });
