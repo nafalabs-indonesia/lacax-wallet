@@ -431,7 +431,7 @@ export default function SendScreen() {
             logoURI: token.logoURI,
           });
         } catch (e) {
-          console.error(`[Send] API Token ${token.symbol} balance failed:`, e);
+          console.error("[Send] Token balance fetch failed");
         }
       }
 
@@ -464,8 +464,8 @@ export default function SendScreen() {
             isNative: false,
             logoURI: ct.logoURI,
           });
-        } catch (e) {
-          console.error(`[Send] Custom token ${ct.symbol} balance failed:`, e);
+        } catch {
+          console.error("[Send] Custom token balance failed");
         }
       }
 
