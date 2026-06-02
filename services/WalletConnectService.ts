@@ -97,12 +97,13 @@ export const initWalletConnect = async (): Promise<IWeb3Wallet> => {
       core: core as any,
       metadata: {
         name: "LacaX Wallet",
-        description: "Secure Crypto Wallet",
-        url: "https://lacaxwallet.com",
-        icons: ["https://avatars.githubusercontent.com/u/37784886"],
+        description:
+          "Secure non-custodial Web3 wallet for managing digital assets and connecting to dApps.",
+        url: "https://lacax.nafalabs.com",
+        icons: ["https://lacax.nafalabs.com/icon.png"],
         redirect: {
           native: "lacaxwallet://",
-          universal: "https://lacaxwallet.com",
+          universal: "https://lacax.nafalabs.com",
         },
       },
     });
