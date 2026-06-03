@@ -346,6 +346,16 @@ function SkeletonBalanceAmount() {
           height: 42,
           borderRadius: 10,
           backgroundColor: "rgba(255,255,255,0.25)",
+          marginBottom: 6,
+        }}
+      />
+
+      <View
+        style={{
+          width: 120,
+          height: 16,
+          borderRadius: 8,
+          backgroundColor: "rgba(255,255,255,0.18)",
           marginBottom: 12,
         }}
       />
@@ -516,6 +526,9 @@ export default function HomeScreen() {
 
   const [displayAssets, setDisplayAssets] = useState<DisplayAsset[]>([]);
   const [prices, setPrices] = useState<Record<string, PriceData>>({});
+
+  const [usdRate, setUsdRate] = useState<number>(0);
+
   const [activeChainId, setActiveChainId] =
     useState<ChainId>("ethereum-mainnet");
   const [isLoading, setIsLoading] = useState(false);
@@ -676,11 +689,11 @@ export default function HomeScreen() {
     const hasBalChange = Math.abs(balanceChangeFiat) >= 1;
     if (hasPriceChange && hasBalChange) {
       const balSign = balanceChangeFiat >= 0 ? "+" : "-";
-      return `harga & saldo ${balSign}${formatIDRWithDecimal(Math.abs(balanceChangeFiat))}`;
+      return `balance ${balSign}${formatIDRWithDecimal(Math.abs(balanceChangeFiat))}`;
     }
     if (hasBalChange) {
       const balSign = balanceChangeFiat >= 0 ? "+" : "-";
-      return `saldo ${balSign}${formatIDRWithDecimal(Math.abs(balanceChangeFiat))}`;
+      return `balance ${balSign}${formatIDRWithDecimal(Math.abs(balanceChangeFiat))}`;
     }
     return "24h";
   })();
@@ -698,6 +711,16 @@ export default function HomeScreen() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(val)}`;
+  };
+
+  const formatUSDCompact = (idrVal: number): string => {
+    if (isBalanceHidden) return "≈ $****";
+    if (usdRate <= 0) return "";
+    const usdVal = idrVal / usdRate;
+    return `≈ $${new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(usdVal)}`;
   };
 
   const fetchPrices = useCallback(async () => {
@@ -719,6 +742,19 @@ export default function HomeScreen() {
         }
       });
       setPrices(newPrices);
+
+      try {
+        const tetherData = data["tether"];
+        if (tetherData && tetherData.idr > 0 && tetherData.usd > 0) {
+          setUsdRate(tetherData.idr / tetherData.usd);
+        } else {
+          const rateRes = await fetch("https://open.er-api.com/v6/latest/USD");
+          const rateData = await rateRes.json();
+          if (rateData?.rates?.IDR) {
+            setUsdRate(rateData.rates.IDR);
+          }
+        }
+      } catch {}
     } catch (error) {
       console.warn("Failed to fetch prices:", error);
     }
@@ -932,6 +968,12 @@ export default function HomeScreen() {
                     <Text style={styles.balanceAmount}>
                       {formatIDRCompact(totalFiat)}
                     </Text>
+
+                    {usdRate > 0 && (
+                      <Text style={styles.balanceUSD}>
+                        {formatUSDCompact(totalFiat)}
+                      </Text>
+                    )}
 
                     <View style={styles.changeRow}>
                       <Text
@@ -1545,8 +1587,18 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 6,
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: 4,
   },
+
+  balanceUSD: {
+    color: "rgba(255,255,255,0.60)",
+    fontSize: 15,
+    fontWeight: "500",
+    letterSpacing: 0.2,
+    textAlign: "center",
+    marginBottom: 10,
+  },
+
   changeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   changeAbsolute: { fontSize: 13, fontWeight: "500" },
   changeBadge: {
