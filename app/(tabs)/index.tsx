@@ -9,26 +9,23 @@ import {
 } from "@/services/blockchain/BlockchainService";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
-import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import {
   AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
-  Check,
-  Copy,
   Eye,
   EyeOff,
+  Globe,
   Repeat2,
   Search,
-  X,
+  X
 } from "lucide-react-native";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
   Image,
-  ImageBackground,
   Modal,
   RefreshControl,
   ScrollView,
@@ -316,7 +313,7 @@ function SkeletonAssetRow({ isDarkMode }: { isDarkMode: boolean }) {
   );
 }
 
-function SkeletonBalanceAmount() {
+function SkeletonBalanceAmount({ isDarkMode }: { isDarkMode: boolean }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -338,14 +335,18 @@ function SkeletonBalanceAmount() {
     return () => loop.stop();
   }, [pulseAnim]);
 
+  const skeletonBg = isDarkMode
+    ? "rgba(255,255,255,0.18)"
+    : "rgba(0,0,0,0.12)";
+
   return (
-    <Animated.View style={{ opacity: pulseAnim, alignItems: "center" }}>
+    <Animated.View style={{ opacity: pulseAnim, alignItems: "flex-start" }}>
       <View
         style={{
           width: 200,
           height: 42,
           borderRadius: 10,
-          backgroundColor: "rgba(255,255,255,0.25)",
+          backgroundColor: skeletonBg,
           marginBottom: 6,
         }}
       />
@@ -355,7 +356,7 @@ function SkeletonBalanceAmount() {
           width: 120,
           height: 16,
           borderRadius: 8,
-          backgroundColor: "rgba(255,255,255,0.18)",
+          backgroundColor: skeletonBg,
           marginBottom: 12,
         }}
       />
@@ -365,7 +366,7 @@ function SkeletonBalanceAmount() {
             width: 80,
             height: 14,
             borderRadius: 7,
-            backgroundColor: "rgba(255,255,255,0.18)",
+            backgroundColor: skeletonBg,
           }}
         />
         <View
@@ -373,7 +374,7 @@ function SkeletonBalanceAmount() {
             width: 60,
             height: 20,
             borderRadius: 10,
-            backgroundColor: "rgba(255,255,255,0.18)",
+            backgroundColor: skeletonBg,
           }}
         />
       </View>
@@ -474,48 +475,27 @@ function AssetIcon({
 
 function QuickActionCard({
   Icon,
+  label,
   onPress,
+  color,
+  textColor,
 }: {
   Icon: any;
+  label: string;
   onPress: () => void;
+  color: string;
+  textColor: string;
 }) {
   return (
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.7}
-      style={styles.qaCardBtn}
+      style={styles.qaCardWrap}
     >
-      <Icon size={22} color="#fff" strokeWidth={2} />
-    </TouchableOpacity>
-  );
-}
-
-function WalletAddressBar({ address }: { address: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const truncated =
-    address.length > 12
-      ? `${address.slice(0, 6)}...${address.slice(-4)}`
-      : address;
-
-  const handleCopy = async () => {
-    await Clipboard.setStringAsync(address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <TouchableOpacity
-      style={styles.walletAddressBar}
-      onPress={handleCopy}
-      activeOpacity={0.7}
-    >
-      <Text style={styles.walletAddressText}>{truncated}</Text>
-      {copied ? (
-        <Check size={13} color="#7ed957" strokeWidth={2.5} />
-      ) : (
-        <Copy size={13} color="rgba(255,255,255,0.75)" strokeWidth={2} />
-      )}
+      <View style={[styles.qaCardBtn, { backgroundColor: color }]}>
+        <Icon size={22} color="#fff" strokeWidth={2} />
+      </View>
+      <Text style={[styles.qaCardLabel, { color: textColor }]}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -533,8 +513,6 @@ export default function HomeScreen() {
     useState<ChainId>("ethereum-mainnet");
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"crypto" | "network">("crypto");
-
   const [showNetworkSheet, setShowNetworkSheet] = useState(false);
   const [showAssetSheet, setShowAssetSheet] = useState(false);
   const [showTestnetAlert, setShowTestnetAlert] = useState(false);
@@ -647,16 +625,16 @@ export default function HomeScreen() {
 
   const balanceChangeFiat = balanceSnapshot24h
     ? displayAssets.reduce((sum, asset) => {
-        if (!enabledAssets[asset.id]) return sum;
-        if (isTestnet(asset.chainId)) return sum;
-        const priceKey = asset.isNative ? asset.chainId : asset.symbol;
-        const priceIDR = prices[priceKey]?.idr || 0;
-        const balNow = parseFloat(asset.balance || "0");
-        const bal24h = parseFloat(
-          balanceSnapshot24h.balances[asset.id] ?? asset.balance ?? "0",
-        );
-        return sum + (balNow - bal24h) * priceIDR;
-      }, 0)
+      if (!enabledAssets[asset.id]) return sum;
+      if (isTestnet(asset.chainId)) return sum;
+      const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+      const priceIDR = prices[priceKey]?.idr || 0;
+      const balNow = parseFloat(asset.balance || "0");
+      const bal24h = parseFloat(
+        balanceSnapshot24h.balances[asset.id] ?? asset.balance ?? "0",
+      );
+      return sum + (balNow - bal24h) * priceIDR;
+    }, 0)
     : 0;
 
   const totalFiatChange = priceChangeFiat + balanceChangeFiat;
@@ -754,7 +732,7 @@ export default function HomeScreen() {
             setUsdRate(rateData.rates.IDR);
           }
         }
-      } catch {}
+      } catch { }
     } catch (error) {
       console.warn("Failed to fetch prices:", error);
     }
@@ -938,115 +916,113 @@ export default function HomeScreen() {
           />
         }
       >
-        <View style={styles.balanceCardContainer}>
-          <ImageBackground
-            source={require("../../assets/bg-balance.png")}
-            style={styles.balanceCard}
-            resizeMode="cover"
-            imageStyle={{ borderRadius: 24 }}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.cardHeaderRow}>
-                <WalletAddressBar address={walletAddress} />
-                <TouchableOpacity
-                  onPress={() => setIsBalanceHidden(!isBalanceHidden)}
-                  style={styles.eyeButton}
-                >
-                  {isBalanceHidden ? (
-                    <EyeOff size={20} color="rgba(255,255,255,0.8)" />
-                  ) : (
-                    <Eye size={20} color="rgba(255,255,255,0.8)" />
-                  )}
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.balanceCenterBlock}>
-                {isLoading && !refreshing ? (
-                  <SkeletonBalanceAmount />
-                ) : (
-                  <>
-                    <Text style={styles.balanceAmount}>
-                      {formatIDRCompact(totalFiat)}
-                    </Text>
-
-                    {usdRate > 0 && (
-                      <Text style={styles.balanceUSD}>
-                        {formatUSDCompact(totalFiat)}
-                      </Text>
+        <View style={styles.balanceSection}>
+          <View style={styles.balanceCenterBlock}>
+            {isLoading && !refreshing ? (
+              <SkeletonBalanceAmount isDarkMode={isDarkMode} />
+            ) : (
+              <>
+                <View style={styles.balanceRow1}>
+                  <Text style={[styles.balanceAmount, { color: theme.text }]}>
+                    {formatIDRCompact(totalFiat)}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setIsBalanceHidden(!isBalanceHidden)}
+                    style={styles.eyeButton}
+                  >
+                    {isBalanceHidden ? (
+                      <EyeOff size={20} color={theme.text} />
+                    ) : (
+                      <Eye size={20} color={theme.text} />
                     )}
+                  </TouchableOpacity>
+                </View>
 
-                    <View style={styles.changeRow}>
+                <View style={styles.balanceRow2}>
+                  {usdRate > 0 && (
+                    <Text style={[styles.balanceUSD, { color: theme.text }]}>
+                      {formatUSDCompact(totalFiat)}
+                    </Text>
+                  )}
+
+                  <View style={styles.changeRow}>
+                    <Text
+                      style={[styles.changeAbsolute, { color: theme.text }]}
+                    >
+                      {isBalanceHidden ? (
+                        "****"
+                      ) : (
+                        <>
+                          {isPortfolioUp ? "+" : ""}
+                          {new Intl.NumberFormat("id-ID", {
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0,
+                          }).format(totalFiatChange)}
+                        </>
+                      )}
+                    </Text>
+                    <View
+                      style={[
+                        styles.changeBadge,
+                        {
+                          backgroundColor: isPortfolioUp
+                            ? "rgba(126,217,87,0.25)"
+                            : "rgba(255,49,49,0.25)",
+                          borderColor: isPortfolioUp ? "#7ed957" : "#ff3131",
+                        },
+                      ]}
+                    >
                       <Text
                         style={[
-                          styles.changeAbsolute,
-                          { color: "rgba(255,255,255,0.85)" },
+                          styles.changeBadgeText,
+                          { color: isPortfolioUp ? "#7ed957" : "#ff3131" },
                         ]}
                       >
-                        {isBalanceHidden ? (
-                          "****"
-                        ) : (
-                          <>
-                            {isPortfolioUp ? "+" : ""}
-                            {new Intl.NumberFormat("id-ID", {
-                              minimumFractionDigits: 0,
-                              maximumFractionDigits: 0,
-                            }).format(totalFiatChange)}
-                          </>
-                        )}
+                        {isPortfolioUp ? "↑" : "↓"}{" "}
+                        {Math.abs(portfolioChangePercent).toFixed(2)}%
                       </Text>
-                      <View
-                        style={[
-                          styles.changeBadge,
-                          {
-                            backgroundColor: isPortfolioUp
-                              ? "rgba(126,217,87,0.25)"
-                              : "rgba(255,49,49,0.25)",
-                            borderColor: isPortfolioUp ? "#7ed957" : "#ff3131",
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.changeBadgeText,
-                            { color: isPortfolioUp ? "#7ed957" : "#ff3131" },
-                          ]}
-                        >
-                          {isPortfolioUp ? "↑" : "↓"}{" "}
-                          {Math.abs(portfolioChangePercent).toFixed(2)}%
-                        </Text>
-                      </View>
-
-                      {!isBalanceHidden && (
-                        <Text style={styles.changeLabel}>
-                          {portfolioChangeLabel}
-                        </Text>
-                      )}
                     </View>
-                  </>
-                )}
-              </View>
+                  </View>
+                </View>
+              </>
+            )}
+          </View>
 
-              <View style={styles.actionsRow}>
-                <QuickActionCard
-                  Icon={ArrowUpRight}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/send",
-                      params: { chainId: activeChainId },
-                    })
-                  }
-                />
-                <QuickActionCard
-                  Icon={ArrowDownLeft}
-                  onPress={() => router.push("/receive")}
-                />
-                <QuickActionCard
-                  Icon={Repeat2}
-                  onPress={() => router.push("/swap")}
-                />
-              </View>
-            </View>
-          </ImageBackground>
+          <View style={styles.actionsRow}>
+            <QuickActionCard
+              Icon={ArrowUpRight}
+              label="Send"
+              color={theme.primary}
+              textColor={theme.text}
+              onPress={() =>
+                router.push({
+                  pathname: "/send",
+                  params: { chainId: activeChainId },
+                })
+              }
+            />
+            <QuickActionCard
+              Icon={ArrowDownLeft}
+              label="Receive"
+              color={theme.primary}
+              textColor={theme.text}
+              onPress={() => router.push("/receive")}
+            />
+            <QuickActionCard
+              Icon={Repeat2}
+              label="Swap"
+              color={theme.primary}
+              textColor={theme.text}
+              onPress={() => router.push("/swap")}
+            />
+            <QuickActionCard
+              Icon={Globe}
+              label="Network"
+              color={theme.primary}
+              textColor={theme.text}
+              onPress={() => setShowNetworkSheet(true)}
+            />
+          </View>
         </View>
 
         <AnnouncementBanner
@@ -1054,233 +1030,144 @@ export default function HomeScreen() {
           onDismiss={handleDismissAnnouncement}
         />
 
-        <View style={styles.tabContainer}>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Assets
+          </Text>
           <TouchableOpacity
-            style={[
-              styles.tabButton,
-              activeTab === "crypto" && styles.tabButtonActive,
-            ]}
-            onPress={() => setActiveTab("crypto")}
+            style={styles.manageBtn}
+            onPress={() => setShowAssetSheet(true)}
           >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "crypto"
-                  ? styles.tabTextActive
-                  : { color: theme.textSecondary },
-              ]}
-            >
-              Crypto
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.tabButton,
-              activeTab === "network" && styles.tabButtonActive,
-            ]}
-            onPress={() => setActiveTab("network")}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "network"
-                  ? styles.tabTextActive
-                  : { color: theme.textSecondary },
-              ]}
-            >
-              Network
+            <Text style={[styles.manageBtnText, { color: theme.text }]}>
+              Manage
             </Text>
           </TouchableOpacity>
         </View>
 
-        {activeTab === "crypto" ? (
+        {isLoading && !refreshing ? (
+          Array.from({ length: SKELETON_COUNT }).map((_, i) => (
+            <SkeletonAssetRow key={`skeleton-${i}`} isDarkMode={isDarkMode} />
+          ))
+        ) : (
           <>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                Assets
-              </Text>
-              <TouchableOpacity
-                style={styles.manageBtn}
-                onPress={() => setShowAssetSheet(true)}
-              >
-                <Text style={[styles.manageBtnText, { color: theme.text }]}>
-                  Manage
-                </Text>
-              </TouchableOpacity>
-            </View>
+            {sortedVisibleAssets.map((asset) => {
+              const bal = parseFloat(asset.balance);
+              const userExplicitlyEnabled = enabledAssets[asset.id] === true;
+              const isTest = isTestnet(asset.chainId);
+              if (isTest && bal === 0 && !userExplicitlyEnabled) return null;
+              const priceKey = asset.isNative ? asset.chainId : asset.symbol;
+              const priceData = prices[priceKey];
+              const displayPriceData = isTest ? null : priceData;
+              if (
+                !isTest &&
+                bal === 0 &&
+                !displayPriceData &&
+                !userExplicitlyEnabled
+              )
+                return null;
+              const assetFiatVal = isTest
+                ? 0
+                : bal * (displayPriceData?.idr || 0);
+              const unitPriceIDR = displayPriceData?.idr || 0;
+              const isUp = displayPriceData
+                ? displayPriceData.change24h >= 0
+                : true;
+              const clr = isUp ? "#7ed957" : "#ff3131";
 
-            {isLoading && !refreshing ? (
-              Array.from({ length: SKELETON_COUNT }).map((_, i) => (
-                <SkeletonAssetRow
-                  key={`skeleton-${i}`}
-                  isDarkMode={isDarkMode}
-                />
-              ))
-            ) : (
-              <>
-                {sortedVisibleAssets.map((asset) => {
-                  const bal = parseFloat(asset.balance);
-                  const userExplicitlyEnabled =
-                    enabledAssets[asset.id] === true;
-                  const isTest = isTestnet(asset.chainId);
-                  if (isTest && bal === 0 && !userExplicitlyEnabled)
-                    return null;
-                  const priceKey = asset.isNative
-                    ? asset.chainId
-                    : asset.symbol;
-                  const priceData = prices[priceKey];
-                  const displayPriceData = isTest ? null : priceData;
-                  if (
-                    !isTest &&
-                    bal === 0 &&
-                    !displayPriceData &&
-                    !userExplicitlyEnabled
-                  )
-                    return null;
-                  const assetFiatVal = isTest
-                    ? 0
-                    : bal * (displayPriceData?.idr || 0);
-                  const unitPriceIDR = displayPriceData?.idr || 0;
-                  const isUp = displayPriceData
-                    ? displayPriceData.change24h >= 0
-                    : true;
-                  const clr = isUp ? "#7ed957" : "#ff3131";
-
-                  return (
-                    <TouchableOpacity
-                      key={asset.id}
-                      activeOpacity={0.7}
-                      onPress={() => handleAssetPress(asset)}
-                      style={[styles.assetRow]}
+              return (
+                <TouchableOpacity
+                  key={asset.id}
+                  activeOpacity={0.7}
+                  onPress={() => handleAssetPress(asset)}
+                  style={[styles.assetRow]}
+                >
+                  <AssetIcon
+                    symbol={asset.symbol}
+                    chainId={asset.chainId}
+                    isNative={asset.isNative}
+                    logoURI={asset.tokenConfig?.logoURI}
+                  />
+                  <View style={styles.assetInfo}>
+                    <Text style={[styles.assetName, { color: theme.text }]}>
+                      {asset.name}
+                    </Text>
+                    <Text
+                      style={[styles.assetSub, { color: theme.textSecondary }]}
                     >
-                      <AssetIcon
-                        symbol={asset.symbol}
-                        chainId={asset.chainId}
-                        isNative={asset.isNative}
-                        logoURI={asset.tokenConfig?.logoURI}
-                      />
-                      <View style={styles.assetInfo}>
-                        <Text style={[styles.assetName, { color: theme.text }]}>
-                          {asset.name}
-                        </Text>
+                      {formatBalance(asset.balance, asset.symbol)}
+                    </Text>
+                  </View>
+                  <View style={styles.assetRight}>
+                    <Text
+                      style={[styles.assetTotalValue, { color: theme.text }]}
+                    >
+                      {isBalanceHidden
+                        ? "****"
+                        : formatIDRWithDecimal(assetFiatVal)}
+                    </Text>
+                    {displayPriceData ? (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
                         <Text
                           style={[
-                            styles.assetSub,
+                            styles.assetUnitPrice,
                             { color: theme.textSecondary },
                           ]}
                         >
-                          {formatBalance(asset.balance, asset.symbol)}
+                          {formatIDRWithDecimal(unitPriceIDR)}
+                        </Text>
+                        <Text style={[styles.assetChangeText, { color: clr }]}>
+                          {isUp ? "+" : ""}
+                          {displayPriceData.change24h.toFixed(2)}%
                         </Text>
                       </View>
-                      <View style={styles.assetRight}>
-                        <Text
-                          style={[
-                            styles.assetTotalValue,
-                            { color: theme.text },
-                          ]}
-                        >
-                          {isBalanceHidden
-                            ? "****"
-                            : formatIDRWithDecimal(assetFiatVal)}
-                        </Text>
-                        {displayPriceData ? (
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 4,
-                            }}
-                          >
-                            <Text
-                              style={[
-                                styles.assetUnitPrice,
-                                { color: theme.textSecondary },
-                              ]}
-                            >
-                              {formatIDRWithDecimal(unitPriceIDR)}
-                            </Text>
-                            <Text
-                              style={[styles.assetChangeText, { color: clr }]}
-                            >
-                              {isUp ? "+" : ""}
-                              {displayPriceData.change24h.toFixed(2)}%
-                            </Text>
-                          </View>
-                        ) : isTest ? (
-                          <Text
-                            style={[
-                              styles.assetUnitPrice,
-                              { color: theme.textSecondary },
-                            ]}
-                          >
-                            Testnet
-                          </Text>
-                        ) : NO_PRICE_TOKENS.has(asset.symbol) ? (
-                          <Text
-                            style={[
-                              styles.assetUnitPrice,
-                              { color: theme.textSecondary },
-                            ]}
-                          >
-                            Harga tidak tersedia
-                          </Text>
-                        ) : (
-                          <Text
-                            style={[
-                              styles.assetUnitPrice,
-                              { color: theme.textSecondary },
-                            ]}
-                          >
-                            — no price data
-                          </Text>
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-
-                {sortedVisibleAssets.length === 0 && (
-                  <View style={{ alignItems: "center", marginTop: 40 }}>
-                    <Text style={{ color: theme.textSecondary }}>
-                      No assets visible. Try enabling more networks or assets in
-                      Manage.
-                    </Text>
+                    ) : isTest ? (
+                      <Text
+                        style={[
+                          styles.assetUnitPrice,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        Testnet
+                      </Text>
+                    ) : NO_PRICE_TOKENS.has(asset.symbol) ? (
+                      <Text
+                        style={[
+                          styles.assetUnitPrice,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        Harga tidak tersedia
+                      </Text>
+                    ) : (
+                      <Text
+                        style={[
+                          styles.assetUnitPrice,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        — no price data
+                      </Text>
+                    )}
                   </View>
-                )}
-              </>
+                </TouchableOpacity>
+              );
+            })}
+
+            {sortedVisibleAssets.length === 0 && (
+              <View style={{ alignItems: "center", marginTop: 40 }}>
+                <Text style={{ color: theme.textSecondary }}>
+                  No assets visible. Try enabling more networks or assets in
+                  Manage.
+                </Text>
+              </View>
             )}
           </>
-        ) : (
-          <View style={styles.networkPreviewContainer}>
-            <Text
-              style={[
-                styles.sectionTitle,
-                { color: theme.text, marginBottom: 12 },
-              ]}
-            >
-              Manage Networks
-            </Text>
-            <Text
-              style={{
-                color: theme.textSecondary,
-                marginBottom: 20,
-                fontSize: 13,
-                textAlign: "center",
-              }}
-            >
-              Enable or disable networks you want to see in your wallet.
-            </Text>
-            <TouchableOpacity
-              style={styles.openNetworkSheetBtn}
-              onPress={() => setShowNetworkSheet(true)}
-            >
-              <Text
-                style={[styles.openNetworkSheetText, { color: theme.text }]}
-              >
-                Open Network Settings
-              </Text>
-            </TouchableOpacity>
-          </View>
         )}
 
         <View style={{ height: 100 }} />
@@ -1525,40 +1412,35 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   scrollContent: { padding: 16, paddingTop: 10 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  balanceCardContainer: { marginBottom: 13 },
-  balanceCard: {
+  balanceSection: {
     width: "100%",
-    height: 320,
-    borderRadius: 24,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  cardContent: {
-    flex: 1,
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 20,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 8,
+    marginBottom: 13,
   },
   balanceCenterBlock: {
-    alignItems: "center",
-    justifyContent: "center",
-    flex: 1,
+    alignItems: "flex-start",
+    justifyContent: "flex-start",
+    width: "100%",
+    marginBottom: 24,
   },
-  cardHeaderRow: {
+  balanceRow1: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     width: "100%",
+    marginBottom: 6,
+  },
+  balanceRow2: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    width: "100%",
+    gap: 10,
   },
   eyeButton: {
     padding: 8,
-    backgroundColor: "rgba(255,255,255,0.1)",
     borderRadius: 20,
   },
   walletAddressBar: {
@@ -1586,8 +1468,7 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(0,0,0,0.3)",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 6,
-    textAlign: "center",
-    marginBottom: 4,
+    textAlign: "left",
   },
 
   balanceUSD: {
@@ -1595,8 +1476,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "500",
     letterSpacing: 0.2,
-    textAlign: "center",
-    marginBottom: 10,
+    textAlign: "left",
   },
 
   changeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -1619,52 +1499,25 @@ const styles = StyleSheet.create({
   },
   actionsRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "center",
     width: "100%",
-    gap: 12,
+    gap: 24,
+  },
+  qaCardWrap: {
+    alignItems: "center",
+    gap: 6,
   },
   qaCardBtn: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    height: 52,
-    borderRadius: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
   },
-  tabContainer: {
-    flexDirection: "row",
-    backgroundColor: "rgba(128,128,128,0.1)",
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 16,
+  qaCardLabel: {
+    fontSize: 12,
+    fontWeight: "500",
   },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: "center",
-    borderRadius: 8,
-  },
-  tabButtonActive: {
-    backgroundColor: "#fff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  tabText: { fontSize: 14, fontWeight: "600" },
-  tabTextActive: { color: "#000" },
-  networkPreviewContainer: { padding: 16, alignItems: "center" },
-  openNetworkSheetBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderWidth: 1,
-    borderColor: "rgba(128,128,128,0.3)",
-    borderRadius: 999,
-  },
-  openNetworkSheetText: { fontWeight: "600", fontSize: 14 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
